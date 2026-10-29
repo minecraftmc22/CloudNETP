@@ -1,0 +1,376 @@
+/* ============================================================
+   CloudNETP — L1 原始 token + L2 语义 token + 主题
+   WinUI3 / Fluent 语法 × 粉紫二次元
+   ============================================================ */
+
+:root {
+  /* --- L1 原始：圆角 --- */
+  --radius-xs: 4px;
+  --radius-s: 6px;
+  --radius-m: 8px;
+  --radius-l: 12px;
+  --radius-xl: 16px;
+  --radius-pill: 999px;
+
+  /* --- L1 原始：间距 --- */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-8: 32px;
+  --sp-10: 40px;
+
+  /* --- L1 原始：动效（Fluent 曲线，无弹簧） --- */
+  --ease-fluent: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --dur-fast: 120ms;
+  --dur-base: 220ms;
+  --dur-slow: 320ms;
+
+  /* --- L1 原始：字体 --- */
+  --font-ui: "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei",
+    system-ui, -apple-system, sans-serif;
+  --font-display: "Segoe UI Variable Display", "Segoe UI", "Microsoft YaHei UI", sans-serif;
+  --font-hand: "LXGW WenKai", "霞鹜文楷", "Segoe UI", sans-serif;
+  --font-mono: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+
+  /* --- 主题色（用户可改，JS 写入 --accent-user） --- */
+  --accent-user: #c084fc;
+  --accent: var(--accent-user);
+  --accent-warm: #f9a8d4;
+  --accent-ink: #ffffff;
+
+  --nav-w: 264px;
+  --nav-w-collapsed: 48px;
+  --titlebar-h: 48px;
+}
+
+/* ------------------------------------------------------------
+   亮色：晨樱
+   ------------------------------------------------------------ */
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --bg-a: #fdf4fa;
+  --bg-b: #f2ecfe;
+  --bg-c: #e9f4ff;
+
+  --layer-1: rgba(255, 255, 255, 0.62);
+  --layer-2: rgba(255, 255, 255, 0.44);
+  --layer-3: rgba(255, 255, 255, 0.3);
+
+  --acrylic: rgba(255, 255, 255, 0.58);
+  --acrylic-strong: rgba(255, 255, 255, 0.82);
+  --acrylic-border: rgba(255, 255, 255, 0.72);
+
+  --stroke: rgba(124, 58, 237, 0.09);
+  --stroke-strong: rgba(124, 58, 237, 0.16);
+  --stroke-hair: rgba(124, 58, 237, 0.06);
+
+  --text-1: #2c2140;
+  --text-2: #6b5f85;
+  --text-3: #9a90ad;
+  --text-invert: #ffffff;
+
+  --fill-subtle: rgba(124, 58, 237, 0.045);
+  --fill-hover: rgba(124, 58, 237, 0.075);
+  --fill-active: rgba(124, 58, 237, 0.12);
+
+  --shadow-1: 0 1px 2px rgba(85, 40, 130, 0.06), 0 2px 8px rgba(85, 40, 130, 0.05);
+  --shadow-2: 0 8px 24px rgba(85, 40, 130, 0.1), 0 2px 6px rgba(85, 40, 130, 0.06);
+  --shadow-3: 0 24px 64px rgba(76, 29, 149, 0.18), 0 6px 18px rgba(76, 29, 149, 0.08);
+  --glow: 0 0 0 1px rgba(192, 132, 252, 0.22), 0 6px 20px rgba(192, 132, 252, 0.28);
+
+  --danger: #e5484d;
+  --danger-soft: rgba(229, 72, 77, 0.1);
+  --success: #2f9e6f;
+  --success-soft: rgba(47, 158, 111, 0.12);
+  --warn: #d9822b;
+  --warn-soft: rgba(217, 130, 43, 0.12);
+}
+
+/* ------------------------------------------------------------
+   暗色：夜樱
+   ------------------------------------------------------------ */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg-a: #150f21;
+  --bg-b: #1c1430;
+  --bg-c: #100d1e;
+
+  --layer-1: rgba(40, 29, 62, 0.66);
+  --layer-2: rgba(48, 35, 72, 0.46);
+  --layer-3: rgba(56, 41, 84, 0.3);
+
+  --acrylic: rgba(38, 27, 58, 0.6);
+  --acrylic-strong: rgba(46, 33, 70, 0.86);
+  --acrylic-border: rgba(255, 255, 255, 0.08);
+
+  --stroke: rgba(255, 255, 255, 0.07);
+  --stroke-strong: rgba(255, 255, 255, 0.14);
+  --stroke-hair: rgba(255, 255, 255, 0.045);
+
+  --text-1: #f4eeff;
+  --text-2: #b7aacc;
+  --text-3: #7f76a0;
+  --text-invert: #1a1226;
+
+  --fill-subtle: rgba(255, 255, 255, 0.045);
+  --fill-hover: rgba(255, 255, 255, 0.08);
+  --fill-active: rgba(255, 255, 255, 0.13);
+
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-2: 0 8px 24px rgba(0, 0, 0, 0.38);
+  --shadow-3: 0 28px 70px rgba(0, 0, 0, 0.55);
+  --glow: 0 0 0 1px rgba(192, 132, 252, 0.3), 0 8px 26px rgba(168, 85, 247, 0.3);
+
+  --danger: #ff6369;
+  --danger-soft: rgba(255, 99, 105, 0.14);
+  --success: #4cc38a;
+  --success-soft: rgba(76, 195, 138, 0.14);
+  --warn: #f5a623;
+  --warn-soft: rgba(245, 166, 35, 0.14);
+}
+
+/* ------------------------------------------------------------
+   基础重置
+   ------------------------------------------------------------ */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--text-1);
+  background: var(--bg-a);
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  transition: color var(--dur-base) var(--ease-standard);
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+  border: none;
+  background: none;
+  padding: 0;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+h1, h2, h3, h4, p {
+  margin: 0;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent) 34%, transparent);
+  color: var(--text-1);
+}
+
+/* 细滚动条 */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--accent) 30%, transparent) transparent;
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--accent) 26%, transparent);
+  border: 3px solid transparent;
+  background-clip: content-box;
+  border-radius: var(--radius-pill);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--accent) 44%, transparent);
+  background-clip: content-box;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ------------------------------------------------------------
+   Mica 背景层（壁纸 + 取色晕染 + 颗粒）
+   ------------------------------------------------------------ */
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+  background: linear-gradient(150deg, var(--bg-a) 0%, var(--bg-b) 52%, var(--bg-c) 100%);
+  transition: background var(--dur-slow) var(--ease-standard);
+}
+
+.backdrop__blob {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(90px);
+  opacity: 0.55;
+  animation: blob-drift 26s var(--ease-standard) infinite alternate;
+  will-change: transform;
+}
+
+.blob-1 {
+  width: 46vw;
+  height: 46vw;
+  top: -14vw;
+  left: -8vw;
+  background: color-mix(in srgb, var(--accent) 60%, #ffffff);
+}
+.blob-2 {
+  width: 40vw;
+  height: 40vw;
+  right: -10vw;
+  top: 8vh;
+  background: #ffc6e6;
+  animation-delay: -8s;
+}
+.blob-3 {
+  width: 52vw;
+  height: 52vw;
+  bottom: -26vw;
+  left: 24vw;
+  background: #b9d4ff;
+  animation-delay: -15s;
+  opacity: 0.4;
+}
+
+:root[data-theme="dark"] .backdrop__blob {
+  opacity: 0.34;
+}
+:root[data-theme="dark"] .blob-1 {
+  background: #7c3aed;
+}
+:root[data-theme="dark"] .blob-2 {
+  background: #db2777;
+  opacity: 0.26;
+}
+:root[data-theme="dark"] .blob-3 {
+  background: #4338ca;
+  opacity: 0.3;
+}
+
+/* 壁纸预设 */
+:root[data-wallpaper="night"] .backdrop {
+  background: linear-gradient(160deg, #0b0716 0%, #171034 48%, #0a0a1e 100%);
+}
+:root[data-wallpaper="night"] .blob-1 { background: #4c1d95; opacity: 0.5; }
+:root[data-wallpaper="night"] .blob-2 { background: #6d28d9; opacity: 0.36; }
+:root[data-wallpaper="night"] .blob-3 { background: #1e3a8a; opacity: 0.36; }
+
+:root[data-wallpaper="cream"] .backdrop {
+  background: linear-gradient(150deg, #fffaf2 0%, #fdf1f6 55%, #f4f0ff 100%);
+}
+:root[data-wallpaper="cream"] .blob-1 { background: #ffe3c2; opacity: 0.5; }
+:root[data-wallpaper="cream"] .blob-2 { background: #ffd9e8; opacity: 0.45; }
+:root[data-wallpaper="cream"] .blob-3 { background: #e6dcff; opacity: 0.42; }
+
+:root[data-wallpaper="plain"] .backdrop__blob {
+  display: none;
+}
+
+/* 细颗粒，压住渐变的塑料感 */
+.backdrop__grain {
+  position: absolute;
+  inset: -50%;
+  opacity: 0.028;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
+  mix-blend-mode: overlay;
+}
+:root[data-theme="dark"] .backdrop__grain {
+  opacity: 0.045;
+}
+
+@keyframes blob-drift {
+  from {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  to {
+    transform: translate3d(4vw, 3vh, 0) scale(1.12);
+  }
+}
+
+/* ------------------------------------------------------------
+   花瓣层
+   ------------------------------------------------------------ */
+.petal-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0.85;
+}
+:root[data-petals="off"] .petal-layer {
+  display: none;
+}
+
+/* ------------------------------------------------------------
+   图标 sprite
+   ------------------------------------------------------------ */
+.icon-sprite {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+}
+
+.icon {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  fill: none;
+}
+.icon--s {
+  width: 16px;
+  height: 16px;
+}
+.icon--l {
+  width: 24px;
+  height: 24px;
+}
+
+/* ------------------------------------------------------------
+   动效降级
+   ------------------------------------------------------------ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  .backdrop__blob {
+    animation: none;
+  }
+}

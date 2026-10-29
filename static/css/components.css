@@ -1,0 +1,610 @@
+/* ============================================================
+   组件：按钮 / 输入 / 开关 / 对话框 / Toast / 空状态
+   ============================================================ */
+
+/* ------------------------------------------------------------
+   按钮（Fluent：4px 圆角 + 细描边 + 悬停填充）
+   ------------------------------------------------------------ */
+.btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: var(--radius-xs);
+  border: 1px solid var(--stroke-strong);
+  background: var(--layer-2);
+  color: var(--text-1);
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: background var(--dur-fast) var(--ease-standard),
+    border-color var(--dur-fast) var(--ease-standard),
+    transform var(--dur-fast) var(--ease-standard),
+    box-shadow var(--dur-fast) var(--ease-standard);
+}
+.btn:hover {
+  background: var(--fill-hover);
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--stroke-strong));
+}
+.btn:active {
+  background: var(--fill-active);
+  transform: scale(0.985);
+}
+.btn:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 70%, transparent);
+  outline-offset: 1px;
+}
+.btn:disabled {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.btn--accent {
+  background: linear-gradient(135deg, var(--accent) 0%, color-mix(in srgb, var(--accent) 55%, #ff9ecb) 100%);
+  border-color: transparent;
+  color: #fff;
+  box-shadow: 0 3px 10px color-mix(in srgb, var(--accent) 34%, transparent);
+}
+.btn--accent:hover {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 88%, #fff) 0%, color-mix(in srgb, var(--accent) 50%, #ff9ecb) 100%);
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--accent) 42%, transparent);
+}
+
+.btn--subtle {
+  background: transparent;
+  border-color: transparent;
+  color: var(--text-2);
+}
+.btn--subtle:hover {
+  background: var(--fill-hover);
+  color: var(--text-1);
+  border-color: transparent;
+}
+
+.btn--danger {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 40%, transparent);
+  background: var(--danger-soft);
+}
+.btn--danger:hover {
+  background: color-mix(in srgb, var(--danger) 20%, transparent);
+}
+
+.btn--block {
+  width: 100%;
+  height: 38px;
+}
+
+.icon-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-xs);
+  display: grid;
+  place-items: center;
+  color: var(--text-2);
+  transition: background var(--dur-fast) var(--ease-standard),
+    color var(--dur-fast) var(--ease-standard);
+}
+.icon-btn:hover {
+  background: var(--fill-hover);
+  color: var(--text-1);
+}
+.icon-btn:active {
+  background: var(--fill-active);
+}
+.icon-btn.is-active {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+/* ------------------------------------------------------------
+   输入框
+   ------------------------------------------------------------ */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.field__label {
+  font-size: 12px;
+  color: var(--text-2);
+  font-weight: 500;
+}
+
+.textbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 10px;
+  border-radius: var(--radius-xs);
+  border: 1px solid var(--stroke-strong);
+  background: var(--layer-3);
+  transition: border-color var(--dur-fast) var(--ease-standard),
+    background var(--dur-fast) var(--ease-standard),
+    box-shadow var(--dur-fast) var(--ease-standard);
+}
+.textbox:hover {
+  background: var(--layer-2);
+}
+.textbox:focus-within {
+  background: var(--layer-2);
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--stroke-strong));
+  box-shadow: inset 0 -2px 0 0 var(--accent),
+    0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.textbox > .icon {
+  color: var(--text-3);
+  width: 16px;
+  height: 16px;
+}
+.textbox input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 13.5px;
+  color: var(--text-1);
+}
+.textbox input::placeholder {
+  color: var(--text-3);
+}
+
+.field__hint {
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+.field__error {
+  font-size: 11.5px;
+  color: var(--danger);
+}
+
+/* ------------------------------------------------------------
+   开关（ToggleSwitch）
+   ------------------------------------------------------------ */
+.switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  user-select: none;
+}
+.switch input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+.switch__track {
+  position: relative;
+  width: 40px;
+  height: 20px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--text-3);
+  background: transparent;
+  transition: background var(--dur-base) var(--ease-standard),
+    border-color var(--dur-base) var(--ease-standard);
+  flex: none;
+}
+.switch__knob {
+  position: absolute;
+  top: 50%;
+  left: 3px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--text-2);
+  transform: translateY(-50%);
+  transition: transform var(--dur-base) var(--ease-fluent),
+    background var(--dur-base) var(--ease-standard),
+    width var(--dur-fast) var(--ease-standard);
+}
+.switch:hover .switch__knob {
+  width: 14px;
+}
+.switch input:checked + .switch__track {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.switch input:checked + .switch__track .switch__knob {
+  transform: translateY(-50%) translateX(20px);
+  background: #fff;
+}
+.switch input:focus-visible + .switch__track {
+  outline: 2px solid color-mix(in srgb, var(--accent) 60%, transparent);
+  outline-offset: 2px;
+}
+
+/* ------------------------------------------------------------
+   分段控件（登录 / 注册）
+   ------------------------------------------------------------ */
+.segmented {
+  position: relative;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 2px;
+  padding: 3px;
+  border-radius: var(--radius-m);
+  background: var(--fill-subtle);
+  border: 1px solid var(--stroke-hair);
+}
+.segmented__thumb {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  height: calc(100% - 6px);
+  border-radius: var(--radius-s);
+  background: var(--acrylic-strong);
+  box-shadow: var(--shadow-1);
+  transition: transform var(--dur-base) var(--ease-fluent), width var(--dur-base) var(--ease-fluent);
+  z-index: 0;
+}
+.segmented__btn {
+  position: relative;
+  z-index: 1;
+  height: 28px;
+  font-size: 13px;
+  color: var(--text-2);
+  border-radius: var(--radius-s);
+  transition: color var(--dur-fast) var(--ease-standard);
+}
+.segmented__btn.is-active {
+  color: var(--text-1);
+  font-weight: 600;
+}
+
+/* ------------------------------------------------------------
+   对话框（ContentDialog）
+   ------------------------------------------------------------ */
+.dialog-host {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: none;
+}
+.dialog-host.is-open {
+  display: grid;
+  place-items: center;
+}
+
+.dialog-backdrop {
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--bg-a) 42%, rgba(14, 8, 24, 0.5));
+  backdrop-filter: blur(3px);
+  opacity: 0;
+  transition: opacity var(--dur-base) var(--ease-standard);
+}
+.dialog-host.is-open .dialog-backdrop {
+  opacity: 1;
+}
+
+.dialog {
+  position: relative;
+  width: min(440px, calc(100vw - 32px));
+  border-radius: var(--radius-l);
+  background: var(--acrylic-strong);
+  border: 1px solid var(--acrylic-border);
+  box-shadow: var(--shadow-3);
+  backdrop-filter: blur(40px) saturate(1.7);
+  padding: var(--sp-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  transform: scale(0.94) translateY(10px);
+  opacity: 0;
+  transition: transform var(--dur-slow) var(--ease-fluent), opacity var(--dur-base) var(--ease-standard);
+}
+.dialog-host.is-open .dialog {
+  transform: none;
+  opacity: 1;
+}
+
+.dialog__title {
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.dialog__title .icon {
+  color: var(--accent);
+}
+.dialog__title.is-danger .icon {
+  color: var(--danger);
+}
+
+.dialog__body {
+  font-size: 13.5px;
+  color: var(--text-2);
+  line-height: 1.65;
+  word-break: break-word;
+}
+.dialog__body strong {
+  color: var(--text-1);
+  font-weight: 600;
+}
+
+.dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--sp-2);
+  margin-top: var(--sp-2);
+}
+
+/* ------------------------------------------------------------
+   Toast（InfoBar）
+   ------------------------------------------------------------ */
+.toast-host {
+  position: fixed;
+  top: calc(var(--titlebar-h) + 8px);
+  right: 18px;
+  z-index: 95;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 240px;
+  max-width: 360px;
+  padding: 10px 12px;
+  border-radius: var(--radius-m);
+  background: var(--acrylic-strong);
+  border: 1px solid var(--stroke);
+  box-shadow: var(--shadow-2);
+  backdrop-filter: blur(28px) saturate(1.6);
+  pointer-events: auto;
+  animation: toast-in var(--dur-slow) var(--ease-fluent);
+  position: relative;
+  overflow: hidden;
+}
+.toast::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--accent);
+}
+.toast--success::before {
+  background: var(--success);
+}
+.toast--error::before {
+  background: var(--danger);
+}
+.toast--warn::before {
+  background: var(--warn);
+}
+.toast__icon {
+  color: var(--accent);
+  margin-top: 1px;
+}
+.toast--success .toast__icon {
+  color: var(--success);
+}
+.toast--error .toast__icon {
+  color: var(--danger);
+}
+.toast--warn .toast__icon {
+  color: var(--warn);
+}
+.toast__text {
+  flex: 1;
+  font-size: 13px;
+  color: var(--text-1);
+  line-height: 1.5;
+  word-break: break-word;
+}
+.toast.is-out {
+  animation: toast-out var(--dur-base) var(--ease-standard) forwards;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateX(16px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes toast-out {
+  to {
+    opacity: 0;
+    transform: translateX(12px) scale(0.98);
+  }
+}
+
+/* ------------------------------------------------------------
+   进度条
+   ------------------------------------------------------------ */
+.progress {
+  height: 4px;
+  border-radius: var(--radius-pill);
+  background: var(--fill-subtle);
+  overflow: hidden;
+}
+.progress__bar {
+  height: 100%;
+  width: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--accent), var(--accent-warm));
+  box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 60%, transparent);
+  transition: width var(--dur-base) var(--ease-standard);
+}
+
+/* ------------------------------------------------------------
+   芯片 / 标签
+   ------------------------------------------------------------ */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 9px;
+  border-radius: var(--radius-pill);
+  font-size: 11.5px;
+  color: var(--text-2);
+  background: var(--fill-subtle);
+  border: 1px solid var(--stroke-hair);
+}
+.chip--accent {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+/* ------------------------------------------------------------
+   空状态
+   ------------------------------------------------------------ */
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-3);
+  padding: 64px 24px;
+  text-align: center;
+  animation: content-in var(--dur-slow) var(--ease-fluent);
+}
+
+.empty__art {
+  position: relative;
+  width: 88px;
+  height: 88px;
+  border-radius: 26px;
+  display: grid;
+  place-items: center;
+  color: color-mix(in srgb, var(--accent) 80%, var(--text-1));
+  background: linear-gradient(150deg, color-mix(in srgb, var(--accent) 20%, transparent), transparent 70%);
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, transparent);
+}
+.empty__art .icon {
+  width: 34px;
+  height: 34px;
+  stroke-width: 1.3;
+}
+.empty__title {
+  font-size: 15px;
+  font-weight: 600;
+}
+.empty__desc {
+  font-size: 12.5px;
+  color: var(--text-3);
+  max-width: 340px;
+  line-height: 1.7;
+}
+
+/* ------------------------------------------------------------
+   下拉菜单 / 弹出面板
+   ------------------------------------------------------------ */
+.popover {
+  position: fixed;
+  z-index: 80;
+  min-width: 200px;
+  padding: 6px;
+  border-radius: var(--radius-m);
+  background: var(--acrylic-strong);
+  border: 1px solid var(--stroke);
+  box-shadow: var(--shadow-3);
+  backdrop-filter: blur(32px) saturate(1.7);
+  animation: pop-in var(--dur-base) var(--ease-fluent);
+}
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  height: 34px;
+  padding: 0 10px;
+  border-radius: var(--radius-xs);
+  font-size: 13px;
+  color: var(--text-1);
+  text-align: left;
+  transition: background var(--dur-fast) var(--ease-standard);
+}
+.menu-item:hover {
+  background: var(--fill-hover);
+}
+.menu-item .icon {
+  color: var(--text-3);
+}
+.menu-item--danger {
+  color: var(--danger);
+}
+.menu-item--danger .icon {
+  color: var(--danger);
+}
+.menu-sep {
+  height: 1px;
+  margin: 5px 8px;
+  background: var(--stroke-hair);
+}
+.menu-head {
+  padding: 8px 10px 10px;
+  border-bottom: 1px solid var(--stroke-hair);
+  margin-bottom: 4px;
+}
+.menu-head__name {
+  font-size: 13px;
+  font-weight: 600;
+}
+.menu-head__meta {
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+
+/* ------------------------------------------------------------
+   Loading
+   ------------------------------------------------------------ */
+.spinner {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--accent) 24%, transparent);
+  border-top-color: var(--accent);
+  animation: spin 720ms linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.boot {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  gap: 16px;
+  grid-auto-flow: row;
+  background: transparent;
+}

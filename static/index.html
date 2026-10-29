@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark" data-wallpaper="sakura">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="version" content="0.1.4">
+  <meta name="theme-color" content="#150f21">
+  <title>CloudNETP · 樱色云盘</title>
+  <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/css/theme.css">
+  <link rel="stylesheet" href="/static/css/layout.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+  <link rel="stylesheet" href="/static/css/views.css">
+  <link rel="stylesheet" href="/static/css/files.css">
+</head>
+<body>
+
+<!-- ============ 图标 sprite（Fluent 线性风格，24 网格） ============ -->
+<svg class="icon-sprite" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+  <symbol id="i-cloud" viewBox="0 0 24 24"><path d="M7.2 18.5h9.9a4.3 4.3 0 0 0 .5-8.57A6.2 6.2 0 0 0 6.1 9.9a4.32 4.32 0 0 0 1.1 8.6Z"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3.5 7.6A2.6 2.6 0 0 1 6.1 5h2.7c.66 0 1.29.26 1.76.72l1.1 1.1h6.24A2.6 2.6 0 0 1 20.5 9.4v7A2.6 2.6 0 0 1 17.9 19H6.1a2.6 2.6 0 0 1-2.6-2.6Z"/></symbol>
+  <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 16.5v-8"/><path d="m8.6 11.7 3.4-3.4 3.4 3.4"/><path d="M7 18.8h10"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 5v9"/><path d="m8.6 10.7 3.4 3.4 3.4-3.4"/><path d="M5 19h14"/></symbol>
+  <symbol id="i-share" viewBox="0 0 24 24"><circle cx="17.5" cy="6.5" r="2.6"/><circle cx="6.5" cy="12" r="2.6"/><circle cx="17.5" cy="17.5" r="2.6"/><path d="m8.9 10.8 6.2-3.1M8.9 13.2l6.2 3.1"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4.5 7h15"/><path d="M9.5 7V4.8h5V7"/><path d="m6.5 7 1 12.2h9L17.5 7"/><path d="M10.5 10.8v5M13.5 10.8v5"/></symbol>
+  <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 3.5v2.2M12 18.3v2.2M4.9 7.9l1.9 1.1M17.2 15l1.9 1.1M4.9 16.1l1.9-1.1M17.2 9l1.9-1.1"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3.6 19 6.4v5.9c0 4.1-2.9 6.6-7 8.7-4.1-2.1-7-4.6-7-8.7V6.4Z"/><path d="m9.2 11.9 2 2 3.6-3.9"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.8" cy="10.8" r="6"/><path d="m15.4 15.4 4 4"/></symbol>
+  <symbol id="i-grid" viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="7" rx="1.6"/><rect x="13" y="4" width="7" height="7" rx="1.6"/><rect x="4" y="13" width="7" height="7" rx="1.6"/><rect x="13" y="13" width="7" height="7" rx="1.6"/></symbol>
+  <symbol id="i-list" viewBox="0 0 24 24"><path d="M4 6.5h16M4 12h16M4 17.5h10"/></symbol>
+  <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m9.5 6 6 6-6 6"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5.5v13M5.5 12h13"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.4A8.2 8.2 0 0 1 9.6 4 8.4 8.4 0 1 0 20 14.4Z"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M5.6 18.4 7 17M17 7l1.4-1.4"/></symbol>
+  <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8.4" r="3.9"/><path d="M4.8 20c.6-3.7 3.5-5.6 7.2-5.6s6.6 1.9 7.2 5.6"/></symbol>
+  <symbol id="i-logout" viewBox="0 0 24 24"><path d="M14.5 12H4.8"/><path d="m8.2 8.6-3.4 3.4 3.4 3.4"/><path d="M13.6 5h4.1c.7 0 1.3.6 1.3 1.3v11.4c0 .7-.6 1.3-1.3 1.3h-4.1"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="m6.4 6.4 11.2 11.2M17.6 6.4 6.4 17.6"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.6 4.4 4.4L19 6.6"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.4"/><path d="M12 7.8v5.4"/><path d="M12 16.2h.01"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.4"/><path d="M12 11.4v5"/><path d="M12 7.9h.01"/></symbol>
+  <symbol id="i-image" viewBox="0 0 24 24"><rect x="3.8" y="5" width="16.4" height="14" rx="2.4"/><circle cx="9" cy="10" r="1.6"/><path d="m5.4 17.4 4.6-4.4 3.4 3.2 2.6-2.4 3.4 3.2"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M6 3.8h7.2L18.6 9v11.2H6Z"/><path d="M13 3.9V9.2h5.4"/></symbol>
+  <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4.5 7h15M4.5 12h15M4.5 17h9"/></symbol>
+  <symbol id="i-panel" viewBox="0 0 24 24"><rect x="3.8" y="4.6" width="16.4" height="14.8" rx="2.2"/><path d="M9.6 4.8v14.4"/></symbol>
+  <symbol id="i-link" viewBox="0 0 24 24"><path d="M10.2 13.8a3.6 3.6 0 0 0 5.1 0l2.3-2.3a3.6 3.6 0 1 0-5.1-5.1l-1.1 1.1"/><path d="M13.8 10.2a3.6 3.6 0 0 0-5.1 0l-2.3 2.3a3.6 3.6 0 1 0 5.1 5.1l1.1-1.1"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.4"/><path d="M12 7.6V12l3.2 2"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M19 12a7 7 0 1 1-2.1-5"/><path d="M19.4 4.8V9h-4.2"/></symbol>
+  <symbol id="i-palette" viewBox="0 0 24 24"><path d="M12 20.4a8.4 8.4 0 1 1 8.4-8.4c0 2.2-1.8 3.4-3.6 3.4h-1.5c-1 0-1.8.9-1.5 1.9.3 1-.3 3.1-1.8 3.1Z"/><circle cx="9" cy="9.6" r="1.1"/><circle cx="14.4" cy="8.4" r="1.1"/><circle cx="7.6" cy="14" r="1.1"/></symbol>
+  <symbol id="i-star" viewBox="0 0 24 24"><path d="m12 4 2.4 4.9 5.4.8-3.9 3.8.9 5.4-4.8-2.5-4.8 2.5.9-5.4L4.2 9.7l5.4-.8Z"/></symbol>
+</svg>
+
+<!-- ============ Mica 背景 ============ -->
+<div class="backdrop" aria-hidden="true">
+  <div class="backdrop__blob blob-1"></div>
+  <div class="backdrop__blob blob-2"></div>
+  <div class="backdrop__blob blob-3"></div>
+  <div class="backdrop__grain"></div>
+</div>
+<canvas id="petal-layer" class="petal-layer" aria-hidden="true"></canvas>
+
+<!-- ============ 启动占位 ============ -->
+<div id="boot" class="boot">
+  <div class="spinner"></div>
+</div>
+
+<!-- ============ 登录 / 注册 ============ -->
+<div id="auth-root" class="auth-root" hidden></div>
+
+<!-- ============ 主界面 ============ -->
+<div id="shell" class="app-shell" hidden>
+  <header class="titlebar">
+    <button id="nav-toggle" class="icon-btn" type="button" title="折叠导航" aria-label="折叠导航">
+      <svg class="icon"><use href="#i-panel"/></svg>
+    </button>
+    <div class="titlebar__brand">
+      <div class="brand__mark"><svg class="icon"><use href="#i-cloud"/></svg></div>
+      <div class="brand__text">
+        <span class="brand__name" id="brand-name">CloudNETP</span>
+        <span class="brand__sub" id="brand-version">v0.1.4</span>
+      </div>
+    </div>
+    <div class="titlebar__spacer"></div>
+    <div class="titlebar__actions">
+      <button id="theme-toggle" class="icon-btn" type="button" title="切换主题" aria-label="切换主题">
+        <svg class="icon"><use href="#i-moon"/></svg>
+      </button>
+      <button id="user-chip" class="user-chip" type="button" aria-haspopup="menu">
+        <span class="user-chip__avatar" id="user-avatar">?</span>
+        <span class="user-chip__name" id="user-name">未登录</span>
+      </button>
+    </div>
+  </header>
+
+  <div class="app-body" id="app-body">
+    <nav class="nav" id="nav" aria-label="主导航"></nav>
+    <main class="view-root" id="view-root"></main>
+  </div>
+</div>
+
+<!-- ============ 看板娘 ============ -->
+<div id="mascot" class="mascot" aria-hidden="true">
+  <div class="mascot__bubble" id="mascot-bubble">今天也一起整理文件吧～</div>
+  <svg viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <linearGradient id="mg-body" x1="24" y1="30" x2="100" y2="96" gradientUnits="userSpaceOnUse">
+        <stop offset="0" stop-color="#ffffff"/>
+        <stop offset="0.5" stop-color="#fdf3ff"/>
+        <stop offset="1" stop-color="#f1e0ff"/>
+      </linearGradient>
+      <linearGradient id="mg-star" x1="88" y1="34" x2="104" y2="50" gradientUnits="userSpaceOnUse">
+        <stop offset="0" stop-color="#fbcfe8"/>
+        <stop offset="1" stop-color="#f9a8d4"/>
+      </linearGradient>
+      <radialGradient id="mg-glow" cx="0.5" cy="0.5" r="0.5">
+        <stop offset="0" stop-color="#e9d5ff" stop-opacity="0.9"/>
+        <stop offset="1" stop-color="#e9d5ff" stop-opacity="0"/>
+      </radialGradient>
+    </defs>
+    <ellipse cx="60" cy="44" rx="52" ry="42" fill="url(#mg-glow)" opacity="0.55"/>
+    <ellipse cx="60" cy="105" rx="27" ry="4.6" fill="#8b5cf6" opacity="0.14"/>
+    <path d="M34 92C23 92 15 84 15 74c0-10 8-18 18-18 2-12 13-21 26-21s24 8 27 20c11 1 20 10 20 21 0 9-8 16-18 16Z"
+          fill="url(#mg-body)" stroke="#e4cdfa" stroke-width="1.6" stroke-linejoin="round"/>
+    <path d="M84 55.5c-1-6.5-5-11.6-10.6-14" stroke="#ffffff" stroke-width="3" stroke-linecap="round" opacity="0.75"/>
+    <path d="M60 35c-.6-6.2 3.4-10 8.4-9.4" stroke="#d8b4fe" stroke-width="2.4" stroke-linecap="round"/>
+    <circle cx="70.4" cy="24.6" r="2.6" fill="#f9a8d4"/>
+    <ellipse cx="36.5" cy="80.5" rx="6.2" ry="3.2" fill="#ffb3d1" opacity="0.7"/>
+    <ellipse cx="82.5" cy="80.5" rx="6.2" ry="3.2" fill="#ffb3d1" opacity="0.7"/>
+    <ellipse cx="47.5" cy="72" rx="4.1" ry="4.5" fill="#43305e"/>
+    <ellipse cx="71.5" cy="72" rx="4.1" ry="4.5" fill="#43305e"/>
+    <circle cx="48.9" cy="70.3" r="1.5" fill="#ffffff"/>
+    <circle cx="72.9" cy="70.3" r="1.5" fill="#ffffff"/>
+    <path d="M55.6 79.4c1.6 2 3.2 2.9 4.4 2.9s2.8-.9 4.4-2.9" stroke="#43305e" stroke-width="2" stroke-linecap="round"/>
+    <path d="M92 33.2l2.3 6.5 6.5 2.3-6.5 2.3-2.3 6.5-2.3-6.5-6.5-2.3 6.5-2.3Z" fill="url(#mg-star)"/>
+    <path d="M26 44.5l1.3 3.4 3.4 1.3-3.4 1.3-1.3 3.4-1.3-3.4-3.4-1.3 3.4-1.3Z" fill="#ddd6fe" opacity="0.9"/>
+    <circle cx="99" cy="62" r="2" fill="#fbcfe8" opacity="0.85"/>
+  </svg>
+</div>
+
+<div id="dialog-host" class="dialog-host" role="presentation"></div>
+<div id="toast-host" class="toast-host" aria-live="polite"></div>
+
+<script type="module" src="/static/js/app.js"></script>
+</body>
+</html>
