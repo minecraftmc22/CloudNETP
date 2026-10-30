@@ -1,0 +1,420 @@
+/* ============================================================
+   公开分享页：与主应用共用 theme.css 的 token
+   ============================================================ */
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: "Segoe UI Variable Text", "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  color: var(--text-1);
+  background: radial-gradient(
+      1200px 600px at 12% -10%,
+      color-mix(in srgb, var(--accent) 18%, transparent),
+      transparent 70%
+    ),
+    radial-gradient(
+      900px 500px at 105% 0%,
+      color-mix(in srgb, var(--accent-warm) 22%, transparent),
+      transparent 65%
+    ),
+    var(--layer-1);
+}
+
+.share-page {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 28px 20px 40px;
+  gap: 18px;
+}
+
+.share-brand {
+  align-self: flex-start;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-2);
+  letter-spacing: 0.4px;
+}
+.share-brand .icon {
+  width: 16px;
+  height: 16px;
+  color: var(--accent);
+}
+
+.share-main {
+  flex: 1;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 0 24px;
+}
+
+.share-card {
+  position: relative;
+  width: min(760px, 100%);
+  padding: 22px;
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--stroke-hair);
+  background: color-mix(in srgb, var(--layer-2) 88%, transparent);
+  box-shadow: var(--shadow-2);
+  backdrop-filter: blur(18px) saturate(1.1);
+  transition: opacity var(--dur-fast) var(--ease-standard);
+}
+.share-card.is-loading {
+  opacity: 0.6;
+  pointer-events: none;
+}
+.share-card--center {
+  text-align: center;
+  padding: 40px 26px;
+}
+
+.share-skeleton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--text-3);
+  padding: 40px 0;
+}
+
+/* ---------------- 空态 / 错误 ---------------- */
+.share-empty__art {
+  width: 60px;
+  height: 60px;
+  margin: 0 auto 14px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+}
+.share-empty__art .icon {
+  width: 26px;
+  height: 26px;
+}
+.share-empty__title {
+  margin: 0 0 8px;
+  font-size: 17px;
+  font-weight: 600;
+}
+.share-empty__desc {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--text-3);
+}
+
+/* ---------------- 提取码 ---------------- */
+.share-gate {
+  display: flex;
+  gap: 10px;
+  margin: 20px auto 0;
+  width: min(360px, 100%);
+}
+.share-gate .textbox {
+  flex: 1;
+}
+.share-gate .textbox input {
+  text-align: center;
+  letter-spacing: 4px;
+  text-transform: uppercase;
+  font-size: 15px;
+}
+.share-gate__error {
+  margin: 10px 0 0;
+  font-size: 12px;
+  color: var(--danger);
+}
+
+/* ---------------- 文件头部 ---------------- */
+.share-file {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.share-file__icon {
+  flex: none;
+  width: 46px;
+  height: 46px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-m);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+}
+.share-file__icon .icon {
+  width: 22px;
+  height: 22px;
+}
+.share-file__main {
+  flex: 1;
+  min-width: 0;
+}
+.share-file__name {
+  margin: 0;
+  font-size: 15.5px;
+  font-weight: 600;
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.share-file__meta {
+  margin: 3px 0 0;
+  font-size: 12px;
+  color: var(--text-3);
+}
+.share-file > .btn {
+  flex: none;
+}
+
+/* ---------------- 预览 ---------------- */
+.share-preview {
+  margin-top: 18px;
+  border-radius: var(--radius-l);
+  overflow: hidden;
+  background: #000;
+  border: 1px solid var(--stroke-hair);
+}
+.share-preview--image {
+  background: color-mix(in srgb, var(--layer-1) 70%, #000);
+  display: flex;
+  justify-content: center;
+  max-height: 62vh;
+}
+.share-preview--image img {
+  max-width: 100%;
+  max-height: 62vh;
+  display: block;
+  object-fit: contain;
+}
+.share-preview--video video {
+  display: block;
+  width: 100%;
+  max-height: 62vh;
+  background: #000;
+}
+.share-preview--audio {
+  background: var(--layer-3);
+  padding: 26px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+.share-audio__art {
+  width: 76px;
+  height: 76px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+}
+.share-audio__art .icon {
+  width: 30px;
+  height: 30px;
+}
+.share-preview--audio audio {
+  width: 100%;
+}
+.share-preview--pdf iframe {
+  display: block;
+  width: 100%;
+  height: 62vh;
+  border: 0;
+  background: #fff;
+}
+.share-preview--text {
+  background: var(--layer-3);
+  max-height: 56vh;
+  overflow: auto;
+  border: 1px solid var(--stroke-hair);
+}
+.share-preview--text pre {
+  margin: 0;
+  padding: 16px 18px;
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 12.5px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text-1);
+}
+
+.share-nopreview {
+  margin-top: 18px;
+  padding: 30px 20px;
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--text-3);
+  border: 1px dashed var(--stroke-hair);
+  border-radius: var(--radius-l);
+}
+
+.share-tip {
+  margin: 12px 0 0;
+  font-size: 11.5px;
+  color: var(--text-3);
+  text-align: center;
+}
+
+/* ---------------- 文件夹 ---------------- */
+.share-folder__head {
+  margin-bottom: 12px;
+}
+.share-folder__title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.share-folder__icon {
+  flex: none;
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-m);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+}
+.share-folder__icon .icon {
+  width: 19px;
+  height: 19px;
+}
+
+.share-items {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 58vh;
+  overflow: auto;
+  padding-top: 6px;
+  border-top: 1px solid var(--stroke-hair);
+}
+.share-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 8px;
+  border-radius: var(--radius-s);
+  transition: background var(--dur-fast) var(--ease-standard);
+}
+.share-item:hover {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+.share-item__icon {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  color: var(--text-2);
+}
+.share-item__icon .icon {
+  width: 17px;
+  height: 17px;
+}
+.share-item[data-type="folder"] .share-item__icon {
+  color: var(--accent);
+}
+.share-item__name {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.share-item__size {
+  flex: none;
+  font-size: 11.5px;
+  color: var(--text-3);
+  min-width: 64px;
+  text-align: right;
+}
+.share-item__actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.share-foot {
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+
+@media (max-width: 560px) {
+  .share-page {
+    padding: 18px 12px 28px;
+  }
+  .share-card {
+    padding: 16px;
+  }
+  .share-file {
+    flex-wrap: wrap;
+  }
+  .share-file > .btn {
+    width: 100%;
+    justify-content: center;
+  }
+  .share-item__size {
+    display: none;
+  }
+}
+
+/* ------------------------------------------------------------
+   分享者标签
+   ------------------------------------------------------------ */
+.share-author {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 9px;
+  padding: 3px 10px 3px 3px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--stroke-hair);
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+  font-size: 11.5px;
+  color: var(--text-3);
+  max-width: 100%;
+}
+.share-author__avatar {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(135deg, var(--accent), var(--accent-warm));
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+}
+.share-author__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.share-author__text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.share-author__text b {
+  color: var(--text-1);
+  font-weight: 600;
+}

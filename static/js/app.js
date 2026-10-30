@@ -6,11 +6,16 @@ import { store } from "./store.js";
 import { applyAppearance, applyCachedAppearance, patchSettingsLocal, resolveTheme, watchSystemTheme } from "./theme.js";
 import { startPetals, stopPetals } from "./petals.js";
 import { Dialog } from "./ui/dialog.js";
+import { avatarMarkup } from "./ui/avatar.js";
 import { Toast } from "./ui/toast.js";
 import { openMenu } from "./ui/menu.js";
+import { installState, promptInstall, registerPwa } from "./pwa.js";
 import { renderAuth } from "./views/auth.js";
+import { renderAdmin } from "./views/admin.js";
 import { renderFiles } from "./views/files.js";
 import { renderSettings } from "./views/settings.js";
+import { renderShares } from "./views/shares.js";
+import { renderTrash } from "./views/trash.js";
 
 const NAV_ITEMS = [
   { group: "空间" },
@@ -44,6 +49,7 @@ const el = (id) => document.getElementById(id);
 /* 启动                                                               */
 /* ------------------------------------------------------------------ */
 async function boot() {
+  registerPwa();
   applyCachedAppearance();
   watchSystemTheme();
 
@@ -105,8 +111,7 @@ function enterApp(user) {
   el("shell").hidden = false;
 
   applyAppearance(user.settings || {});
-  el("user-avatar").textContent = (user.username || "?").slice(0, 1).toUpperCase();
-  el("user-name").textContent = user.username;
+  paintUserChip(user);
 
   applyNavState(!!user.settings?.navCollapsed);
   renderNav();
@@ -121,6 +126,21 @@ function enterApp(user) {
 
   setupMascot(user);
   updateThemeIcon();
+}
+
+/* ------------------------------------------------------------------ */
+/* 顶部用户区                                                         */
+/* ------------------------------------------------------------------ */
+function paintUserChip(user) {
+  if (!user) return;
+  const avatarEl = el("user-avatar");
+  const nameEl = el("user-name");
+  if (avatarEl) avatarEl.innerHTML = avatarMarkup(user);
+  if (nameEl) nameEl.textContent = user.displayName || user.username;
+  const chip = el("user-chip");
+  if (chip) {
+    chip.title = user.bio || `${user.displayName || user.username}（@${user.username}）`;
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -180,15 +200,10 @@ function setupNavToggle() {
 /* 路由                                                               */
 /* ------------------------------------------------------------------ */
 const PLACEHOLDERS = {
-  shares: {
-    icon: "i-link",
-    title: "分享链接",
-    desc: "带提取码与有效期的分享将在 M5 阶段接入。<br>现在可以先体验主题与账号设置。",
-  },
   trash: {
     icon: "i-trash",
     title: "回收站是空的",
-    desc: "删除的文件会先进入这里，可还原或彻底删除。<br>回收站功能将在 M4 阶段接入。",
+    desc: "删除的文件会先进入这里，可还原或彻底删除。",
   },
   admin: {
     icon: "i-shield",
@@ -231,8 +246,11 @@ function route() {
   root.innerHTML = "";
 
   if (name === "files") renderFiles(root, { user });
+  else if (name === "shares") renderShares(root, { user });
+  else if (name === "trash") renderTrash(root, { user });
   else if (name === "settings") renderSettings(root);
-  else renderPlaceholder(root, PLACEHOLDERS[name] || PLACEHOLDERS.shares);
+  else if (name === "admin") renderAdmin(root);
+  else renderPlaceholder(root, PLACEHOLDERS.admin);
 
   document.title = `${TITLES[name]} · ${store.get().meta?.appName || "CloudNETP"}`;
   document.querySelectorAll(".nav-item").forEach((item) => {
@@ -265,6 +283,38 @@ function setupThemeToggle() {
 /* ------------------------------------------------------------------ */
 /* 用户菜单                                                           */
 /* ------------------------------------------------------------------ */
+/** 用户菜单里的「安装」入口：只在浏览器给出安装能力时出现 */
+function installMenuItems() {
+  const state = installState();
+  if (state.canInstall) {
+    return [
+      {
+        label: "安装到桌面",
+        icon: "i-plus",
+        onClick: async () => {
+          const outcome = await promptInstall();
+          if (outcome === "accepted") Toast.success("安装完成后会以独立窗口打开");
+        },
+      },
+    ];
+  }
+  if (state.iosManual) {
+    return [
+      {
+        label: "添加到主屏幕…",
+        icon: "i-plus",
+        onClick: () =>
+          Dialog.alert({
+            title: "添加到主屏幕",
+            message:
+              "在 Safari 底部工具栏点「分享」按钮，选择「添加到主屏幕」，就能像 App 一样全屏打开小云盘。",
+          }),
+      },
+    ];
+  }
+  return [];
+}
+
 function setupUserMenu() {
   const chip = el("user-chip");
   chip.addEventListener("click", () => {
@@ -274,10 +324,18 @@ function setupUserMenu() {
       anchor: chip,
       align: "end",
       header: {
-        name: user.username,
-        meta: `${formatBytes(user.usedBytes)} / ${formatBytes(user.quotaBytes)} · ${user.role === 1 ? "管理员" : "普通用户"}`,
+        name: user.displayName || user.username,
+        meta: [
+          `@${user.username}`,
+          `${formatBytes(user.usedBytes)} / ${formatBytes(user.quotaBytes)}`,
+          user.role === 1 ? "管理员" : "普通用户",
+          user.bio ? user.bio.slice(0, 40) : "",
+        ]
+          .filter(Boolean)
+          .join(" · "),
       },
       items: [
+        ...installMenuItems(),
         { label: "设置", icon: "i-settings", onClick: () => (location.hash = "#/settings") },
         ...(user.role === 1
           ? [{ label: "管理后台", icon: "i-shield", onClick: () => (location.hash = "#/admin") }]
@@ -339,6 +397,7 @@ window.addEventListener("user:refresh", (event) => {
   const user = event.detail;
   if (!user) return;
   store.set({ user });
+  paintUserChip(user);
   renderNav();
 });
 

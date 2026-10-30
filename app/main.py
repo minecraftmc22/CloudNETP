@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .config import STATIC_DIR, settings
-from .db import SessionLocal, init_db
+from . import db_failover
 
 logger = logging.getLogger("uvicorn.error").getChild("cloudnetp")
 
@@ -33,7 +33,7 @@ def _startup_maintenance() -> None:
     from . import node_service, upload_service
     from .settings_store import get_int
 
-    with SessionLocal() as db:
+    with db_failover.current_sessionmaker()() as db:
         try:
             stale = upload_service.gc_stale_sessions(db)
             db.commit()
@@ -57,16 +57,36 @@ def _startup_maintenance() -> None:
 async def lifespan(app: FastAPI):
     started = time.perf_counter()
     _prepare_dirs()
-    init_db()
-    logger.info("建表检查完成 %.1fs", time.perf_counter() - started)
+    active_mode = db_failover.startup()
+    logger.info(
+        "建表检查完成 %.1fs | 数据库模式 %s",
+        time.perf_counter() - started,
+        active_mode,
+    )
     if settings.SECRET_KEY_IS_EPHEMERAL:
         logger.warning("SECRET_KEY 未配置，使用临时密钥：重启后所有会话失效，请在 .env 中设置。")
     _startup_maintenance()
     logger.info(
+        "监听配置 %s://%s:%s（.env）| 若与 uvicorn 打印的地址不一致，说明启动方式没走 run.py / main.py",
+        settings.scheme,
+        settings.HOST,
+        settings.PORT,
+    )
+    if settings.wildcard_host:
+        lan = settings.lan_url
+        logger.info(
+            "浏览器访问 %s%s —— %s 只是「监听所有网卡」，不是能打开的地址",
+            settings.browse_url,
+            f"，局域网内的设备用 {lan}" if lan else "",
+            settings.HOST or "0.0.0.0",
+        )
+    else:
+        logger.info("浏览器访问 %s", settings.browse_url)
+    logger.info(
         "CloudNETP %s 启动完成（共 %.1fs）| DB=%s",
         settings.VERSION,
         time.perf_counter() - started,
-        settings.DATABASE_URL.split("@")[-1],
+        db_failover.active_db_label(),
     )
     yield
 
@@ -81,6 +101,16 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
         content={"detail": exc.detail, "code": exc.status_code},
         headers=getattr(exc, "headers", None),
     )
+
+
+@app.middleware("http")
+async def static_no_cache(request: Request, call_next):
+    """静态资源必须回源验证（配合 ETag 走 304），避免浏览器启发式缓存吃旧文件。"""
+    response = await call_next(request)
+    path = request.url.path
+    if path.startswith("/static/") or path.startswith("/assets/"):
+        response.headers["Cache-Control"] = "no-cache"
+    return response
 
 
 @app.get("/api/version")
@@ -98,14 +128,46 @@ def favicon() -> FileResponse:
     return FileResponse(STATIC_DIR / "assets" / "favicon.svg", media_type="image/svg+xml")
 
 
+@app.get("/manifest.webmanifest", include_in_schema=False)
+def webmanifest() -> FileResponse:
+    """PWA 清单。必须挂在根路径，start_url / scope 才能覆盖整站。"""
+    return FileResponse(
+        STATIC_DIR / "manifest.webmanifest",
+        media_type="application/manifest+json",
+        headers={"Cache-Control": "no-cache"},
+    )
+
+
+@app.get("/sw.js", include_in_schema=False)
+def service_worker() -> FileResponse:
+    """Service Worker 必须在根路径，作用域才能是 /。永远不缓存。"""
+    return FileResponse(
+        STATIC_DIR / "sw.js",
+        media_type="application/javascript",
+        headers={"Cache-Control": "no-cache", "Service-Worker-Allowed": "/"},
+    )
+
+
 if STATIC_DIR.is_dir():
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
     app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets"), name="assets")
 
+from .routers import admin as admin_router  # noqa: E402
 from .routers import auth as auth_router  # noqa: E402
+from .routers import dav as dav_router  # noqa: E402
 from .routers import nodes as nodes_router  # noqa: E402
+from .routers import shares as shares_router  # noqa: E402
 from .routers import uploads as uploads_router  # noqa: E402
 
 app.include_router(auth_router.router)
 app.include_router(nodes_router.router)
+app.include_router(shares_router.router)
 app.include_router(uploads_router.router)
+app.include_router(admin_router.router)
+app.include_router(dav_router.router)
+
+
+@app.get("/s/{token}", include_in_schema=False)
+def share_page(token: str) -> FileResponse:
+    """公开分享页（独立页面，不依赖登录态）。"""
+    return FileResponse(STATIC_DIR / "share.html", headers={"Cache-Control": "no-cache"})

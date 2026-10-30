@@ -155,6 +155,51 @@
   color: var(--text-3);
 }
 
+/* 下拉选择（有效期等）：与文本框同款外观 */
+.selectbox {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 36px;
+  border-radius: var(--radius-xs);
+  border: 1px solid var(--stroke-strong);
+  background: var(--layer-3);
+  transition: border-color var(--dur-fast) var(--ease-standard),
+    background var(--dur-fast) var(--ease-standard),
+    box-shadow var(--dur-fast) var(--ease-standard);
+}
+.selectbox:hover {
+  background: var(--layer-2);
+}
+.selectbox:focus-within {
+  background: var(--layer-2);
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--stroke-strong));
+  box-shadow: inset 0 -2px 0 0 var(--accent),
+    0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.selectbox select {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0 30px 0 10px;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text-1);
+  font-size: 13.5px;
+  font-family: inherit;
+  appearance: none;
+  cursor: pointer;
+}
+.selectbox > .icon {
+  position: absolute;
+  right: 10px;
+  width: 14px;
+  height: 14px;
+  color: var(--text-3);
+  pointer-events: none;
+}
+
 .field__hint {
   font-size: 11.5px;
   color: var(--text-3);
@@ -328,9 +373,32 @@
   line-height: 1.65;
   word-break: break-word;
 }
-.dialog__body strong {
+.dialog__body strong,
+.dialog__body b {
   color: var(--text-1);
   font-weight: 600;
+}
+
+/* 服务端签发的确认码：等宽字母、逐字间距拉开，方便照着抄 */
+.code-display {
+  margin: 12px 0 6px;
+  padding: 12px 10px;
+  border-radius: var(--radius-m);
+  border: 1px dashed color-mix(in srgb, var(--accent) 45%, transparent);
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+  font-family: "Cascadia Mono", "Consolas", ui-monospace, monospace;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: 0.34em;
+  text-indent: 0.34em;
+  text-align: center;
+  color: var(--accent);
+  user-select: all;
+}
+.dialog__hint {
+  font-size: 11.5px;
+  color: var(--text-3);
+  line-height: 1.5;
 }
 
 .dialog__actions {
@@ -607,4 +675,212 @@
   gap: 16px;
   grid-auto-flow: row;
   background: transparent;
+}
+
+/* ------------------------------------------------------------------ */
+/* 分享结果（对话框内）                                                */
+/* ------------------------------------------------------------------ */
+.share-result {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 4px;
+}
+.share-result__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.share-result__label {
+  flex: none;
+  width: 44px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+.share-result__url {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 10px;
+  border-radius: var(--radius-xs);
+  border: 1px dashed color-mix(in srgb, var(--accent) 42%, transparent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 12px;
+  color: var(--text-1);
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+.share-result__code {
+  padding: 3px 10px;
+  border-radius: var(--radius-xs);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--text-1);
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 15px;
+  letter-spacing: 2px;
+}
+.share-result__hint {
+  font-size: 11.5px;
+  color: var(--text-3);
+  line-height: 1.6;
+}
+
+/* ------------------------------------------------------------
+   通用任务进度面板（移动 / 批量操作）
+   ------------------------------------------------------------ */
+.task-panel {
+  position: fixed;
+  left: 50%;
+  bottom: 26px;
+  width: 340px;
+  max-width: calc(100vw - 32px);
+  transform: translateX(-50%);
+  border-radius: var(--radius-m);
+  background: var(--acrylic-strong);
+  border: 1px solid var(--stroke);
+  box-shadow: var(--shadow-3);
+  backdrop-filter: blur(24px) saturate(1.6);
+  overflow: hidden;
+  z-index: 70;
+  animation: task-in var(--dur-base) var(--ease-fluent);
+  transition: opacity 200ms var(--ease-standard), transform 200ms var(--ease-standard);
+}
+@keyframes task-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 12px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+  }
+}
+.task-panel.is-out {
+  opacity: 0;
+  transform: translate(-50%, 8px);
+}
+.task-panel__head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 10px 10px 10px 12px;
+  font-size: 12.5px;
+  color: var(--text-1);
+  border-bottom: 1px solid var(--stroke-hair);
+}
+.task-panel__head > .icon {
+  color: var(--accent);
+  flex: none;
+}
+.task-panel__title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.task-panel__act {
+  flex: none;
+  border: 0;
+  background: none;
+  color: var(--text-3);
+  font: inherit;
+  font-size: 11.5px;
+  padding: 2px 6px;
+  border-radius: var(--radius-s);
+  transition: color var(--dur-fast) var(--ease-standard),
+    background var(--dur-fast) var(--ease-standard);
+}
+.task-panel__act:hover {
+  color: var(--danger);
+  background: var(--fill-hover);
+}
+.task-panel__act:disabled {
+  opacity: 0.6;
+}
+.task-panel__list {
+  max-height: 220px;
+  overflow: auto;
+  padding: 4px 0 8px;
+}
+.task-item {
+  padding: 6px 12px 2px;
+}
+.task-item + .task-item {
+  margin-top: 4px;
+}
+.task-item__top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11.5px;
+  color: var(--text-2);
+}
+.task-item__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-1);
+}
+.task-item__state {
+  flex: none;
+  font-size: 11px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+  max-width: 52%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.task-item.is-active .task-item__state {
+  color: var(--accent);
+}
+.task-item.is-done .task-item__state {
+  color: var(--text-3);
+}
+.task-item.is-error .task-item__state {
+  color: var(--danger);
+}
+.task-item .progress {
+  margin-top: 5px;
+  height: 3px;
+}
+.task-item .progress__bar {
+  transition: width 260ms var(--ease-standard);
+}
+.task-item.is-done .progress__bar {
+  opacity: 0.55;
+}
+.task-item.is-error .progress__bar {
+  background: var(--danger);
+  width: 100% !important;
+  opacity: 0.5;
+}
+.task-item.is-canceled .progress__bar {
+  width: 0 !important;
+}
+
+/* 可点击的 chip（如 WebDAV「待激活」） */
+.chip--action {
+  cursor: pointer;
+  margin-left: 6px;
+  user-select: none;
+  transition: background var(--dur-fast) var(--ease-standard),
+    color var(--dur-fast) var(--ease-standard);
+}
+.chip--action:hover {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  color: var(--accent);
+}
+.chip--action:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.chip[hidden],
+[data-dav-hint][hidden] {
+  display: none !important;
 }

@@ -21,7 +21,7 @@ async function request(path, { method = "GET", body, headers = {}, raw = false }
   if (body !== undefined && body !== null) {
     if (raw) {
       opts.body = body;
-      opts.headers["Content-Type"] = "application/octet-stream";
+      opts.headers["Content-Type"] = body.type || "application/octet-stream";
     } else {
       opts.body = JSON.stringify(body);
       opts.headers["Content-Type"] = "application/json";

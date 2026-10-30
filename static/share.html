@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#fdf4fa">
+  <meta name="version" content="0.2.9">
+  <title>分享 · CloudNETP</title>
+  <link rel="icon" href="/static/assets/favicon.svg" type="image/svg+xml">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="CloudNETP">
+  <link rel="stylesheet" href="/static/css/theme.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+  <link rel="stylesheet" href="/static/css/share.css">
+</head>
+<body>
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <symbol id="i-file" viewBox="0 0 24 24"><path d="M6 3.8h7.2L18.6 9v11.2H6Z"/><path d="M13 3.9V9.2h5.4"/></symbol>
+      <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3.5 7.6A2.6 2.6 0 0 1 6.1 5h2.7c.66 0 1.29.26 1.76.72l1.1 1.1h6.24A2.6 2.6 0 0 1 20.5 9.4v7A2.6 2.6 0 0 1 17.9 19H6.1a2.6 2.6 0 0 1-2.6-2.6Z"/></symbol>
+      <symbol id="i-image" viewBox="0 0 24 24"><rect x="3.8" y="5" width="16.4" height="14" rx="2.4"/><circle cx="9" cy="10" r="1.6"/><path d="m5.4 17.4 4.6-4.4 3.4 3.2 2.6-2.4 3.4 3.2"/></symbol>
+      <symbol id="i-star" viewBox="0 0 24 24"><path d="m12 4 2.4 4.9 5.4.8-3.9 3.8.9 5.4-4.8-2.5-4.8 2.5.9-5.4L4.2 9.7l5.4-.8Z"/></symbol>
+      <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 5v9"/><path d="m8.6 10.7 3.4 3.4 3.4-3.4"/><path d="M5 19h14"/></symbol>
+      <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5.4" y="10.2" width="13.2" height="9" rx="2.2"/><path d="M8.6 10.2V8a3.4 3.4 0 0 1 6.8 0v2.2"/></symbol>
+      <symbol id="i-alert" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.4"/><path d="M12 7.8v5.4"/><path d="M12 16.2h.01"/></symbol>
+      <symbol id="i-back" viewBox="0 0 24 24"><path d="M14.5 6 8.5 12l6 6"/></symbol>
+      <symbol id="i-arrow-up-right" viewBox="0 0 24 24"><path d="M8 16 16 8"/><path d="M9.4 8H16v6.6"/></symbol>
+    </defs>
+  </svg>
+
+  <div class="share-page">
+    <header class="share-brand">
+      <svg class="icon"><use href="#i-star"/></svg>
+      <span data-brand>CloudNETP</span>
+    </header>
+
+    <main class="share-main" id="share-root">
+      <section class="share-card">
+        <div class="share-skeleton"><span class="spinner"></span><span>正在打开分享…</span></div>
+      </section>
+    </main>
+
+    <footer class="share-foot">由 CloudNETP 提供分享服务</footer>
+  </div>
+
+  <script type="module" src="/static/js/share.js"></script>
+</body>
+</html>

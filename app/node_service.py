@@ -21,13 +21,15 @@ from .storage import blob_exists, delete_blob
 MAX_DEPTH = 64  # 目录层级保护，同时防止异常数据造成死循环
 
 IMAGE_EXT = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".svg", ".avif", ".ico"}
-VIDEO_EXT = {".mp4", ".webm", ".mkv", ".mov", ".avi", ".m4v"}
+VIDEO_EXT = {".mp4", ".webm", ".mkv", ".mov", ".avi", ".m4v", ".m3u8", ".mpd"}
 AUDIO_EXT = {".mp3", ".flac", ".wav", ".ogg", ".m4a", ".aac", ".opus"}
 ARCHIVE_EXT = {".zip", ".rar", ".7z", ".tar", ".gz", ".xz", ".bz2"}
 CODE_EXT = {
     ".py", ".js", ".ts", ".jsx", ".tsx", ".json", ".html", ".css", ".scss", ".vue",
     ".java", ".c", ".h", ".cpp", ".cs", ".go", ".rs", ".rb", ".php", ".sh", ".sql",
     ".yml", ".yaml", ".toml", ".ini", ".md", ".txt", ".log", ".xml",
+    # 字幕与伴生资源也要能取到原始文本（播放器插件直接 fetch）
+    ".vtt", ".srt", ".ass",
 }
 
 
@@ -49,6 +51,29 @@ def icon_for(node: Node) -> str:
     return "i-file"
 
 
+def preview_kind(node: Node) -> str:
+    """前端预览器类型：image / video / audio / pdf / text / none。
+
+    HTML、SVG 一律按文本处理，不给它们在同源下当文档执行的机会。
+    """
+    if node.type != "file" or not node.blob_sha256:
+        return "none"
+    ext = extension(node.name)
+    mime = (node.mime or "").lower()
+
+    if ext == ".pdf":
+        return "pdf"
+    if ext in IMAGE_EXT:
+        return "image"
+    if ext in VIDEO_EXT:
+        return "video"
+    if ext in AUDIO_EXT:
+        return "audio"
+    if ext in CODE_EXT or mime.startswith("text/"):
+        return "text"
+    return "none"
+
+
 def node_payload(node: Node, child_count: int | None = None) -> dict:
     return {
         "id": node.id,
@@ -58,6 +83,7 @@ def node_payload(node: Node, child_count: int | None = None) -> dict:
         "mime": node.mime,
         "icon": icon_for(node),
         "ext": extension(node.name),
+        "previewKind": preview_kind(node),
         "parentId": node.parent_id,
         "createdAt": node.created_at.isoformat() + "Z" if node.created_at else None,
         "updatedAt": node.updated_at.isoformat() + "Z" if node.updated_at else None,

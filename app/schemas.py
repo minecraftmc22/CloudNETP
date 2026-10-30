@@ -31,6 +31,10 @@ class PasswordIn(CamelModel):
     new_password: str = Field(min_length=8, max_length=128)
 
 
+class PasswordOnlyIn(CamelModel):
+    password: str = Field(min_length=1, max_length=128)
+
+
 class SettingsIn(CamelModel):
     theme_mode: Literal[0, 1, 2] | None = None
     accent_color: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
@@ -39,6 +43,21 @@ class SettingsIn(CamelModel):
     show_petals: bool | None = None
     view_mode: Literal["grid", "list"] | None = None
     nav_collapsed: bool | None = None
+    share_show_name: bool | None = None
+
+
+class ProfileIn(CamelModel):
+    """昵称与简介。字段为 None 表示不改；传空串表示清空（昵称回落成用户名）。"""
+
+    display_name: str | None = Field(default=None, max_length=64)
+    bio: str | None = Field(default=None, max_length=400)
+
+
+class TrashSwitchIn(CamelModel):
+    """回收站开关。关闭时必须在服务端核验验证码（不放进 SettingsIn，防止被绕过）。"""
+
+    enabled: bool
+    code: str = Field(default="", max_length=16)
 
 
 # --------------------------------------------------------------------------- #
@@ -72,3 +91,44 @@ class UploadInitIn(CamelModel):
     mime: str | None = Field(default=None, max_length=127)
     chunk_size: int | None = Field(default=None, ge=64 * 1024, le=32 * 1024 * 1024)
 
+
+
+# --------------------------------------------------------------------------- #
+# 分享链接
+# --------------------------------------------------------------------------- #
+class ShareIn(CamelModel):
+    node_id: int
+    expires_days: int | None = Field(default=None, ge=1, le=3650)
+    extract_code: str | None = Field(default=None, max_length=16)
+    max_downloads: int | None = Field(default=None, ge=1, le=1_000_000)
+
+
+class ShareUnlockIn(CamelModel):
+    code: str = Field(min_length=1, max_length=16)
+
+
+# --------------------------------------------------------------------------- #
+# 管理后台
+# --------------------------------------------------------------------------- #
+class AdminUserPatchIn(CamelModel):
+    quota_bytes: int | None = Field(default=None, ge=0, le=1024**5)
+    banned: bool | None = None
+    role: Literal[0, 1] | None = None
+
+
+class AdminSettingsIn(CamelModel):
+    site_name: str | None = Field(default=None, min_length=1, max_length=64)
+    site_announcement: str | None = Field(default=None, max_length=500)
+    allow_register: bool | None = None
+    default_quota_bytes: int | None = Field(default=None, ge=0, le=1024**5)
+    max_file_size_bytes: int | None = Field(default=None, ge=0, le=1024**5)
+    chunk_size_bytes: int | None = Field(default=None, ge=64 * 1024, le=32 * 1024 * 1024)
+    trash_retention_days: int | None = Field(default=None, ge=0, le=3650)
+
+
+class AdminLogPurgeIn(CamelModel):
+    days: int = Field(ge=1, le=3650)
+
+
+class AdminGcIn(CamelModel):
+    apply: bool = False

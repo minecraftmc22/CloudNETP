@@ -251,6 +251,54 @@
   line-height: 1.6;
 }
 
+/* WebDAV 挂载地址 */
+.dav-addr {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 58%;
+}
+.dav-addr code {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 10px;
+  border-radius: var(--radius-m);
+  background: var(--fill-subtle);
+  border: 1px solid var(--stroke-hair);
+  font-family: "Cascadia Mono", "Consolas", ui-monospace, monospace;
+  font-size: 11.5px;
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dav-help {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--text-2);
+}
+.dav-help b {
+  display: inline-block;
+  min-width: 62px;
+  color: var(--text-1);
+  font-weight: 600;
+}
+.dav-help code {
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: var(--fill-subtle);
+  font-family: "Cascadia Mono", "Consolas", ui-monospace, monospace;
+  font-size: 11px;
+}
+.dav-help__note {
+  padding-top: 8px;
+  border-top: 1px solid var(--stroke-hair);
+  color: var(--text-3);
+}
+
 .swatch-row {
   display: flex;
   gap: 8px;
@@ -414,4 +462,204 @@
   display: flex;
   align-items: center;
   gap: var(--sp-2);
+}
+
+/* ------------------------------------------------------------------ */
+/* 我的分享                                                            */
+/* ------------------------------------------------------------------ */
+.share-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: var(--sp-2, 8px);
+  padding-bottom: var(--sp-6);
+}
+.share-loading {
+  display: flex;
+  justify-content: center;
+  padding: 48px 0;
+}
+.share-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: var(--radius-m);
+  border: 1px solid var(--stroke-hair);
+  background: var(--layer-2);
+  transition: background var(--dur-fast) var(--ease-standard),
+    border-color var(--dur-fast) var(--ease-standard);
+}
+.share-row:hover {
+  background: var(--layer-3);
+  border-color: color-mix(in srgb, var(--accent) 26%, var(--stroke-hair));
+}
+.share-row.is-dead {
+  opacity: 0.62;
+}
+.share-row__icon {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-s);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+}
+.share-row__icon .icon {
+  width: 17px;
+  height: 17px;
+}
+.share-row__main {
+  flex: 1;
+  min-width: 0;
+}
+.share-row__name {
+  font-size: 13.5px;
+  color: var(--text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.share-row__meta {
+  margin-top: 3px;
+  font-size: 11.5px;
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.share-row__status {
+  flex: none;
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
+  font-size: 11.5px;
+  border: 1px solid transparent;
+}
+.share-row__status.is-active {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+}
+.share-row__status.is-expired,
+.share-row__status.is-revoked,
+.share-row__status.is-exhausted,
+.share-row__status.is-missing {
+  color: var(--text-3);
+  background: color-mix(in srgb, var(--text-3) 10%, transparent);
+  border-color: color-mix(in srgb, var(--text-3) 22%, transparent);
+}
+.share-row__actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ------------------------------------------------------------
+   设置 · 个人资料（头像 / 昵称 / 简介）
+   ------------------------------------------------------------ */
+.profile {
+  display: flex;
+  gap: 18px;
+  padding: 6px 18px 16px;
+  align-items: flex-start;
+}
+
+.profile__avatar {
+  position: relative;
+  flex: none;
+  width: 84px;
+  height: 84px;
+  border-radius: 50%;
+  padding: 0;
+  border: 1px solid var(--stroke);
+  background: none;
+  box-shadow: var(--shadow-2);
+  overflow: hidden;
+  transition: box-shadow var(--dur-fast) var(--ease-standard),
+    transform var(--dur-fast) var(--ease-standard);
+}
+.profile__avatar:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-3);
+}
+.profile__avatar-inner {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  overflow: hidden;
+  font-size: 30px;
+  font-weight: 600;
+  color: #fff;
+  background: linear-gradient(135deg, var(--accent), var(--accent-warm));
+}
+.profile__avatar-inner .avatar-img,
+.profile__avatar-inner img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.profile__avatar-mask {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  font-size: 11px;
+  color: #fff;
+  background: color-mix(in srgb, #1a1024 58%, transparent);
+  backdrop-filter: blur(2px);
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease-standard);
+}
+.profile__avatar:hover .profile__avatar-mask,
+.profile__avatar:focus-visible .profile__avatar-mask {
+  opacity: 1;
+}
+.profile__spinner {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, #1a1024 55%, transparent);
+  backdrop-filter: blur(2px);
+}
+.profile__spinner[hidden] {
+  display: none;
+}
+
+.profile__fields {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.profile__foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+.profile__foot .muted {
+  font-size: 11.5px;
+}
+
+@media (max-width: 620px) {
+  .profile {
+    flex-direction: column;
+    align-items: center;
+  }
+  .profile__fields {
+    width: 100%;
+  }
 }

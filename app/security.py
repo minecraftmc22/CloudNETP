@@ -158,10 +158,12 @@ def check_origin(request: Request) -> None:
         # 部分原生客户端（WebDAV/RaiDrive）不发 Origin，交给其它机制兜底
         return
     host = request.headers.get("host", "")
-    if not host:
-        return
     origin_host = urlsplit(origin).netloc
-    if origin_host and origin_host != host:
+    if not origin_host:
+        return
+    # 反向代理会改写 Host，SITE_URL 里配置的域名同样算合法来源
+    allowed = {h for h in (host, settings.site_netloc, urlsplit(settings.public_base).netloc) if h}
+    if origin_host not in allowed:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "来源校验失败")
 
 

@@ -149,6 +149,7 @@ def file_response(
     *,
     inline: bool = False,
     cache: str = "private, max-age=0",
+    csp: str | None = None,
 ) -> StreamingResponse:
     if not path.is_file():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "文件内容不存在")
@@ -166,8 +167,15 @@ def file_response(
         ),
         # 预览 HTML/SVG 一律禁止执行，避免存储型 XSS
         "X-Content-Type-Options": "nosniff",
-        "Content-Security-Policy": "sandbox; default-src 'none'; img-src data: blob: 'self'; media-src 'self'",
     }
+    # csp 传空串表示不放这个头（PDF 内嵌查看器需要，sandbox 会导致它渲染不出来）
+    policy = (
+        "sandbox; default-src 'none'; img-src data: blob: 'self'; media-src 'self'"
+        if csp is None
+        else csp
+    )
+    if policy:
+        headers["Content-Security-Policy"] = policy
 
     range_header = request.headers.get("range") if request else None
     if range_header:
@@ -305,3 +313,37 @@ def assemble_chunks(session_id: str, total_chunks: int, expected_size: int) -> t
         )
     return tmp, digest.hexdigest(), written
 
+
+
+# --------------------------------------------------------------------------- #
+# 文本预览（在线预览与公开分享共用）
+# --------------------------------------------------------------------------- #
+TEXT_PREVIEW_BYTES = 1_000_000
+
+
+def _decode_text(raw: bytes, truncated: bool) -> tuple[str, str]:
+    """按 utf-8 → gb18030 → latin-1 依次尝试，兼顾中文 Windows 的老文件。"""
+    for encoding in ("utf-8", "gb18030"):
+        try:
+            return raw.decode(encoding), encoding
+        except UnicodeDecodeError:
+            # 截断可能把多字节字符切成半个，去掉尾部残字节再试
+            if truncated:
+                for cut in (1, 2, 3):
+                    try:
+                        return raw[:-cut].decode(encoding), encoding
+                    except UnicodeDecodeError:
+                        continue
+    return raw.decode("latin-1"), "latin-1"
+
+
+def text_payload(path: Path, max_bytes: int = TEXT_PREVIEW_BYTES) -> dict:
+    """读取文本内容并解码。二进制文件抛 ValueError，由调用方转成 415。"""
+    size = path.stat().st_size
+    with path.open("rb") as fh:
+        raw = fh.read(max_bytes)
+    if b"\x00" in raw[:8192]:
+        raise ValueError("binary")
+    truncated = size > len(raw)
+    text, encoding = _decode_text(raw, truncated)
+    return {"content": text, "encoding": encoding, "size": size, "truncated": truncated}

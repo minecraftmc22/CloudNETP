@@ -6,6 +6,7 @@ import hashlib
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .. import node_service as ns
@@ -17,7 +18,7 @@ from ..models import Node, User
 from ..schemas import FolderIn, MoveIn, RenameIn
 from ..security import check_origin, normalize_name
 from ..settings_store import get_int
-from ..user_service import log_action
+from ..user_service import ensure_settings, log_action
 
 router = APIRouter(prefix="/api", tags=["nodes"])
 
@@ -109,10 +110,19 @@ def move_node(node_id: int, payload: MoveIn, request: Request, db: DbSession, us
 def delete_node(node_id: int, request: Request, db: DbSession, user: CurrentUser) -> dict:
     check_origin(request)
     node = ns.get_node(db, user.id, node_id)
+
+    # 回收站被用户关掉时，删除即彻底删除（用户在设置里已用验证码确认过这个后果）
+    if not ensure_settings(db, user.id).trash_enabled:
+        removed = ns.purge_node(db, user, node)
+        ns.recalc_usage(db, user)
+        log_action(db, "node_delete_permanent", user.id, {"id": node_id, "name": node.name}, request)
+        db.commit()
+        return {"deleted": removed, "purged": True}
+
     count = ns.soft_delete(db, user, node)
     log_action(db, "node_delete", user.id, {"id": node_id, "name": node.name, "count": count}, request)
     db.commit()
-    return {"deleted": count}
+    return {"deleted": count, "purged": False}
 
 
 @router.post("/nodes/{node_id}/restore")
@@ -170,6 +180,138 @@ def download(node_id: int, request: Request, db: DbSession, user: CurrentUser):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "文件夹暂不支持直接下载")
     path = storage.blob_path(node.blob_sha256)
     return storage.file_response(path, node.name, node.mime, request)
+
+
+# --------------------------------------------------------------------------- #
+# 在线预览
+# --------------------------------------------------------------------------- #
+@router.get("/nodes/{node_id}/preview")
+def preview(node_id: int, request: Request, db: DbSession, user: CurrentUser):
+    """内嵌预览的二进制流（图片/音视频/PDF），支持 Range，浏览器可直接解码。
+
+    文本不走这里，改走 /text 返回 JSON，避免中文编码问题。
+    """
+    node = ns.get_node(db, user.id, node_id)
+    if node.type != "file" or not node.blob_sha256:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "文件夹不支持在线预览")
+
+    kind = ns.preview_kind(node)
+    if kind == "none":
+        raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, "该类型暂不支持在线预览")
+
+    path = storage.blob_path(node.blob_sha256)
+    return storage.file_response(
+        path,
+        node.name,
+        node.mime,
+        request,
+        inline=True,
+        # PDF 交给浏览器内置查看器，sandbox 会让它渲染不出来
+        csp="" if kind == "pdf" else None,
+    )
+
+
+_TEXT_PREVIEW_DEFAULT = 1_000_000
+
+
+@router.get("/nodes/{node_id}/text")
+def preview_text(
+    node_id: int,
+    db: DbSession,
+    user: CurrentUser,
+    max_bytes: int = Query(default=_TEXT_PREVIEW_DEFAULT, ge=1024, le=4_000_000),
+) -> dict:
+    node = ns.get_node(db, user.id, node_id)
+    if node.type != "file" or not node.blob_sha256:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "文件夹不支持在线预览")
+    if ns.preview_kind(node) != "text":
+        raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, "该文件不是文本类型")
+
+    try:
+        return storage.text_payload(storage.blob_path(node.blob_sha256), max_bytes)
+    except ValueError:
+        raise HTTPException(
+            status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, "这是二进制文件，无法按文本预览"
+        ) from None
+
+
+# --------------------------------------------------------------------------- #
+# 同名字幕 / 缩略图 / 章节 / 弹幕（播放器插件的数据来源）
+# --------------------------------------------------------------------------- #
+SUB_EXT = {".vtt", ".srt", ".ass"}
+_THUMB_SUFFIX = (".thumbs.vtt", ".thumbnail.vtt")
+_CHAPTER_SUFFIX = (".chapters.json",)
+_DANMAKU_SUFFIX = (".danmaku.json",)
+
+
+def _stem(name: str) -> str:
+    dot = name.rfind(".")
+    return name[:dot] if dot > 0 else name
+
+
+@router.get("/nodes/{node_id}/sidecars")
+def sidecars(node_id: int, db: DbSession, user: CurrentUser) -> dict:
+    """找同目录下与视频同名的伴生文件，供播放器插件自动挂载。
+
+    约定（<同名> 指去掉扩展名的文件名）：
+    - `<同名>.vtt` / `<同名>.srt` / `<同名>.ass`，或 `<同名>.zh.vtt` → 字幕
+    - `<同名>.thumbs.vtt`  → 进度条缩略图（VTT 需带 #xywh）
+    - `<同名>.chapters.json` → 章节，格式 [{"start":0,"end":60,"title":"开场"}]
+    - `<同名>.danmaku.json`  → 弹幕，格式 [{"time":12.5,"text":"前排"}]
+    """
+    node = ns.get_node(db, user.id, node_id)
+    if node.type != "file":
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "只有文件才有伴生资源")
+
+    stem = _stem(node.name)
+    escaped = stem.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    rows = db.scalars(
+        select(Node)
+        .where(
+            Node.user_id == user.id,
+            Node.parent_id == node.parent_id if node.parent_id is not None else Node.parent_id.is_(None),
+            Node.type == "file",
+            Node.deleted_at.is_(None),
+            Node.id != node.id,
+            Node.name.like(f"{escaped}.%", escape="\\"),
+        )
+        .order_by(Node.name)
+    ).all()
+
+    subtitles: list[dict] = []
+    thumbnails = None
+    chapters = None
+    danmaku = None
+    for row in rows:
+        lower = row.name.lower()
+        url = f"/api/nodes/{row.id}/preview"
+        if lower.endswith(_THUMB_SUFFIX):
+            thumbnails = thumbnails or url
+        elif lower.endswith(_CHAPTER_SUFFIX):
+            chapters = chapters or url
+        elif lower.endswith(_DANMAKU_SUFFIX):
+            danmaku = danmaku or url
+        else:
+            ext = lower[lower.rfind(".") :]
+            if ext in SUB_EXT:
+                middle = lower[len(stem) + 1 : -len(ext)]
+                subtitles.append(
+                    {
+                        "name": row.name,
+                        "url": url,
+                        "type": ext.lstrip("."),
+                        "lang": middle.strip(".") or "",
+                    }
+                )
+
+    return {
+        "subtitles": subtitles,
+        "thumbnails": thumbnails,
+        "chapters": chapters,
+        "danmaku": danmaku,
+        # 缩略图 VTT 里写的是相对文件名，前端据此改写成可访问的预览地址
+        "siblings": {row.name: row.id for row in rows},
+    }
 
 
 # --------------------------------------------------------------------------- #

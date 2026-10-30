@@ -1,6 +1,7 @@
 /**
  * 文件夹选择器（移动文件时选目标目录）
  * 用法：const targetId = await pickFolder({ excludeId: node.id })
+ * 返回值：null = 根目录（"我的文件"），undefined = 用户取消。
  */
 import { api } from "../api.js";
 
@@ -45,15 +46,15 @@ export function pickFolder({ title = "移动到", excludeId = null, confirmText 
     function onKey(event) {
       if (event.key === "Escape") {
         event.preventDefault();
-        close(null);
+        close(undefined);
       }
     }
     document.addEventListener("keydown", onKey);
 
     backdrop.addEventListener("mousedown", (event) => {
-      if (event.target === backdrop) close(null);
+      if (event.target === backdrop) close(undefined);
     });
-    backdrop.querySelector('[data-act="cancel"]').addEventListener("click", () => close(null));
+    backdrop.querySelector('[data-act="cancel"]').addEventListener("click", () => close(undefined));
     backdrop.querySelector('[data-act="ok"]').addEventListener("click", () => close(currentId()));
 
     function currentId() {

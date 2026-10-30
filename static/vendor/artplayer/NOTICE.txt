@@ -1,0 +1,4 @@
+ArtPlayer 5.4.0
+Source: https://github.com/zhw2590582/ArtPlayer
+License: MIT
+File: artplayer.min.js (dist, styles inlined)

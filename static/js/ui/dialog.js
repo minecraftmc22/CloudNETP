@@ -38,8 +38,27 @@ function buildMarkup({ title, message, tone, fields, confirmText, cancelText, sh
       </div>
       ${message ? `<div class="dialog__body">${message}</div>` : ""}
       ${fields
-        .map(
-          (f) => `
+        .map((f) =>
+          f.type === "select"
+            ? `
+        <label class="field" data-field="${f.name}">
+          ${f.label ? `<span class="field__label">${f.label}</span>` : ""}
+          <span class="selectbox">
+            <select name="${f.name}">
+              ${(f.options || [])
+                .map(
+                  (o) =>
+                    `<option value="${esc(o.value)}"${String(o.value) === String(f.value ?? "") ? " selected" : ""}>${esc(
+                      o.label
+                    )}</option>`
+                )
+                .join("")}
+            </select>
+            <svg class="icon icon--s"><use href="#i-chevron-down"/></svg>
+          </span>
+          <span class="field__error" data-error hidden></span>
+        </label>`
+            : `
         <label class="field" data-field="${f.name}">
           ${f.label ? `<span class="field__label">${f.label}</span>` : ""}
           <span class="textbox">
@@ -65,7 +84,7 @@ function open(options) {
     el.innerHTML = buildMarkup(options);
     el.classList.add("is-open");
 
-    const inputs = [...el.querySelectorAll("input")];
+    const inputs = [...el.querySelectorAll("input, select")];
     const restoreFocus = document.activeElement;
 
     const submit = () => {
@@ -167,6 +186,7 @@ export const Dialog = {
   /** 输入框 → Promise<string|null> */
   async prompt({
     title = "输入",
+    message = "",
     label = "",
     value = "",
     placeholder = "",
@@ -175,7 +195,7 @@ export const Dialog = {
   } = {}) {
     const result = await open({
       title,
-      message: "",
+      message,
       tone: "info",
       confirmText,
       cancelText: "取消",

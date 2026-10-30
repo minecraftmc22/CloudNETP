@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Iterator
 from typing import Any
 
-from sqlalchemy import create_engine, event, inspect
+from sqlalchemy import String, create_engine, event, inspect
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from .config import settings
@@ -52,15 +53,18 @@ class Base(DeclarativeBase):
 
 
 def get_db() -> Iterator[Session]:
-    db = SessionLocal()
+    """每个请求一个会话。绑定哪个引擎由 db_failover 决定（主库 / SQLite 回退）。"""
+    from .db_failover import current_sessionmaker
+
+    db = current_sessionmaker()()
     try:
         yield db
     finally:
         db.close()
 
 
-def init_db() -> None:
-    """建表（幂等）。生产库也可直接执行 sql/schema.sql。"""
+def ensure_schema(target_engine: Any) -> None:
+    """对指定引擎建表（幂等）。生产库也可直接执行 sql/schema.sql。"""
     from . import models  # noqa: F401  确保模型已注册
 
     if not settings.DB_AUTO_CREATE:
@@ -69,10 +73,79 @@ def init_db() -> None:
     expected = set(Base.metadata.tables)
     try:
         # 远程库一次往返拿全表名；表齐全就跳过 create_all（否则每张表都要往返，几十秒）
-        with engine.connect() as conn:
+        with target_engine.connect() as conn:
             existing = set(inspect(conn).get_table_names())
         if expected <= existing:
+            _sync_columns(target_engine)
             return
     except Exception:  # 检查失败就走正常 create_all
         pass
-    Base.metadata.create_all(bind=engine)
+    Base.metadata.create_all(bind=target_engine)
+    _sync_columns(target_engine)
+
+
+def init_db() -> None:
+    """兼容旧入口：只初始化主库。完整容灾初始化走 db_failover.startup()。"""
+    ensure_schema(engine)
+
+
+# 已上线表后续新增的列：{表名: {列名: DDL}}。create_all 不会给老表补列，这里兜底。
+_COLUMN_PATCHES: dict[str, dict[str, str]] = {
+    "user_settings": {
+        "trash_enabled": "BOOLEAN NOT NULL DEFAULT 1",
+        "share_show_name": "BOOLEAN NOT NULL DEFAULT 0",
+    },
+    "users": {
+        "display_name": "VARCHAR(32) NULL",
+        "bio": "VARCHAR(200) NULL",
+        "avatar": "VARCHAR(64) NULL",
+        "dav_ha1": "VARCHAR(32) NULL",
+    },
+}
+
+# 需要改类型/长度的老列：{表名: {列名: 新定义}}
+_COLUMN_MODIFIES: dict[str, dict[str, str]] = {
+    # 提取码改为存 scrypt 哈希（原先 VARCHAR(8) 只够存明文 4 位）
+    "shares": {"extract_code": "VARCHAR(255) NULL"},
+}
+
+
+def _sync_columns(target_engine: Any) -> None:
+    """轻量迁移：缺列就 ALTER 补上，已存在则跳过；长度不够的列改定义。"""
+    log = logging.getLogger("uvicorn.error")
+    try:
+        with target_engine.connect() as conn:
+            insp = inspect(conn)
+            tables = set(insp.get_table_names())
+            for table, columns in _COLUMN_PATCHES.items():
+                if table not in tables:
+                    continue
+                existing = {col["name"] for col in insp.get_columns(table)}
+                for name, ddl in columns.items():
+                    if name in existing:
+                        continue
+                    with target_engine.begin() as tx:
+                        tx.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
+                    log.info("数据库补列：%s.%s", table, name)
+
+            # MODIFY COLUMN 是 MySQL 语法；SQLite 的 TEXT 不限长度，改列无意义
+            if target_engine.dialect.name != "mysql":
+                return
+            for table, columns in _COLUMN_MODIFIES.items():
+                if table not in tables:
+                    continue
+                info = {col["name"]: col for col in insp.get_columns(table)}
+                for name, ddl in columns.items():
+                    col = info.get(name)
+                    if col is None:
+                        continue
+                    # 已经是宽列就跳过，避免每次启动都 MODIFY
+                    if isinstance(col.get("type"), String) and col["type"].length not in (None, 8):
+                        continue
+                    if not isinstance(col.get("type"), String):
+                        continue
+                    with target_engine.begin() as tx:
+                        tx.exec_driver_sql(f"ALTER TABLE {table} MODIFY COLUMN {name} {ddl}")
+                    log.info("数据库改列：%s.%s → %s", table, name, ddl)
+    except Exception as exc:  # 补列失败不阻断启动，但要在日志里暴露
+        log.warning("数据库补列跳过：%s", exc)

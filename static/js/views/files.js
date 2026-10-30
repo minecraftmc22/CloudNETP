@@ -7,6 +7,9 @@ import { Dialog } from "../ui/dialog.js";
 import { Toast } from "../ui/toast.js";
 import { openMenu } from "../ui/menu.js";
 import { pickFolder } from "../ui/picker.js";
+import { runTask } from "../ui/tasks.js";
+import { canPreview, openViewer } from "../ui/viewer.js";
+import { shareItem } from "../ui/share.js";
 import { uploadFile } from "../uploader.js";
 
 const SORT_LABELS = { name: "名称", size: "大小", updated: "修改时间", created: "创建时间" };
@@ -402,7 +405,8 @@ export function renderFiles(root) {
       await load();
       return;
     }
-    downloadItem(item);
+    // 文件一律进预览器；不支持的格式由查看器展示「暂不支持此格式」并提供下载
+    openViewer(item, { onDownload: downloadItem });
   }
 
   function downloadItem(item) {
@@ -450,31 +454,42 @@ export function renderFiles(root) {
       title: items.length > 1 ? `移动 ${items.length} 项到` : "移动到",
       excludeId: first.type === "folder" ? first.id : null,
     });
-    if (target === null) return;
+    if (target === undefined) return; // 取消；null 表示移到根目录
     if (target === state.parentId && !state.searchMode) {
       Toast.info("已经在当前目录了");
       return;
     }
-    try {
-      for (const item of items) {
-        await api.post(`/api/nodes/${item.id}/move`, { parentId: target });
-      }
+
+    const result = await runTask({
+      title: "正在移动",
+      icon: "i-folder",
+      items,
+      run: (item) => api.post(`/api/nodes/${item.id}/move`, { parentId: target }),
+    });
+
+    if (result.failed) {
+      Toast.error(`${result.failed} 项移动失败`);
+    } else if (result.canceled) {
+      Toast.info(`已停止，成功移动 ${result.done} 项`);
+    } else {
       Toast.success(items.length > 1 ? `已移动 ${items.length} 项` : "已移动");
-      await load({ keepScroll: true });
-    } catch (err) {
-      Toast.error(err.message);
     }
+    if (result.done) await load({ keepScroll: true });
   }
 
   async function deleteItems(items) {
     if (!items.length) return;
     const onlyFolders = items.every((item) => item.type === "folder");
+    const trashOn = store.get().user?.settings?.trashEnabled !== false;
+    const subject = `「${escapeHtml(items[0].name)}」${
+      items.length > 1 ? " 等 " + items.length + " 项" : ""
+    }${onlyFolders ? "（含里面的全部内容）" : ""}`;
     const ok = await Dialog.confirm({
       title: items.length > 1 ? `删除 ${items.length} 项` : "删除文件",
-      message: `「${escapeHtml(items[0].name)}」${items.length > 1 ? " 等 " + items.length + " 项" : ""} 会被移到回收站${
-        onlyFolders ? "（含里面的全部内容）" : ""
-      }，可以随时还原。`,
-      confirmText: "移到回收站",
+      message: trashOn
+        ? `${subject} 会被移到回收站，可以随时还原。`
+        : `${subject} 会被<b>永久删除</b>，无法恢复（你已关闭回收站）。`,
+      confirmText: trashOn ? "移到回收站" : "永久删除",
       danger: true,
     });
     if (!ok) return;
@@ -482,7 +497,7 @@ export function renderFiles(root) {
       for (const item of items) {
         await api.del(`/api/nodes/${item.id}`);
       }
-      Toast.success("已移到回收站");
+      Toast.success(trashOn ? "已移到回收站" : "已永久删除");
       await load({ keepScroll: true });
       await refreshUser();
     } catch (err) {
@@ -504,11 +519,15 @@ export function renderFiles(root) {
           { label: `删除 ${state.selected.size} 项`, icon: "i-trash", danger: true, onClick: () => deleteItems(selectedItems()) },
         ]
       : [
-          {
-            label: item.type === "folder" ? "打开" : "下载",
-            icon: item.type === "folder" ? "i-folder" : "i-download",
-            onClick: () => openItem(item),
-          },
+          ...(item.type === "folder"
+            ? [{ label: "打开", icon: "i-folder", onClick: () => openItem(item) }]
+            : canPreview(item)
+            ? [
+                { label: "预览", icon: "i-image", onClick: () => openViewer(item, { onDownload: downloadItem }) },
+                { label: "下载", icon: "i-download", onClick: () => downloadItem(item) },
+              ]
+            : [{ label: "下载", icon: "i-download", onClick: () => downloadItem(item) }]),
+          { label: "分享链接", icon: "i-link", onClick: () => shareItem(item) },
           { sep: true },
           { label: "重命名", icon: "i-file", onClick: () => renameItem(item) },
           { label: "移动到…", icon: "i-share", onClick: () => moveItems([item]) },

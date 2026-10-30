@@ -35,6 +35,13 @@ class User(Base):
     id: Mapped[int] = mapped_column(AutoPK, primary_key=True, autoincrement=True)
     username: Mapped[str] = mapped_column(String(32), unique=True, nullable=False, index=True)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    # 展示资料（与登录名解耦）：昵称可改可重复，头像只存文件名
+    display_name: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    bio: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    avatar: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # WebDAV Digest 用的 HA1 = MD5(lower(username):realm:password)
+    # 只在注册 / 改密 / 登录时写入，老账号为 NULL 时需先登录一次补齐
+    dav_ha1: Mapped[str | None] = mapped_column(String(32), nullable=True)
     role: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=0)  # 0 普通 1 管理员
     quota_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False, default=10 * 1024**3)
     used_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
@@ -55,8 +62,11 @@ class UserSetting(Base):
     wallpaper: Mapped[str] = mapped_column(String(64), nullable=False, default="sakura")
     show_mascot: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     show_petals: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    trash_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     view_mode: Mapped[str] = mapped_column(String(8), nullable=False, default="grid")  # grid / list
     nav_collapsed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # 分享页是否显示分享者完整昵称（关闭只显示前两位）
+    share_show_name: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
 
 class Blob(Base):
@@ -137,7 +147,7 @@ class Share(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     node_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     token: Mapped[str] = mapped_column(String(43), unique=True, nullable=False, index=True)
-    extract_code: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    extract_code: Mapped[str | None] = mapped_column(String(255), nullable=True)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     max_downloads: Mapped[int | None] = mapped_column(Integer, nullable=True)
     download_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

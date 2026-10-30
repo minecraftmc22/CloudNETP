@@ -34,3 +34,10 @@ export const store = createStore({
   route: "files",
   navCollapsed: false,
 });
+
+/** 对外站点根地址：优先用 .env 的 SITE_URL，未配置时退回当前浏览器地址。 */
+export function siteOrigin() {
+  const configured = store.get().meta?.siteUrl;
+  const base = configured && /^https?:\/\//i.test(configured) ? configured : location.origin;
+  return base.replace(/\/+$/, "");
+}

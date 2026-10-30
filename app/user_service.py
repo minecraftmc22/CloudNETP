@@ -31,10 +31,14 @@ def user_payload(db: Session, user: User) -> dict[str, Any]:
     return {
         "id": user.id,
         "username": user.username,
+        "displayName": user.display_name or user.username,
+        "bio": user.bio or "",
+        "avatarUrl": f"/api/avatar/{user.avatar}" if user.avatar else None,
         "role": user.role,
         "quotaBytes": user.quota_bytes,
         "usedBytes": user.used_bytes,
         "banned": bool(user.banned),
+        "davReady": bool(user.dav_ha1),
         "createdAt": iso(user.created_at),
         "lastLoginAt": iso(user.last_login_at),
         "settings": {
@@ -43,8 +47,10 @@ def user_payload(db: Session, user: User) -> dict[str, Any]:
             "wallpaper": s.wallpaper,
             "showMascot": bool(s.show_mascot),
             "showPetals": bool(s.show_petals),
+            "trashEnabled": bool(s.trash_enabled),
             "viewMode": s.view_mode,
             "navCollapsed": bool(s.nav_collapsed),
+            "shareShowName": bool(s.share_show_name),
         },
     }
 

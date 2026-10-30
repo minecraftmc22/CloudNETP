@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#150f21">
+  <title>离线 · CloudNETP</title>
+  <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+  <style>
+    :root {
+      --bg: #150f21;
+      --ink: #ece6f6;
+      --muted: #a294bd;
+      --accent: #c084fc;
+      --warm: #f9a8d4;
+      --stroke: rgba(255, 255, 255, 0.1);
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      display: grid;
+      place-items: center;
+      padding: 28px;
+      color: var(--ink);
+      background:
+        radial-gradient(1100px 620px at 82% -12%, rgba(192, 132, 252, 0.22), transparent 62%),
+        radial-gradient(880px 520px at 6% 104%, rgba(249, 168, 212, 0.16), transparent 58%),
+        var(--bg);
+      font: 14px/1.75 "Segoe UI", system-ui, -apple-system, "Microsoft YaHei", sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    .card {
+      width: min(420px, 100%);
+      padding: 34px 30px 26px;
+      text-align: center;
+      border-radius: 20px;
+      border: 1px solid var(--stroke);
+      background: rgba(255, 255, 255, 0.045);
+      box-shadow: 0 24px 64px rgba(8, 4, 14, 0.55);
+      backdrop-filter: blur(22px) saturate(1.5);
+      animation: rise 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
+    }
+    @keyframes rise {
+      from { opacity: 0; transform: translateY(10px) scale(0.985); }
+      to { opacity: 1; transform: none; }
+    }
+    .mark {
+      width: 62px;
+      height: 62px;
+      margin: 0 auto 16px;
+      border-radius: 18px;
+      display: grid;
+      place-items: center;
+      background: linear-gradient(135deg, var(--accent), var(--warm));
+      box-shadow: 0 12px 28px rgba(192, 132, 252, 0.34);
+    }
+    .mark svg { width: 34px; height: 34px; }
+    h1 {
+      margin: 0 0 6px;
+      font-size: 17px;
+      font-weight: 600;
+      letter-spacing: 0.2px;
+    }
+    p {
+      margin: 0;
+      font-size: 12.8px;
+      color: var(--muted);
+    }
+    .hint {
+      margin-top: 18px;
+      padding: 10px 14px;
+      border-radius: 12px;
+      border: 1px solid var(--stroke);
+      background: rgba(255, 255, 255, 0.04);
+      font-size: 12px;
+      color: var(--muted);
+      text-align: left;
+    }
+    .hint b { color: var(--ink); font-weight: 600; }
+    button {
+      margin-top: 20px;
+      width: 100%;
+      padding: 10px 18px;
+      border: 0;
+      border-radius: 10px;
+      font: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      color: #1a1024;
+      background: linear-gradient(135deg, var(--accent), var(--warm));
+      cursor: pointer;
+      transition: transform 140ms ease, filter 140ms ease, opacity 140ms ease;
+    }
+    button:hover { filter: brightness(1.06); transform: translateY(-1px); }
+    button:active { transform: none; opacity: 0.9; }
+    .foot {
+      margin-top: 14px;
+      font-size: 11.5px;
+      color: rgba(162, 148, 189, 0.75);
+    }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <div class="mark" aria-hidden="true">
+      <svg viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+        <path d="M14.5 32.5h17.2a6.1 6.1 0 0 0 .8-12.1 8.7 8.7 0 0 0-16.3-1.6 6.1 6.1 0 0 0-1.7 13.7Z"
+              fill="#fff" fill-opacity="0.95"/>
+        <path d="M20 23.4v6M20 23.4l-2.4 2.4M20 23.4l2.4 2.4"
+              stroke="#8b5cf6" stroke-width="1.7" stroke-linecap="round" fill="none"/>
+      </svg>
+    </div>
+    <h1>现在连不上小云盘</h1>
+    <p>网络不通，或者服务端暂时没启动。</p>
+    <div class="hint">
+      <b>已经打开过的页面仍可浏览</b>，但文件列表、上传、下载都需要联网。
+      网络恢复后点下面的按钮就能继续。
+    </div>
+    <button type="button" onclick="location.reload()">重新加载</button>
+    <div class="foot">CloudNETP · 樱色云盘</div>
+  </main>
+</body>
+</html>
