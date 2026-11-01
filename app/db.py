@@ -94,6 +94,7 @@ _COLUMN_PATCHES: dict[str, dict[str, str]] = {
     "user_settings": {
         "trash_enabled": "BOOLEAN NOT NULL DEFAULT 1",
         "share_show_name": "BOOLEAN NOT NULL DEFAULT 0",
+        "lyrics_style": "JSON NULL",
     },
     "users": {
         "display_name": "VARCHAR(32) NULL",

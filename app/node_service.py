@@ -22,7 +22,10 @@ MAX_DEPTH = 64  # 目录层级保护，同时防止异常数据造成死循环
 
 IMAGE_EXT = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".svg", ".avif", ".ico"}
 VIDEO_EXT = {".mp4", ".webm", ".mkv", ".mov", ".avi", ".m4v", ".m3u8", ".mpd"}
-AUDIO_EXT = {".mp3", ".flac", ".wav", ".ogg", ".m4a", ".aac", ".opus"}
+AUDIO_EXT = {
+    ".mp3", ".flac", ".wav", ".ogg", ".oga", ".m4a", ".aac", ".opus",
+    ".wma", ".ape", ".aiff", ".aif", ".dsf", ".wv",
+}
 ARCHIVE_EXT = {".zip", ".rar", ".7z", ".tar", ".gz", ".xz", ".bz2"}
 CODE_EXT = {
     ".py", ".js", ".ts", ".jsx", ".tsx", ".json", ".html", ".css", ".scss", ".vue",

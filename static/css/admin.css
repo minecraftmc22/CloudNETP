@@ -241,6 +241,9 @@
 .admin-toolbar .searchbox {
   width: 220px;
 }
+.admin-toolbar .selectbox {
+  width: 180px;
+}
 .admin-count {
   font-size: 11.5px;
   color: var(--text-3);

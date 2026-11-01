@@ -29,7 +29,8 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 28px 20px 40px;
+  /* 刘海屏与手势条：配合 viewport-fit=cover 留出安全区 */
+  padding: calc(28px + env(safe-area-inset-top, 0px)) 20px calc(40px + env(safe-area-inset-bottom, 0px));
   gap: 18px;
 }
 
@@ -357,7 +358,8 @@ body {
 
 @media (max-width: 560px) {
   .share-page {
-    padding: 18px 12px 28px;
+    padding: calc(18px + env(safe-area-inset-top, 0px)) 12px
+      calc(28px + env(safe-area-inset-bottom, 0px));
   }
   .share-card {
     padding: 16px;

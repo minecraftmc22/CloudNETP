@@ -25,7 +25,7 @@ export function renderShares(root) {
         <span>我的分享</span>
       </div>
       <span class="view-sub" data-summary></span>
-      <div style="flex:1"></div>
+      <div class="grow"></div>
       <button class="icon-btn" type="button" data-act="refresh" title="刷新列表">
         <svg class="icon"><use href="#i-refresh"/></svg>
       </button>

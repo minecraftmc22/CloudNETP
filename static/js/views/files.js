@@ -38,7 +38,7 @@ export function renderFiles(root) {
         <span data-title>我的文件</span>
       </div>
       <span class="view-sub" data-quota></span>
-      <div style="flex:1"></div>
+      <div class="grow"></div>
       <button class="icon-btn" type="button" data-act="refresh" title="刷新列表">
         <svg class="icon"><use href="#i-refresh"/></svg>
       </button>
@@ -53,7 +53,7 @@ export function renderFiles(root) {
 
     <div class="crumb-bar">
       <nav class="crumb" data-crumb aria-label="路径"></nav>
-      <div style="flex:1"></div>
+      <div class="grow"></div>
       <button class="sort-btn" type="button" data-act="sort" title="切换排序">
         <span data-sort-label>名称</span>
         <svg class="icon"><use href="#i-chevron"/></svg>

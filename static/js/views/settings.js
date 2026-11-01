@@ -94,7 +94,7 @@ export function renderSettings(root) {
               <div class="setting-row__label">主题模式</div>
               <div class="setting-row__desc">跟随系统时会随 Windows 深色模式自动切换</div>
             </div>
-            <div class="segmented" data-theme-seg style="width:230px">
+            <div class="segmented segmented--wide" data-theme-seg>
               <div class="segmented__thumb" data-thumb></div>
               ${THEME_MODES.map(
                 (m) =>

@@ -335,9 +335,17 @@ def update_settings(
         "view_mode",
         "nav_collapsed",
         "share_show_name",
+        "lyrics_style",
     }
     for field, value in payload.model_dump(exclude_none=True).items():
         if field in allowed:
+            if field == "lyrics_style":
+                # 整体覆盖，且只收白名单键，避免塞进任意垃圾
+                value = {
+                    k: value[k]
+                    for k in ("fontSize", "hotColor", "showTrans")
+                    if k in value
+                }
             setattr(row, field, value)
     db.commit()
     return {"settings": user_payload(db, user)["settings"]}

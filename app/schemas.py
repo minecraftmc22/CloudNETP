@@ -44,6 +44,8 @@ class SettingsIn(CamelModel):
     view_mode: Literal["grid", "list"] | None = None
     nav_collapsed: bool | None = None
     share_show_name: bool | None = None
+    # 歌词播放器样式（fontSize/hotColor/showTrans），整体覆盖
+    lyrics_style: dict | None = None
 
 
 class ProfileIn(CamelModel):
@@ -74,6 +76,19 @@ class RenameIn(CamelModel):
 
 class MoveIn(CamelModel):
     parent_id: int | None = None
+
+
+# --------------------------------------------------------------------------- #
+# 歌词偏好
+# --------------------------------------------------------------------------- #
+class LyricsPrefIn(CamelModel):
+    """每首歌的歌词来源偏好。mode 决定哪些字段有效。"""
+
+    mode: Literal["auto", "song", "custom", "none"]
+    song_id: int | None = None
+    song_title: str | None = Field(default=None, max_length=200)
+    song_artist: str | None = Field(default=None, max_length=200)
+    custom_lyrics: str | None = Field(default=None, max_length=200_000)
 
 
 class PurgeIn(CamelModel):

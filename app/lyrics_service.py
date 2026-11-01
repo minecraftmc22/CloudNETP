@@ -1,0 +1,585 @@
+"""音频元数据解析（mutagen）与歌词 API 代理。
+
+歌词数据来自歌词库开发者 API（滚动逐词歌词 + 搜索）：
+- 基址与密钥放在服务端（LYRICS_API_BASE / LYRICS_API_KEY），前端只访问本站代理，
+  密钥绝不进前端代码（接口文档的最佳实践）。
+- 歌词是静态内容，按 song id 缓存；搜索结果按查询词缓存，避免刷爆每日额度。
+
+本模块对上游的全部请求都直连（不走系统代理）：本机代理对 TLS 上游会超时。
+"""
+
+from __future__ import annotations
+
+import base64
+import json
+import logging
+import re
+import threading
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+from collections import OrderedDict
+from pathlib import Path
+
+log = logging.getLogger("uvicorn.error")
+
+SEARCH_TTL = 6 * 3600  # 搜索缓存 6 小时
+LYRICS_TTL = 24 * 3600  # 歌词缓存 24 小时（歌词几乎不变）
+_CACHE_MAX = 300
+
+_opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+_lock = threading.Lock()
+_search_cache: OrderedDict[str, tuple[float, list[dict]]] = OrderedDict()
+_lyrics_cache: OrderedDict[int, tuple[float, dict]] = OrderedDict()
+
+
+class LyricsApiError(RuntimeError):
+    """歌词接口业务错误，message 为可直接展示的中文说明。"""
+
+    def __init__(self, message: str, code: str = "", status: int = 0):
+        super().__init__(message)
+        self.message = message
+        self.code = code
+        self.status = status
+
+
+# --------------------------------------------------------------------------- #
+# 音频元数据（mutagen）
+# --------------------------------------------------------------------------- #
+# 扩展名 → mutagen 精确加载器。mutagen.File() 靠启发式评分猜类型，
+# 带 ID3 的 WAV/AIFF 会被误判成 MP3 而抛错，所以已知扩展名先走精确加载。
+def _explicit_loaders() -> dict[str, callable]:
+    from mutagen.asf import ASF
+    from mutagen.aiff import AIFF
+    from mutagen.dsf import DSF
+    from mutagen.flac import FLAC
+    from mutagen.monkeysaudio import MonkeysAudio
+    from mutagen.mp3 import MP3
+    from mutagen.mp4 import MP4
+    from mutagen.oggopus import OggOpus
+    from mutagen.oggvorbis import OggVorbis
+    from mutagen.wavpack import WavPack
+    from mutagen.wave import WAVE
+
+    return {
+        ".mp3": MP3, ".flac": FLAC, ".m4a": MP4, ".mp4": MP4, ".m4b": MP4,
+        ".ogg": OggVorbis, ".oga": OggVorbis, ".opus": OggOpus,
+        ".wma": ASF, ".wav": WAVE, ".aiff": AIFF, ".aif": AIFF,
+        ".dsf": DSF, ".wv": WavPack, ".ape": MonkeysAudio,
+    }
+
+
+def _load_audio(path: Path) -> tuple[object | None, object | None]:
+    """按扩展名精确加载 → mutagen.File() 启发式 → tags-only 兜底。
+
+    返回 (fileobj, tags_only)：fileobj 是完整 FileType（含 info）；
+    音轨信息解析失败（如 MP4 时基异常）时退化为只读标签对象，元数据照常展示。
+    """
+    from mutagen import File as MutagenFile
+
+    loader = _explicit_loaders().get(path.suffix.lower())
+    if loader is not None:
+        try:
+            mf = loader(str(path))
+            if mf is not None:
+                return mf, None
+        except Exception as exc:
+            log.warning("音频元数据精确加载失败 %s（%s）：%s", path.name, path.suffix, exc)
+    try:
+        mf = MutagenFile(str(path))
+        if mf is not None:
+            return mf, None
+    except Exception as exc:
+        log.warning("音频元数据解析失败 %s：%s", path.name, exc)
+
+    # 最后的兜底：跳过音轨/时长，只读标签容器
+    ext = path.suffix.lower()
+    candidates = []
+    if ext in (".mp3", ".wav", ".aiff", ".aif", ".dsf"):
+        from mutagen.id3 import ID3
+        candidates.append(lambda p: ID3(str(p)))
+    if ext in (".m4a", ".mp4", ".m4b"):
+        def _mp4_tags(p: str):
+            # MP4Tags 不能独立构造：需先建 atom 树（音轨信息解析失败不影响标签）
+            from mutagen.mp4 import Atoms, MP4Tags
+
+            with open(p, "rb") as fh:
+                atoms = Atoms(fh)
+                fh.seek(0)
+                return MP4Tags(atoms, fh)
+        candidates.append(_mp4_tags)
+    for loader in candidates:
+        try:
+            return None, loader(str(path))
+        except Exception:
+            continue
+    return None, None
+
+
+def audio_meta(path: Path, fallback_title: str) -> dict:
+    """读取音频文件元数据与内嵌封面（mutagen 全容器）。
+
+    支持的标签容器：ID3v2（MP3/WAV/AIFF/DSF）、MP4（M4A）、
+    Vorbis 注释（FLAC/Ogg/Opus）、ASF（WMA）、APEv2（APE/WavPack）。
+    返回 {title, artist, album, duration, cover, coverMime}，解析失败时字段留空
+    并以文件名兜底，绝不抛异常——元数据缺失也要能正常播放。
+    """
+    meta: dict = {
+        "title": fallback_title,
+        "artist": "",
+        "album": "",
+        "duration": 0.0,
+        "cover": None,
+        "coverMime": "",
+    }
+    mf, tags_only = _load_audio(path)
+    if mf is None and tags_only is None:
+        return meta
+
+    if mf is not None:
+        try:
+            meta["duration"] = round(float(mf.info.length), 3)
+        except Exception:
+            pass
+        tags = mf.tags
+    else:
+        tags = tags_only
+    if tags:
+
+        def _first(key: str) -> str:
+            try:
+                vals = tags.get(key)
+            except Exception:
+                return ""
+            if not vals:
+                return ""
+            value = vals[0]
+            return str(value).strip() if value is not None else ""
+
+        # 键名按容器区分（按命中概率排序）：
+        #   ID3（MP3/WAV/AIFF/DSF）: TIT2/TPE1/TALB
+        #   MP4（M4A）: ©nam/©ART/©alb
+        #   Vorbis 注释（FLAC/Ogg/Opus）: 小写 title/artist/album
+        #   ASF（WMA）: Title/Author/WM/AlbumTitle
+        #   APEv2（APE/WavPack）: Title/Artist/Album
+        _KEYS = {
+            "title": ("TIT2", "©nam", "title", "Title", "WM/AlbumTitle"),
+            "artist": ("TPE1", "©ART", "artist", "Author", "Artist"),
+            "album": ("TALB", "©alb", "album", "Album", "WM/AlbumTitle"),
+        }
+        for field, keys in _KEYS.items():
+            for key in keys:
+                if value := _first(key):
+                    meta[field] = value
+                    break
+
+    cover, mime = _extract_cover(mf, tags)
+    if cover:
+        meta["cover"] = cover
+        meta["coverMime"] = mime
+    return meta
+
+
+def _extract_cover(mf, tags) -> tuple[bytes | None, str]:
+    """按容器类型取内嵌封面（全部容器的封面都是独立存图，mime 统一归一化）。
+
+    MP3/WAV/AIFF/DSF: ID3 APIC · FLAC/Ogg: Picture · MP4: covr ·
+    WMA: WM/Picture · APE/WavPack: Cover Art (front)
+    """
+    pictures = getattr(mf, "pictures", None)  # FLAC（Ogg 走 METADATA_BLOCK_PICTURE）
+    if pictures:
+        pic = pictures[0]
+        return pic.data, _norm_image_mime(pic.mime, pic.data)
+
+    if tags is None:
+        return None, ""
+    try:
+        apics = tags.getall("APIC") if hasattr(tags, "getall") else []  # ID3v2
+    except Exception:
+        apics = []
+    if apics:
+        pic = apics[0]
+        # ID3v2.2/2.3 的 mime 常写成 "PNG"/"JPG"（没有 image/ 前缀）
+        return bytes(pic.data), _norm_image_mime(pic.mime, pic.data)
+
+    try:
+        covrs = tags.get("covr")  # MP4 / M4A
+    except Exception:
+        covrs = None
+    if covrs:
+        data = bytes(covrs[0])
+        return data, _sniff_image_mime(data)
+
+    try:
+        wm_pics = tags.get("WM/Picture")  # WMA / ASF
+    except Exception:
+        wm_pics = None
+    if wm_pics:
+        data = _asf_picture(bytes(wm_pics[0]))
+        if data:
+            return data, _sniff_image_mime(data)
+
+    try:
+        ape_pics = tags.get("Cover Art (front)")  # APE / WavPack
+    except Exception:
+        ape_pics = None
+    if ape_pics:
+        raw = bytes(ape_pics[0])
+        # APE 封面 = 文件名 + b"\x00" + 图片数据
+        if b"\x00" in raw:
+            data = raw.split(b"\x00", 1)[1]
+            if data:
+                return data, _sniff_image_mime(data)
+
+    try:
+        raw = tags.get("METADATA_BLOCK_PICTURE")  # Ogg/Vorbis（base64 FLAC Picture）
+    except Exception:
+        raw = None
+    if raw:
+        try:
+            from mutagen.flac import Picture
+
+            pic = Picture(base64.b64decode(str(raw[0])))
+            return pic.data, _norm_image_mime(pic.mime, pic.data)
+        except Exception:
+            pass
+    return None, ""
+
+
+def _asf_picture(raw: bytes) -> bytes:
+    """解析 ASF WM/Picture：picture_type(1B) + mime\0 + 描述\0 + 图片数据。"""
+    try:
+        pos = raw.index(b"\x00") + 1  # 跳过 mime
+        pos = raw.index(b"\x00", pos) + 1  # 跳过描述
+        return raw[pos:]
+    except ValueError:
+        return b""
+
+
+def _norm_image_mime(mime: str, data: bytes) -> str:
+    """把各容器里的封面 mime 归一化；可疑/缺失时按文件头嗅探。"""
+    mime = (mime or "").strip().lower()
+    if mime in {"png", "jpg", "jpeg", "jpe", "gif", "bmp"}:
+        mime = f"image/{'jpeg' if mime in {'jpg', 'jpeg', 'jpe'} else mime}"
+    if not mime.startswith("image/"):
+        return _sniff_image_mime(data)
+    return mime
+
+
+def _sniff_image_mime(data: bytes) -> str:
+    if data[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if data[:6] in (b"GIF87a", b"GIF89a"):
+        return "image/gif"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    return "image/jpeg"
+
+
+# --------------------------------------------------------------------------- #
+# 歌词 API 代理
+# --------------------------------------------------------------------------- #
+def _get(url: str, key: str, timeout: float = 12.0) -> dict:
+    req = urllib.request.Request(
+        url, headers={"Authorization": f"Bearer {key}", "User-Agent": "CloudNETP/lyrics"}
+    )
+    try:
+        with _opener.open(req, timeout=timeout) as resp:
+            return json.loads(resp.read())
+    except urllib.error.HTTPError as exc:
+        try:
+            body = json.loads(exc.read() or b"{}")
+        except Exception:
+            body = {}
+        err = body.get("error") or {}
+        raise LyricsApiError(
+            err.get("message") or f"歌词接口返回 HTTP {exc.code}",
+            code=err.get("code") or "http_error",
+            status=exc.code,
+        ) from None
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+        raise LyricsApiError("歌词服务暂时不可用", code="network") from exc
+
+
+def _cache_get(cache: OrderedDict, key, ttl: float):
+    with _lock:
+        hit = cache.get(key)
+        if not hit:
+            return None
+        ts, value = hit
+        if time.time() - ts > ttl:
+            del cache[key]
+            return None
+        cache.move_to_end(key)
+        return value
+
+
+def _cache_put(cache: OrderedDict, key, value) -> None:
+    with _lock:
+        cache[key] = (time.time(), value)
+        cache.move_to_end(key)
+        while len(cache) > _CACHE_MAX:
+            cache.popitem(last=False)
+
+
+def search_songs(query: str, limit: int = 8) -> list[dict]:
+    """搜索歌曲，返回 items（title/artist/album/id/duration_ms/cover_url...）。"""
+    from .config import settings
+
+    if not settings.LYRICS_API_KEY:
+        raise LyricsApiError("未配置歌词接口密钥（LYRICS_API_KEY）", code="no_key")
+    query = query.strip()
+    if not query:
+        return []
+    cache_key = f"{limit}|{query}"
+    if (hit := _cache_get(_search_cache, cache_key, SEARCH_TTL)) is not None:
+        return hit
+    url = (
+        f"{settings.LYRICS_API_BASE}/search.php?"
+        + urllib.parse.urlencode({"q": query, "limit": limit})
+    )
+    body = _get(url, settings.LYRICS_API_KEY)
+    if not body.get("ok"):
+        raise LyricsApiError("歌词搜索失败", code="upstream")
+    items = body.get("data", {}).get("items") or []
+    _cache_put(_search_cache, cache_key, items)
+    return items
+
+
+def fetch_lyrics(song_id: int) -> dict:
+    """按歌曲 id 取逐词歌词（lang=both 双语，gran=auto 跟随版本）。"""
+    from .config import settings
+
+    if not settings.LYRICS_API_KEY:
+        raise LyricsApiError("未配置歌词接口密钥（LYRICS_API_KEY）", code="no_key")
+    if (hit := _cache_get(_lyrics_cache, song_id, LYRICS_TTL)) is not None:
+        return hit
+    url = (
+        f"{settings.LYRICS_API_BASE}/lyrics.php?"
+        + urllib.parse.urlencode({"song": song_id, "lang": "both", "gran": "auto"})
+    )
+    body = _get(url, settings.LYRICS_API_KEY)
+    if not body.get("ok"):
+        raise LyricsApiError("歌词获取失败", code="upstream")
+    data = body.get("data") or {}
+    _cache_put(_lyrics_cache, song_id, data)
+    return data
+
+
+def find_and_fetch(title: str, artist: str = "") -> dict:
+    """按「标题 歌手」搜索并取最匹配歌曲的歌词。
+
+    匹配策略：先「标题 + 歌手」，没结果退回仅标题；命中后取第一条。
+    返回 {song: {...}, matched: bool, lines: [...], granularity, ...}。
+    """
+    q_parts = [part for part in (title.strip(), artist.strip()) if part]
+    if not q_parts:
+        raise LyricsApiError("缺少歌名", code="missing_param")
+    items = search_songs(" ".join(q_parts))
+    if not items and artist.strip() and title.strip():
+        items = search_songs(title.strip())
+    if not items:
+        raise LyricsApiError("歌词库里没有找到这首歌", code="song_not_found", status=404)
+    best = items[0]
+    data = fetch_lyrics(best["id"])
+    data["matched"] = {"id": best["id"], **{k: best.get(k, "") for k in ("title", "artist", "album")}}
+    return data
+
+
+# --------------------------------------------------------------------------- #
+# 内嵌歌词与 LRC 解析
+# --------------------------------------------------------------------------- #
+_TIME_RE = re.compile(r"\[(\d{1,3}):(\d{1,2})(?:[.:](\d{1,3}))?\]")
+_META_RE = re.compile(r"^\[(ti|ar|al|by|offset|re|ve|hash|total|sign|length|encoding):(.*)\]$", re.IGNORECASE)
+_WORD_RE = re.compile(r"<(\d{1,3}):(\d{1,2})(?:[.:](\d{1,3}))?>")
+
+
+def embedded_lyrics(path: Path) -> str:
+    """提取音频文件内嵌歌词文本（通常是 LRC）。
+
+    按容器取：ID3 USLT（MP3/WAV/AIFF/DSF）· MP4 ©lyr ·
+    Vorbis LYRICS/UNSYNCEDLYRICS · ASF WM/Lyrics · APEv2 Lyrics。
+    没有内嵌歌词返回空串，绝不抛异常。
+    """
+    mf, tags_only = _load_audio(path)
+    try:
+        tags = mf.tags if mf is not None and mf.tags else tags_only
+    except Exception:
+        tags = tags_only
+    if not tags:
+        return ""
+
+    try:
+        uslts = tags.getall("USLT") if hasattr(tags, "getall") else []
+    except Exception:
+        uslts = []
+    for frame in uslts:  # ID3v2 非同步歌词
+        text = getattr(frame, "text", None)
+        if text and str(text).strip():
+            return str(text)
+
+    def _get(key: str) -> str:
+        try:
+            vals = tags.get(key)
+        except Exception:
+            return ""
+        if not vals:
+            return ""
+        value = vals[0]
+        return str(value).strip() if value is not None else ""
+
+    for key in ("©lyr", "LYRICS", "UNSYNCEDLYRICS", "UNSYNCED LYRICS", "LYRIC", "WM/Lyrics", "Lyrics"):
+        val = _get(key)
+        if val:
+            return val
+    return ""
+
+
+def _lrc_ms(match: re.Match) -> int:
+    minute = int(match.group(1))
+    sec = int(match.group(2))
+    frac = match.group(3) or ""
+    ms = minute * 60_000 + sec * 1000
+    if frac:
+        ms += int(frac) * 10 ** (3 - len(frac))  # 2 位百分秒 / 3 位毫秒 / 1 位十分秒
+    return ms
+
+
+def parse_lrc(text: str) -> tuple[list[dict], bool]:
+    """LRC 文本（含增强 A2 词级 <mm:ss.xx> 标签）→ 行数组。
+
+    返回 (lines, unsynced)：有时间戳走同步渲染；整篇没有时间戳就按
+    静态文本返回（start/end 都为 0，前端不高亮不跟随）。
+    """
+    offset = 0
+    timed: list[tuple[int, str, list | None]] = []
+    plain: list[str] = []
+    for raw in (text or "").splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        if (meta := _META_RE.match(line)):
+            if meta.group(1).lower() == "offset":
+                try:
+                    offset = int(meta.group(2).strip())
+                except ValueError:
+                    pass
+            continue
+        stamps = [_lrc_ms(m) for m in _TIME_RE.finditer(line)]
+        content = _TIME_RE.sub("", line).strip()
+        if not stamps:
+            if content:
+                plain.append(content)
+            continue
+
+        # 增强型 A2：行内 <mm:ss.xx> 词级时间戳
+        words: list[dict] | None = None
+        wtags = list(_WORD_RE.finditer(content))
+        if len(wtags) >= 2:
+            words = []
+            for i, w in enumerate(wtags):
+                seg = content[w.end(): wtags[i + 1].start() if i + 1 < len(wtags) else len(content)]
+                if seg:
+                    words.append({"start": _lrc_ms(w), "end": 0, "text": seg})
+            if len(words) < 2:
+                words = None
+            content = _WORD_RE.sub("", content).strip()
+        for st in stamps:
+            timed.append((max(0, st - offset), content, words))
+
+    if not timed:
+        # 全是没时间戳的裸文本：静态展示
+        return [{"start": 0, "end": 0, "text": t} for t in plain], True
+
+    timed.sort(key=lambda r: r[0])
+    merged: list[dict] = []
+    for st, content, words in timed:
+        if not content and not words:
+            continue
+        prev = merged[-1] if merged else None
+        if prev and prev["start"] == st:
+            if content == prev["text"]:
+                continue  # 完全重复的时间戳行
+            if content and not prev["trans"]:
+                prev["trans"] = content  # 第二条通常是翻译
+                continue
+            if not content and not words:
+                continue
+            # 已有翻译还来同时间戳的新内容 → 对唱另一人，保留为独立行
+        merged.append({"start": st, "text": content, "trans": "", "words": words})
+
+    lines: list[dict] = []
+    for i, row in enumerate(merged):
+        end = merged[i + 1]["start"] if i + 1 < len(merged) else row["start"] + 8000
+        line: dict = {"start": row["start"], "end": max(end, row["start"] + 1), "text": row["text"]}
+        if row["trans"]:
+            line["trans"] = row["trans"]
+        if row["words"]:
+            words = row["words"]
+            for j, w in enumerate(words):
+                w["end"] = words[j + 1]["start"] if j + 1 < len(words) else max(end, w["start"] + 500)
+            line["words"] = words
+        lines.append(line)
+    return lines, False
+
+
+def _pref_song(pref) -> dict | None:
+    if pref is None or not pref.song_id:
+        return None
+    return {"id": pref.song_id, "title": pref.song_title, "artist": pref.song_artist}
+
+
+def resolve_lyrics(db, node, blob_path: Path, fallback_title: str) -> dict:
+    """按每首歌的偏好解析最终歌词。
+
+    优先级（auto 模式）：音频自带 → 在线搜索 → 无歌词；
+    song/custom/none 是用户显式选择，直接生效。
+    返回 {source, matched, lines, unsynced?, error?}，不抛异常。
+    """
+    from .models import AudioPref
+
+    pref = db.get(AudioPref, node.id)
+    mode = pref.mode if pref is not None else "auto"
+
+    if mode == "none":
+        return {"source": "none", "matched": None, "lines": []}
+
+    if mode == "custom":
+        text = (pref.custom_lyrics if pref else "") or ""
+        if not text.strip():
+            return {"source": "none", "matched": None, "lines": []}
+        lines, unsynced = parse_lrc(text)
+        return {"source": "custom", "matched": None, "lines": lines, "unsynced": unsynced}
+
+    if mode == "song":
+        if pref is None or not pref.song_id:
+            return {"source": "none", "matched": None, "lines": []}
+        try:
+            data = fetch_lyrics(pref.song_id)
+        except LyricsApiError as exc:
+            return {
+                "source": "song", "matched": _pref_song(pref),
+                "lines": [], "error": exc.message or "歌词获取失败",
+            }
+        return {"source": "song", "matched": _pref_song(pref), "lines": data.get("lines") or []}
+
+    # ---- auto：音频自带 → 在线搜索 → 无歌词 ----
+    try:
+        text = embedded_lyrics(blob_path)
+    except Exception as exc:
+        log.warning("内嵌歌词读取失败 %s：%s", blob_path.name, exc)
+        text = ""
+    if text.strip():
+        lines, unsynced = parse_lrc(text)
+        if lines:
+            return {"source": "embedded", "matched": None, "lines": lines, "unsynced": unsynced}
+
+    meta = audio_meta(blob_path, fallback_title)
+    try:
+        data = find_and_fetch(meta["title"], meta["artist"])
+        return {"source": "online", "matched": data.get("matched"), "lines": data.get("lines") or []}
+    except LyricsApiError as exc:
+        return {"source": "none", "matched": None, "lines": [], "error": exc.message or "没有找到这首歌的歌词"}

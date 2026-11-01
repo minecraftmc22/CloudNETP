@@ -50,7 +50,7 @@ def _get_bool(key: str, default: bool) -> bool:
 class Settings:
     # ---- 应用 ----
     APP_NAME: str = _get("APP_NAME", "CloudNETP")
-    VERSION: str = "0.3.1"
+    VERSION: str = "0.3.8"
     DEBUG: bool = _get_bool("DEBUG", True)
 
     # ---- 监听与对外地址 ----
@@ -99,6 +99,11 @@ class Settings:
     DB_PROBE_INTERVAL: int = _get_int("DB_PROBE_INTERVAL", 30)
     # 主库 → SQLite 镜像间隔（秒）。0 = 不做周期镜像（启动时仍会镜像一次）
     DB_MIRROR_INTERVAL: int = _get_int("DB_MIRROR_INTERVAL", 300)
+
+    # ---- 歌词 API（音频预览的逐词歌词）----
+    # 密钥只放服务端，前端通过 /api/lyrics 代理访问，避免密钥泄露
+    LYRICS_API_BASE: str = _get("LYRICS_API_BASE", "https://minecraftmc22.top/lyric/api/v1").rstrip("/")
+    LYRICS_API_KEY: str = _get("LYRICS_API_KEY")
 
     # ---- 存储 ----
     STORAGE_DIR: Path = Path(_get("STORAGE_DIR") or str(BASE_DIR / "storage")).resolve()

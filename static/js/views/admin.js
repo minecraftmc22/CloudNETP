@@ -83,7 +83,7 @@ export function renderAdmin(root) {
     <div class="view-head">
       <div class="view-title"><svg class="icon"><use href="#i-shield"/></svg>管理后台</div>
       <span class="view-sub" data-sub>站点运行状态</span>
-      <div style="flex:1"></div>
+      <div class="grow"></div>
       <button class="icon-btn" type="button" data-act="refresh" title="刷新当前页">
         <svg class="icon"><use href="#i-refresh"/></svg>
       </button>
@@ -252,7 +252,7 @@ export function renderAdmin(root) {
               `<button class="admin-chip ${state.users.filter === f.id ? "is-active" : ""}" type="button" data-filter="${f.id}">${f.label}</button>`
           ).join("")}
         </div>
-        <div style="flex:1"></div>
+        <div class="grow"></div>
         <span class="admin-count" data-count></span>
       </div>
       <div data-table>${loading()}</div>
@@ -559,7 +559,7 @@ export function renderAdmin(root) {
     const actions = await ensureActions();
     panel.innerHTML = `
       <div class="admin-toolbar">
-        <span class="selectbox" style="width:180px">
+        <span class="selectbox">
           <select data-action>
             <option value="">全部操作</option>
             ${actions
@@ -573,7 +573,7 @@ export function renderAdmin(root) {
           </select>
           <svg class="icon icon--s"><use href="#i-chevron-down"/></svg>
         </span>
-        <span class="searchbox" style="width:200px">
+        <span class="searchbox">
           <span class="textbox">
             <svg class="icon icon--s"><use href="#i-search"/></svg>
             <input type="search" data-search placeholder="搜索用户 / 详情 / 操作名" value="${escapeHtml(state.logs.query)}">
@@ -585,7 +585,7 @@ export function renderAdmin(root) {
             <svg class="icon"><use href="#i-close"/></svg>
           </button>
         </span>
-        <div style="flex:1"></div>
+        <div class="grow"></div>
         <span class="admin-count" data-count></span>
       </div>
       <div data-list>${loading()}</div>

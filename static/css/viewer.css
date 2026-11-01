@@ -220,44 +220,529 @@
   border-radius: var(--radius-m);
 }
 
-.viewer__audio {
-  margin: auto;
-  width: min(420px, 100%);
+/* ---------------- 音频：全屏歌词播放器 ---------------- */
+.lyr {
+  --lyr-hot: color-mix(in srgb, var(--accent) 72%, white);
+  --lyr-dim: rgba(255, 255, 255, 0.34);
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: var(--radius-l);
+  background: #17111f;
+}
+.lyr__bg {
+  position: absolute;
+  inset: -60px;
+  background-size: cover;
+  background-position: center;
+  filter: blur(64px) saturate(1.35) brightness(0.55);
+  transform: scale(1.25);
+}
+.lyr__veil {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    rgba(13, 9, 20, 0.5),
+    rgba(13, 9, 20, 0.78) 62%,
+    rgba(13, 9, 20, 0.92)
+  );
+}
+.lyr__head {
+  position: relative;
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  padding: 22px 26px 10px;
+}
+.lyr__cover {
+  width: 72px;
+  height: 72px;
+  flex: none;
+  border-radius: 14px;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  color: rgba(255, 255, 255, 0.72);
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+.lyr__cover img,
+.lyr__bigcover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.lyr__song {
+  font-size: 19px;
+  font-weight: 700;
+  color: #fff;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lyr__artist {
+  margin-top: 4px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.66);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lyr__stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.lyr__list {
+  height: 100%;
+  margin: 0;
+  list-style: none;
+  overflow-y: auto;
+  padding: 14% 26px 46%;
+  scroll-behavior: smooth;
+  scrollbar-width: none;
+  transition: opacity 0.35s;
+}
+.lyr__list::-webkit-scrollbar {
+  display: none;
+}
+.lyr__line {
+  margin: 26px 0;
+  cursor: pointer;
+  opacity: 0.75;
+  transform: scale(0.92);
+  transform-origin: left center;
+  transition: opacity 0.3s, transform 0.3s;
+}
+/* 对唱分边：按 agent 首次出现顺序一人一边 */
+.lyr__line.is-left {
+  text-align: left;
+}
+.lyr__line.is-right {
+  text-align: right;
+  transform-origin: right center;
+}
+.lyr__line:hover {
+  opacity: 0.92;
+}
+.lyr__line.is-active {
+  opacity: 1;
+  transform: scale(1.05);
+}
+.lyr__orig {
+  font-size: var(--lyr-size, 22px);
+  font-weight: 700;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.lyr__w {
+  background-image: linear-gradient(
+    90deg,
+    var(--lyr-hot) calc(var(--p, 0) * 100%),
+    var(--lyr-dim) calc(var(--p, 0) * 100%)
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.lyr__trans {
+  margin-top: 4px;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.48);
+  transition: color 0.3s;
+}
+.lyr__line.is-active .lyr__trans {
+  color: rgba(255, 255, 255, 0.78);
+}
+.lyr.no-trans .lyr__trans {
+  display: none;
+}
+/* 静态歌词（纯文本无时间戳）：不高亮不跟随，也不让点行跳播 */
+.lyr.is-static .lyr__line {
+  cursor: default;
+  opacity: 0.88;
+  transform: none;
+}
+.lyr__bgv {
+  margin-top: 4px;
+  font-size: 12.5px;
+  font-style: italic;
+  color: rgba(255, 255, 255, 0.4);
+}
+.lyr__empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  text-align: center;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.6);
+}
+/* 封面视图（无歌词或手动切换） */
+.lyr__artview {
+  position: absolute;
+  inset: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 14px;
-  padding: 32px 24px;
-  border-radius: var(--radius-l);
-  background: var(--layer-2);
-  border: 1px solid var(--stroke-hair);
-  box-shadow: var(--shadow-2);
+  justify-content: center;
+  gap: 18px;
+  padding: 24px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.35s;
 }
-.viewer__audio-art {
-  width: 92px;
-  height: 92px;
-  border-radius: 50%;
+.lyr.is-art .lyr__artview {
+  opacity: 1;
+  pointer-events: auto;
+}
+.lyr.is-art .lyr__list {
+  opacity: 0;
+  pointer-events: none;
+}
+.lyr__bigcover {
+  width: min(300px, 58%);
+  aspect-ratio: 1;
+  border-radius: 20px;
+  overflow: hidden;
   display: grid;
   place-items: center;
-  color: var(--accent);
-  background: radial-gradient(
-    circle at 32% 28%,
-    color-mix(in srgb, var(--accent) 34%, transparent),
-    color-mix(in srgb, var(--accent) 10%, transparent)
-  );
+  color: rgba(255, 255, 255, 0.55);
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6);
+  cursor: pointer;
+  transition: transform 0.25s;
 }
-.viewer__audio-art .icon {
-  width: 38px;
-  height: 38px;
+.lyr__bigcover:hover {
+  transform: scale(1.02);
 }
-.viewer__audio-name {
-  font-size: 13px;
+.lyr__bigcover .icon {
+  width: 56px;
+  height: 56px;
+}
+/* 控制栏 */
+.lyr__bar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 20px calc(14px + env(safe-area-inset-bottom, 0px));
+}
+.lyr__toggle {
+  width: 44px;
+  height: 44px;
+  flex: none;
+  border: 0;
+  border-radius: 50%;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 55%, #7c4dff));
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--accent) 45%, transparent);
+  transition: transform 0.2s;
+}
+.lyr__toggle:hover {
+  transform: scale(1.06);
+}
+.lyr__toggle svg {
+  width: 20px;
+  height: 20px;
+}
+.lyr__time {
+  flex: none;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: rgba(255, 255, 255, 0.62);
+}
+.lyr__seek {
+  flex: 1;
+  min-width: 0;
+  appearance: none;
+  height: 5px;
+  border-radius: 999px;
+  outline: none;
+  cursor: pointer;
+  background: linear-gradient(90deg, var(--accent) var(--sp, 0%), rgba(255, 255, 255, 0.18) var(--sp, 0%));
+}
+.lyr__seek::-webkit-slider-thumb {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 55%, transparent);
+}
+.lyr__seek::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border: 0;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 55%, transparent);
+}
+.lyr__vol {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: rgba(255, 255, 255, 0.66);
+}
+.lyr__vol svg {
+  width: 17px;
+  height: 17px;
+}
+.lyr__vol input {
+  width: 76px;
+  appearance: none;
+  height: 4px;
+  border-radius: 999px;
+  outline: none;
+  cursor: pointer;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.8) var(--vp, 80%), rgba(255, 255, 255, 0.18) var(--vp, 80%));
+}
+.lyr__vol input::-webkit-slider-thumb {
+  appearance: none;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: #fff;
+}
+.lyr__vol input::-moz-range-thumb {
+  width: 11px;
+  height: 11px;
+  border: 0;
+  border-radius: 50%;
+  background: #fff;
+}
+.lyr__mode {
+  width: 36px;
+  height: 36px;
+  flex: none;
+  border: 0;
+  border-radius: 10px;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  color: rgba(255, 255, 255, 0.8);
+  background: rgba(255, 255, 255, 0.1);
+  transition: background 0.2s;
+}
+.lyr__mode:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+.lyr__mode svg {
+  width: 17px;
+  height: 17px;
+}
+
+/* ---------------- 歌词设置面板 ---------------- */
+.lyr__panel {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(13, 9, 20, 0.45);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+.lyr__panel[hidden] {
+  display: none;
+}
+.lyr__panel-card {
+  width: min(430px, 100%);
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--radius-l);
+  background: var(--acrylic-strong);
+  border: 1px solid var(--acrylic-border);
+  box-shadow: var(--shadow-3);
+  overflow: hidden;
+}
+.lyr__panel-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px 10px;
+}
+.lyr__panel-title {
+  font-size: 15px;
+  font-weight: 700;
   color: var(--text-1);
-  text-align: center;
-  word-break: break-all;
 }
-.viewer__audio audio {
+.lyr__panel-close {
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: var(--radius-s);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  color: var(--text-2);
+  background: transparent;
+  transition: background 0.15s;
+}
+.lyr__panel-close:hover {
+  background: var(--fill-hover);
+}
+.lyr__panel-close svg {
+  width: 15px;
+  height: 15px;
+}
+.lyr__panel-body {
+  padding: 0 18px 18px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.lyr__panel-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-2);
+  margin-top: 4px;
+}
+.lyr__panel-hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-3);
+}
+.lyr__panel-status {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.lyr__srcpane {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.lyr__srcpane[hidden] {
+  display: none;
+}
+.lyr__searchbox {
   width: 100%;
+}
+.lyr__searchbox input {
+  width: 100%;
+}
+.lyr__results {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 190px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.lyr__result {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 8px 12px;
+  border-radius: var(--radius-m);
+  border: 1px solid var(--stroke-hair);
+  background: var(--fill-subtle);
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.lyr__result:hover {
+  background: var(--fill-hover);
+}
+.lyr__result-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-1);
+}
+.lyr__result-artist {
+  font-size: 12px;
+  color: var(--text-2);
+}
+.lyr__custom {
+  width: 100%;
+  resize: vertical;
+  min-height: 110px;
+  padding: 10px 12px;
+  border-radius: var(--radius-m);
+  border: 1px solid var(--stroke-hair);
+  background: var(--fill-subtle);
+  color: var(--text-1);
+  font-family: "Cascadia Mono", "Consolas", ui-monospace, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.lyr__custom:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.lyr__stylerow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--text-2);
+}
+.lyr__stylerow > span:first-child {
+  width: 60px;
+  flex: none;
+}
+.lyr__stylerow input[type="range"] {
+  flex: 1;
+}
+.lyr__styleval {
+  min-width: 42px;
+  text-align: right;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.lyr__swatches {
+  flex: 1;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.lyr__swatch {
+  width: 22px;
+  height: 22px;
+  flex: none;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.15);
+  cursor: pointer;
+  padding: 0;
+  transition: transform 0.15s;
+}
+.lyr__swatch:hover {
+  transform: scale(1.12);
+}
+.lyr__swatch.is-active {
+  border-color: var(--text-1);
+}
+.lyr__swatch--auto {
+  background: linear-gradient(135deg, #c084fc, #7ee8fa);
+}
+.lyr__panel input[type="color"] {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--stroke-hair);
+  border-radius: var(--radius-s);
+  background: transparent;
+  cursor: pointer;
 }
 
 .viewer__pdf {

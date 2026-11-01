@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from sqlalchemy import (
+    JSON,
     BigInteger,
     Boolean,
     CheckConstraint,
@@ -67,6 +68,25 @@ class UserSetting(Base):
     nav_collapsed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     # 分享页是否显示分享者完整昵称（关闭只显示前两位）
     share_show_name: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # 歌词播放器样式（JSON：fontSize/hotColor/showTrans），空对象=全部默认
+    lyrics_style: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+
+
+class AudioPref(Base):
+    """每首歌（音频节点）的歌词来源偏好。
+
+    mode: auto=按优先级（音频自带→在线搜索→无） / song=指定在线歌曲 /
+          custom=自定义歌词文本 / none=不显示歌词。
+    """
+
+    __tablename__ = "audio_prefs"
+
+    node_id: Mapped[int] = mapped_column(ForeignKey("nodes.id", ondelete="CASCADE"), primary_key=True)
+    mode: Mapped[str] = mapped_column(String(8), nullable=False, default="auto")
+    song_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    song_title: Mapped[str] = mapped_column(String(200), nullable=False, default="")
+    song_artist: Mapped[str] = mapped_column(String(200), nullable=False, default="")
+    custom_lyrics: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class Blob(Base):

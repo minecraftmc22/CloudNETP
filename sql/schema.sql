@@ -46,8 +46,25 @@ CREATE TABLE IF NOT EXISTS user_settings (
   view_mode     VARCHAR(8) NOT NULL DEFAULT 'grid',
   nav_collapsed TINYINT(1) NOT NULL DEFAULT 0,
   share_show_name TINYINT(1) NOT NULL DEFAULT 0 COMMENT '分享页显示完整昵称，0 则只显示前两位',
+  lyrics_style    JSON     NULL COMMENT '歌词播放器样式（fontSize/hotColor/showTrans）',
   PRIMARY KEY (user_id),
   CONSTRAINT fk_settings_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- ------------------------------------------------------------
+-- 每首歌（音频节点）的歌词来源偏好
+--   mode: auto=优先级(内嵌→在线→无) / song=指定在线歌曲 /
+--         custom=自定义歌词文本 / none=不显示
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS audio_prefs (
+  node_id       BIGINT      NOT NULL,
+  mode          VARCHAR(8)  NOT NULL DEFAULT 'auto',
+  song_id       BIGINT      NULL,
+  song_title    VARCHAR(200) NOT NULL DEFAULT '',
+  song_artist   VARCHAR(200) NOT NULL DEFAULT '',
+  custom_lyrics MEDIUMTEXT  NULL,
+  PRIMARY KEY (node_id),
+  CONSTRAINT fk_audio_pref_node FOREIGN KEY (node_id) REFERENCES nodes (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- ------------------------------------------------------------

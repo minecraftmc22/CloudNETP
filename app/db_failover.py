@@ -40,12 +40,13 @@ MODE_FALLBACK = "fallback"
 # audit_logs 镜像条数上限（按 id 倒序取最新）
 MIRROR_AUDIT_LIMIT = 5000
 
-# 同步顺序即外键依赖顺序：users → user_settings → blobs → nodes → ...
+# 同步顺序即外键依赖顺序：users → user_settings → blobs → nodes → audio_prefs → ...
 _SYNC_TABLES = (
     "users",
     "user_settings",
     "blobs",
     "nodes",
+    "audio_prefs",
     "upload_sessions",
     "upload_chunks",
     "shares",

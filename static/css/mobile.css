@@ -1,0 +1,721 @@
+/* ============================================================
+   手机 / 小屏适配（最后加载，用于覆盖前面各模块的桌面布局）
+   ------------------------------------------------------------
+   断点约定：
+     ≤ 860px  平板 / 窄窗口（由 layout.css、admin.css 各自处理）
+     ≤ 640px  手机竖屏：导航改为底部标签栏、对话框改底部抽屉
+     ≤ 400px  小屏手机：进一步压缩间距
+     横屏矮屏  压缩底部栏高度
+   ============================================================ */
+
+/* ------------------------------------------------------------
+   触屏：不依赖 hover 才能看到 / 点到的元素
+   ------------------------------------------------------------ */
+@media (hover: none) {
+  /* 悬停位移在触屏上会「粘住」，改为纯点击反馈 */
+  .tile:not(.is-selected):hover {
+    transform: none;
+    box-shadow: none;
+    border-color: var(--stroke-hair);
+    background: var(--layer-3);
+  }
+  .tile:active {
+    transform: scale(0.985);
+  }
+  .user-chip:hover,
+  .share-row:hover,
+  .wallpaper-opt:hover,
+  .swatch:hover,
+  .nav-item:hover {
+    background: transparent;
+  }
+  .nav-item.is-active:hover {
+    background: var(--fill-subtle);
+  }
+  .share-row:hover {
+    border-color: var(--stroke-hair);
+  }
+  /* 只有 hover 才浮现的操作：触屏常显，否则根本点不到 */
+  .tile__more,
+  .frow__more,
+  .frow__check {
+    opacity: 1;
+  }
+  .tile__more {
+    background: transparent;
+  }
+  .upload-item__close {
+    opacity: 1;
+  }
+  /* 移动端点击高亮交给自己的 :active 样式 */
+  .btn,
+  .icon-btn,
+  .nav-item,
+  .tile,
+  .frow,
+  .menu-item,
+  .picker__row,
+  .chip--action {
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+}
+
+/* ------------------------------------------------------------
+   手机竖屏
+   ------------------------------------------------------------ */
+@media (max-width: 640px) {
+  :root {
+    --titlebar-h: 44px;
+    /* 底部标签栏总高度（含上下内边距，不含安全区） */
+    --mobile-nav-h: 62px;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  /* 用 dvh 跟随移动端地址栏收放；顶部让开刘海/状态栏 */
+  .app-shell {
+    height: 100vh;
+    height: 100dvh;
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+
+  /* ---------------- 标题栏 ---------------- */
+  .titlebar {
+    gap: 4px;
+    padding: 0 6px 0 4px;
+  }
+  /* 手机改用底部标签栏，不再需要折叠按钮 */
+  #nav-toggle {
+    display: none;
+  }
+  .brand__mark {
+    width: 24px;
+    height: 24px;
+    border-radius: 8px;
+  }
+  .brand__mark .icon {
+    width: 16px;
+    height: 16px;
+  }
+  .brand__name {
+    font-size: 13px;
+  }
+  .brand__sub {
+    display: none;
+  }
+  .titlebar .icon-btn {
+    width: 36px;
+    height: 36px;
+  }
+  .user-chip {
+    height: 34px;
+    padding: 0 6px 0 3px;
+  }
+  /* 名字收进菜单里看，标题栏只留头像 */
+  .user-chip__name {
+    display: none;
+  }
+  .user-chip__avatar {
+    width: 28px;
+    height: 28px;
+  }
+
+  /* ---------------- 主体：内容在上，导航在下 ---------------- */
+  .app-body {
+    display: flex;
+    flex-direction: column-reverse;
+    min-height: 0;
+  }
+
+  .view-root {
+    flex: 1 1 auto;
+    min-height: 0;
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  /* ---------------- 底部标签栏 ---------------- */
+  .app-body[data-nav] .nav,
+  .nav {
+    flex: none;
+    flex-direction: row;
+    align-items: stretch;
+    gap: 0;
+    padding: 6px 4px calc(6px + env(safe-area-inset-bottom, 0px));
+    background: var(--acrylic);
+    border-top: 1px solid var(--stroke-hair);
+    backdrop-filter: blur(24px) saturate(1.6);
+  }
+  .nav__group,
+  .nav__spacer,
+  .nav__storage {
+    display: none;
+  }
+
+  /* 收起态（桌面端折叠过导航）在手机上必须还原成正常标签 */
+  .app-body[data-nav] .nav-item {
+    flex: 1 1 0;
+    flex-direction: column;
+    justify-content: center;
+    gap: 3px;
+    height: calc(var(--mobile-nav-h) - 12px);
+    padding: 0;
+    border-radius: var(--radius-m);
+    overflow: visible;
+  }
+  .app-body[data-nav] .nav-item .icon {
+    width: 21px;
+    height: 21px;
+  }
+  .app-body[data-nav] .nav-item__label {
+    opacity: 1;
+    width: auto;
+    height: auto;
+    margin: 0;
+    padding: 0;
+    overflow: visible;
+    pointer-events: auto;
+    font-size: 10.5px;
+    line-height: 1.1;
+  }
+  .app-body[data-nav] .nav-item .nav-item__badge {
+    position: absolute;
+    top: 2px;
+    right: 50%;
+    margin: 0 0 0 22px;
+    opacity: 1;
+    width: auto;
+    height: 16px;
+    padding: 0 4px;
+  }
+  /* 选中指示：左侧竖条 → 顶部横条 */
+  .app-body[data-nav] .nav-item::before {
+    left: 50%;
+    top: 4px;
+    width: 0;
+    height: 3px;
+    transform: translateX(-50%);
+    transition: width var(--dur-base) var(--ease-fluent);
+  }
+  .app-body[data-nav] .nav-item.is-active::before {
+    width: 18px;
+    height: 3px;
+    box-shadow: 0 0 8px color-mix(in srgb, var(--accent) 60%, transparent);
+  }
+  /* 折叠态的悬浮提示，手机用不到 */
+  .app-body[data-nav] .nav-item::after {
+    content: none;
+    display: none;
+  }
+
+  /* ---------------- 视图头部 ---------------- */
+  .view-head {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 10px 12px 8px;
+  }
+  .view-head > .grow {
+    display: none;
+  }
+  .view-head .view-title {
+    flex: 1 1 auto;
+    min-width: 0;
+    gap: 6px;
+    font-size: 17px;
+  }
+  .view-head .view-sub {
+    flex: 0 1 auto;
+    max-width: 46%;
+    font-size: 11px;
+    text-align: right;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .view-head .icon-btn {
+    flex: none;
+    width: 36px;
+    height: 36px;
+  }
+  /* 主操作按钮平分一行；低于可读宽度就换行而不是压缩文字 */
+  .view-head .btn {
+    flex: 1 0 104px;
+    min-width: 0;
+    height: 38px;
+    padding: 0 8px;
+    font-size: 12.5px;
+  }
+
+  /* ---------------- 面包屑 / 工具栏 ---------------- */
+  .crumb-bar {
+    gap: 6px;
+    padding: 0 12px 6px;
+  }
+  .crumb__item {
+    max-width: 120px;
+    font-size: 12px;
+  }
+  .sort-btn {
+    height: 30px;
+    padding: 0 8px;
+  }
+
+  .toolbar {
+    flex-wrap: nowrap;
+    gap: 6px;
+    padding: 0 12px 10px;
+  }
+  .toolbar__spacer {
+    display: none;
+  }
+  .toolbar .searchbox {
+    flex: 1 1 auto;
+    width: auto;
+    min-width: 0;
+  }
+  .toolbar .row {
+    flex: none;
+  }
+  .searchbox .textbox {
+    height: 36px;
+  }
+
+  /* iOS 聚焦时输入框字号 < 16px 会自动放大整页 */
+  .textbox input,
+  .selectbox select,
+  input[type="search"],
+  input[type="text"],
+  input[type="password"] {
+    font-size: 16px;
+  }
+
+  .view-body {
+    padding: 0 12px 16px;
+  }
+  .search-hint {
+    font-size: 11px;
+  }
+
+  /* ---------------- 文件：网格 / 列表 ---------------- */
+  .file-grid {
+    grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+    gap: 8px;
+  }
+  .tile {
+    gap: 6px;
+    padding: 12px 10px 10px;
+  }
+  .tile__icon {
+    width: 38px;
+    height: 38px;
+    border-radius: 10px;
+  }
+  .tile__icon .icon {
+    width: 19px;
+    height: 19px;
+  }
+  .tile__name {
+    font-size: 12px;
+  }
+  .tile__more {
+    top: 5px;
+    right: 5px;
+    width: 28px;
+    height: 28px;
+    opacity: 1;
+  }
+  .tile__more .icon {
+    width: 15px;
+    height: 15px;
+  }
+
+  .file-list {
+    padding-top: 6px;
+  }
+  .frow {
+    grid-template-columns: 24px 26px minmax(0, 1fr) 32px;
+    height: 48px;
+    gap: 6px;
+    padding: 0 4px;
+  }
+  /* 手机没有 hover，勾选框常显（等于选中入口） */
+  .frow__check {
+    opacity: 1;
+  }
+  .frow__check input {
+    width: 16px;
+    height: 16px;
+  }
+  .frow__more {
+    width: 30px;
+    height: 30px;
+    opacity: 1;
+  }
+  /* 表头列已隐藏，排序交给面包屑右侧的排序按钮 */
+  .frow--head {
+    display: none;
+  }
+  .frow__path {
+    max-width: 34%;
+  }
+
+  /* ---------------- 选择操作条 ---------------- */
+  .selbar {
+    left: 10px;
+    right: 10px;
+    bottom: 10px;
+    justify-content: space-between;
+    gap: 4px;
+    padding: 6px 6px 6px 10px;
+    border-radius: var(--radius-m);
+    transform: translateY(16px);
+  }
+  .selbar.is-on {
+    transform: none;
+  }
+  .selbar .btn {
+    flex: 1 1 0;
+    min-width: 0;
+    height: 32px;
+    padding: 0 6px;
+    font-size: 12px;
+  }
+  .selbar__count {
+    font-size: 12px;
+  }
+
+  /* ---------------- 上传队列 / 任务面板 ---------------- */
+  .upload-panel {
+    right: 8px;
+    bottom: 10px;
+    width: calc(100% - 16px);
+    max-width: none;
+  }
+  .upload-panel__list {
+    max-height: 40vh;
+  }
+  /* 任务面板是 fixed，要抬到底部标签栏之上 */
+  .task-panel {
+    left: 50%;
+    width: calc(100vw - 20px);
+    max-width: none;
+    bottom: calc(var(--mobile-nav-h) + env(safe-area-inset-bottom, 0px) + 12px);
+  }
+  .task-panel__list {
+    max-height: 34vh;
+  }
+
+  /* ---------------- 对话框 → 底部抽屉 ---------------- */
+  .dialog-host.is-open {
+    place-items: end stretch;
+  }
+  .dialog {
+    width: 100%;
+    max-height: 88vh;
+    max-height: 88dvh;
+    overflow-y: auto;
+    padding: 18px 16px calc(16px + env(safe-area-inset-bottom, 0px));
+    border-radius: 18px 18px 0 0;
+    border-bottom: 0;
+    gap: 12px;
+  }
+  .dialog__title {
+    font-size: 16px;
+  }
+  .dialog__body {
+    font-size: 13px;
+  }
+  .dialog__actions {
+    margin-top: 4px;
+  }
+  .dialog__actions .btn {
+    flex: 1 1 0;
+    height: 40px;
+  }
+  .code-display {
+    font-size: 20px;
+    letter-spacing: 0.26em;
+    text-indent: 0.26em;
+  }
+  .share-result__label {
+    width: 38px;
+  }
+
+  /* ---------------- 移动目标选择器 → 底部抽屉 ---------------- */
+  .picker-backdrop {
+    place-items: end stretch;
+    padding: 0;
+  }
+  .picker {
+    width: 100%;
+    max-height: 86vh;
+    max-height: 86dvh;
+    border-radius: 18px 18px 0 0;
+    border-bottom: 0;
+  }
+  .picker__row {
+    height: 44px;
+  }
+  .picker__foot {
+    padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+  }
+
+  /* ---------------- Toast ---------------- */
+  .toast-host {
+    left: 10px;
+    right: 10px;
+    top: calc(var(--titlebar-h) + env(safe-area-inset-top, 0px) + 6px);
+  }
+  .toast {
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+  }
+
+  /* ---------------- 弹出菜单 ---------------- */
+  .popover {
+    max-height: calc(100vh - 24px);
+    max-height: calc(100dvh - 24px);
+    overflow-y: auto;
+    min-width: 184px;
+  }
+  .menu-item {
+    height: 42px;
+  }
+
+  /* ---------------- 设置页 ---------------- */
+  .settings {
+    gap: 12px;
+  }
+  .settings-card__head {
+    padding: 12px 14px 8px;
+  }
+  .settings-card__note {
+    padding: 0 14px 10px;
+    font-size: 11px;
+  }
+  .setting-row {
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 12px 14px;
+    min-height: 0;
+  }
+  .setting-row__main {
+    flex: 1 1 140px;
+  }
+  .setting-row__label {
+    font-size: 12.5px;
+  }
+  .setting-row__desc {
+    font-size: 11px;
+  }
+  /* 占满整行的控件 */
+  .setting-row > .segmented,
+  .setting-row > .swatch-row,
+  .setting-row > .wallpaper-row,
+  .setting-row > .dav-addr,
+  .setting-row > .row {
+    flex: 1 1 100%;
+    width: 100%;
+    max-width: none;
+  }
+  .dav-addr code {
+    font-size: 11px;
+  }
+  .profile {
+    padding: 4px 14px 14px;
+  }
+
+  /* ---------------- 我的分享 ---------------- */
+  .share-row {
+    flex-wrap: wrap;
+    row-gap: 8px;
+    padding: 10px 12px;
+  }
+  .share-row__main {
+    flex: 1 1 calc(100% - 44px);
+  }
+  .share-row__actions {
+    margin-left: auto;
+  }
+
+  /* ---------------- 管理后台 ---------------- */
+  .stat-card {
+    padding: 12px 14px;
+  }
+  .admin-toolbar {
+    flex-wrap: wrap;
+    row-gap: 8px;
+    padding: 0 12px 10px;
+  }
+  .admin-toolbar .selectbox,
+  .admin-toolbar .searchbox {
+    flex: 1 1 140px;
+    width: auto;
+  }
+  .admin-tabs {
+    gap: 2px;
+    padding: 0 12px 8px;
+  }
+  .admin-card__head {
+    padding: 12px 14px 8px;
+  }
+
+  /* ---------------- 登录页 ---------------- */
+  .auth-root {
+    height: 100vh;
+    height: 100dvh;
+    padding: env(safe-area-inset-top, 0px) 16px env(safe-area-inset-bottom, 0px);
+    align-items: center;
+  }
+  .auth-stage {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+    max-width: 420px;
+  }
+  /* 小屏只留表单，品牌区让位给键盘 */
+  .auth-art {
+    display: none;
+  }
+  .auth-card {
+    padding: 22px 18px 18px;
+    border-radius: var(--radius-l);
+  }
+  .auth-card__head {
+    margin-bottom: 16px;
+  }
+  .auth-form .textbox {
+    height: 42px;
+  }
+  .auth-form__submit {
+    height: 42px;
+  }
+
+  /* ---------------- 在线预览 ---------------- */
+  .viewer__bar {
+    gap: 8px;
+    padding: calc(8px + env(safe-area-inset-top, 0px)) 10px 8px;
+  }
+  /* 手机上双指缩放更自然，去掉按钮缩放组 */
+  .viewer__zoom {
+    display: none;
+  }
+  .viewer__tools .btn {
+    height: 34px;
+    padding: 0 10px;
+  }
+  .viewer__body {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  /* 全屏歌词播放器：手机上收紧头部、隐藏音量条 */
+  .lyr__head {
+    gap: 12px;
+    padding: 14px 16px 6px;
+  }
+  .lyr__cover {
+    width: 52px;
+    height: 52px;
+    border-radius: 11px;
+  }
+  .lyr__song {
+    font-size: 16px;
+  }
+  .lyr__artist {
+    font-size: 12px;
+  }
+  .lyr__list {
+    padding: 12% 16px 42%;
+  }
+  .lyr__orig {
+    font-size: calc(var(--lyr-size, 22px) - 5px);
+  }
+  .lyr__trans {
+    font-size: 12.5px;
+  }
+  .lyr__line {
+    margin: 18px 0;
+  }
+  .lyr__bar {
+    gap: 8px;
+    padding: 10px 12px calc(12px + env(safe-area-inset-bottom, 0px));
+  }
+  .lyr__toggle {
+    width: 40px;
+    height: 40px;
+  }
+  .lyr__vol {
+    display: none;
+  }
+  .lyr__time {
+    display: none;
+  }
+  .lyr__mode {
+    width: 34px;
+    height: 34px;
+  }
+  /* 歌词设置面板：手机上贴边铺满 */
+  .lyr__panel {
+    padding: 10px;
+    align-items: end;
+  }
+  .lyr__panel-card {
+    width: 100%;
+  }
+}
+
+/* ------------------------------------------------------------
+   小屏手机
+   ------------------------------------------------------------ */
+@media (max-width: 400px) {
+  .file-grid {
+    grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+    gap: 7px;
+  }
+  .tile {
+    padding: 10px 8px 8px;
+  }
+  .tile__icon {
+    width: 34px;
+    height: 34px;
+  }
+  .view-head .btn {
+    height: 36px;
+    padding: 0 6px;
+    font-size: 12px;
+  }
+  .view-head .view-sub {
+    max-width: 40%;
+    font-size: 10.5px;
+  }
+  .selbar__count {
+    display: none;
+  }
+  .crumb__item {
+    max-width: 96px;
+  }
+}
+
+/* ------------------------------------------------------------
+   横屏矮屏：底部标签栏压缩，省出可视高度
+   ------------------------------------------------------------ */
+@media (max-width: 900px) and (max-height: 480px) and (orientation: landscape) {
+  .app-body[data-nav] .nav-item {
+    height: 42px;
+    flex-direction: row;
+    gap: 6px;
+  }
+  .app-body[data-nav] .nav-item__label {
+    font-size: 11.5px;
+  }
+  .app-body[data-nav] .nav-item::before {
+    display: none;
+  }
+  .task-panel {
+    bottom: calc(54px + env(safe-area-inset-bottom, 0px) + 8px);
+  }
+}

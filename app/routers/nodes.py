@@ -5,17 +5,18 @@ from __future__ import annotations
 import hashlib
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .. import node_service as ns
 from .. import storage
+from .. import lyrics_service
 from ..config import settings
 from ..db import get_db
 from ..deps import get_current_user
-from ..models import Node, User
-from ..schemas import FolderIn, MoveIn, RenameIn
+from ..models import AudioPref, Node, User
+from ..schemas import FolderIn, LyricsPrefIn, MoveIn, RenameIn
 from ..security import check_origin, normalize_name
 from ..settings_store import get_int
 from ..user_service import ensure_settings, log_action
@@ -233,6 +234,172 @@ def preview_text(
         raise HTTPException(
             status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, "这是二进制文件，无法按文本预览"
         ) from None
+
+
+# --------------------------------------------------------------------------- #
+# 音频元数据 + 歌词（全屏歌词播放器的数据源）
+# --------------------------------------------------------------------------- #
+def _audio_node(db: Session, user: User, node_id: int) -> Node:
+    node = ns.get_node(db, user.id, node_id)
+    if node.type != "file" or not node.blob_sha256:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "文件夹没有音频元数据")
+    if ns.preview_kind(node) != "audio":
+        raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, "该文件不是音频")
+    return node
+
+
+@router.get("/nodes/{node_id}/audio-meta")
+def audio_meta(node_id: int, db: DbSession, user: CurrentUser) -> dict:
+    """读取音频文件内嵌的 ID3/MP4/FLAC 元数据（标题/歌手/专辑/时长/是否有封面）。"""
+    node = _audio_node(db, user, node_id)
+    meta = lyrics_service.audio_meta(storage.blob_path(node.blob_sha256), _stem(node.name))
+    return {
+        "name": node.name,
+        "title": meta["title"],
+        "artist": meta["artist"],
+        "album": meta["album"],
+        "duration": meta["duration"],
+        "hasCover": bool(meta["cover"]),
+    }
+
+
+@router.get("/nodes/{node_id}/cover")
+def audio_cover(node_id: int, db: DbSession, user: CurrentUser) -> Response:
+    """音频内嵌封面原图。没有内嵌封面时 404，前端回退到默认插画。"""
+    node = _audio_node(db, user, node_id)
+    meta = lyrics_service.audio_meta(storage.blob_path(node.blob_sha256), _stem(node.name))
+    if not meta["cover"]:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "该音频没有内嵌封面")
+    return Response(
+        content=meta["cover"],
+        media_type=meta["coverMime"] or "image/jpeg",
+        headers={"Cache-Control": "private, max-age=86400"},
+    )
+
+
+@router.get("/lyrics")
+def lyrics_proxy(
+    db: DbSession,
+    user: CurrentUser,
+    songId: int | None = Query(default=None),
+    title: str = Query(default="", max_length=120),
+    artist: str = Query(default="", max_length=120),
+) -> dict:
+    """歌词库代理：songId 指定歌曲，否则按「标题 + 歌手」自动匹配。
+
+    服务端代理，密钥不出内网。
+    """
+    try:
+        if songId is not None:
+            return lyrics_service.fetch_lyrics(songId)
+        if not title.strip():
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "缺少 songId 或 title")
+        return lyrics_service.find_and_fetch(title, artist)
+    except lyrics_service.LyricsApiError as exc:
+        http_status = status.HTTP_424_FAILED_DEPENDENCY
+        if exc.status == 404:
+            http_status = status.HTTP_404_NOT_FOUND
+        elif exc.code in {"quota_exceeded", "network", "upstream"}:
+            http_status = status.HTTP_503_SERVICE_UNAVAILABLE
+        raise HTTPException(http_status, exc.message or "歌词获取失败") from None
+
+
+@router.get("/lyrics/search")
+def lyrics_search(
+    user: CurrentUser,
+    q: str = Query(min_length=1, max_length=120),
+) -> dict:
+    """歌词库搜索（手动给某首歌挑歌词用），只返回条目不取正文。"""
+    try:
+        items = lyrics_service.search_songs(q.strip())
+    except lyrics_service.LyricsApiError as exc:
+        http_status = (
+            status.HTTP_503_SERVICE_UNAVAILABLE
+            if exc.code in {"quota_exceeded", "network", "upstream"}
+            else status.HTTP_424_FAILED_DEPENDENCY
+        )
+        raise HTTPException(http_status, exc.message or "歌词搜索失败") from None
+    return {"query": q, "items": items, "total": len(items)}
+
+
+def _pref_payload(pref: AudioPref | None) -> dict:
+    return {
+        "mode": pref.mode if pref else "auto",
+        "song": (
+            {"id": pref.song_id, "title": pref.song_title, "artist": pref.song_artist}
+            if pref and pref.song_id
+            else None
+        ),
+        "customLyrics": (pref.custom_lyrics or "") if pref else "",
+    }
+
+
+@router.get("/nodes/{node_id}/lyrics-pref")
+def get_lyrics_pref(node_id: int, db: DbSession, user: CurrentUser) -> dict:
+    """读取这首歌当前的歌词来源偏好。"""
+    node = _audio_node(db, user, node_id)
+    pref = db.get(AudioPref, node.id)
+    return _pref_payload(pref)
+
+
+@router.put("/nodes/{node_id}/lyrics-pref")
+def set_lyrics_pref(
+    node_id: int,
+    payload: LyricsPrefIn,
+    request: Request,
+    db: DbSession,
+    user: CurrentUser,
+) -> dict:
+    """设置这首歌的歌词来源：auto / song(指定在线歌曲) / custom(粘贴文本) / none。"""
+    check_origin(request)
+    node = _audio_node(db, user, node_id)
+    pref = db.get(AudioPref, node.id)
+    if pref is None:
+        pref = AudioPref(node_id=node.id)
+        db.add(pref)
+
+    pref.mode = payload.mode
+    if payload.mode == "song":
+        if not payload.song_id:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "指定歌曲需要 songId")
+        # 先取一次歌词校验 id 有效，顺便预热缓存
+        try:
+            lyrics_service.fetch_lyrics(payload.song_id)
+        except lyrics_service.LyricsApiError as exc:
+            http_status = (
+                status.HTTP_404_NOT_FOUND
+                if exc.status == 404
+                else status.HTTP_503_SERVICE_UNAVAILABLE
+            )
+            raise HTTPException(http_status, exc.message or "该歌曲歌词不可用") from None
+        pref.song_id = payload.song_id
+        pref.song_title = (payload.song_title or "").strip()[:200]
+        pref.song_artist = (payload.song_artist or "").strip()[:200]
+    elif payload.mode == "custom":
+        if not (payload.custom_lyrics or "").strip():
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "自定义歌词内容不能为空")
+        pref.custom_lyrics = payload.custom_lyrics
+    else:  # auto / none：清掉旧选择
+        pref.song_id = None
+        pref.song_title = ""
+        pref.song_artist = ""
+    db.commit()
+    log_action(db, "lyrics_pref", user.id, {"nodeId": node.id, "mode": payload.mode}, request)
+    db.refresh(pref)
+    return _pref_payload(pref)
+
+
+@router.get("/nodes/{node_id}/lyrics")
+def node_lyrics(node_id: int, db: DbSession, user: CurrentUser) -> dict:
+    """解析这首歌最终生效的歌词。
+
+    优先级（auto 模式）：音频内嵌 → 在线搜索 → 无歌词；
+    用户也可显式指定在线歌曲 / 粘贴自定义文本 / 关闭歌词。
+    """
+    node = _audio_node(db, user, node_id)
+    return lyrics_service.resolve_lyrics(
+        db, node, storage.blob_path(node.blob_sha256), _stem(node.name)
+    )
 
 
 # --------------------------------------------------------------------------- #
