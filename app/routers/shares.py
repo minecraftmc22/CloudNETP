@@ -6,6 +6,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import FileResponse
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .. import node_service as ns
@@ -14,15 +15,24 @@ from .. import share_service as ss
 from .. import storage
 from ..db import get_db
 from ..deps import get_current_user
-from ..models import Share, User
-from ..schemas import ShareIn, ShareUnlockIn
-from ..security import check_origin
+from ..models import Node, Share, ShareReport, User, utcnow
+from ..schemas import ShareIn, ShareReportIn, ShareSaveIn, ShareUnlockIn
+from ..security import check_origin, client_ip
 from ..user_service import log_action
 
 router = APIRouter(prefix="/api", tags=["shares"])
 
 DbSession = Annotated[Session, Depends(get_db)]
 CurrentUser = Annotated[User, Depends(get_current_user)]
+
+
+def format_bytes(n: int) -> str:
+    value = float(n)
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if value < 1024 or unit == "TB":
+            return f"{value:.1f} {unit}" if unit != "B" else f"{int(value)} B"
+        value /= 1024
+    return f"{n} B"
 
 
 # --------------------------------------------------------------------------- #
@@ -132,6 +142,7 @@ def public_list(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "目标不是文件夹")
 
     items = ns.list_children(db, share.user_id, folder.id)
+    items = ss.filter_blocked(db, items)
     return {
         "folder": {
             "id": folder.id,
@@ -234,3 +245,80 @@ def public_text(
         raise HTTPException(
             status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, "这是二进制文件，无法按文本预览"
         ) from None
+
+
+# --------------------------------------------------------------------------- #
+# 举报 / 转存（公开分享页）
+# --------------------------------------------------------------------------- #
+@router.post("/public/shares/{token}/report")
+def report_share(
+    token: str, body: ShareReportIn, request: Request, db: DbSession
+) -> dict:
+    """匿名举报分享：记录分享链接、文件哈希与首次被举报时的文件名。"""
+    share = ss.load_share(db, token)
+    node = ss.node_of(db, share)
+    ip = client_ip(request)
+    ss.report_guard(ip, token)
+    ss.report_hit(ip, token)
+
+    reason = (body.reason or "").strip()
+    report = ShareReport(
+        share_id=share.id,
+        token=share.token,
+        blob_sha256=node.blob_sha256 if node.type == "file" else None,
+        first_name=node.name,
+        size=int(node.size or 0),
+        is_folder=node.type == "folder",
+        reason=reason,
+        reporter_ip=ip,
+    )
+    db.add(report)
+    db.flush()
+    log_action(db, "share_report", None, {"shareId": share.id, "name": node.name}, request)
+    db.commit()
+    return {"reported": True, "id": report.id}
+
+
+@router.post("/public/shares/{token}/save")
+def save_share(
+    token: str, body: ShareSaveIn, request: Request, db: DbSession, user: CurrentUser
+) -> dict:
+    """转存到我的网盘：文件复用同一 blob，不复制物理数据。"""
+    check_origin(request)
+    share = ss.load_share(db, token)
+    node = ss.node_of(db, share, body.node_id)
+    if node.type == "file" and node.blob_sha256 and ss.is_blocked(db, node.blob_sha256):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "该文件已被举报确认，禁止转存")
+
+    # 配额预检：要转存的子树总字节数装得下才动手
+    if node.type == "folder":
+        ids = ns.subtree_ids(db, share.user_id, node.id)
+        to_add = int(
+            db.scalar(
+                select(func.coalesce(func.sum(Node.size), 0)).where(
+                    Node.user_id == share.user_id,
+                    Node.id.in_(ids),
+                    Node.type == "file",
+                )
+            )
+            or 0
+        )
+    else:
+        to_add = int(node.size or 0)
+    if user.used_bytes + to_add > user.quota_bytes:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"网盘空间不足：还需 {format_bytes(to_add)}，请先清理或扩容",
+        )
+
+    clone, added = ns.copy_subtree(db, user, node, body.parent_id)
+    ns.recalc_usage(db, user)
+    log_action(
+        db,
+        "share_save",
+        user.id,
+        {"shareId": share.id, "name": node.name, "size": added},
+        request,
+    )
+    db.commit()
+    return {"saved": True, "nodeId": clone.id, "name": clone.name, "size": added}

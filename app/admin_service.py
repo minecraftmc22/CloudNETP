@@ -16,8 +16,10 @@ from .config import settings
 from .models import (
     AuditLog,
     Blob,
+    BlockedBlob,
     Node,
     Share,
+    ShareReport,
     UploadSession,
     User,
     UserSetting,
@@ -517,3 +519,130 @@ def blob_gc(db: Session, *, apply: bool = False, keep_hours: int = 1) -> dict:
         "tmpStale": tmp_removed,
         "applied": apply,
     }
+
+
+# --------------------------------------------------------------------------- #
+# 分享举报审核
+# --------------------------------------------------------------------------- #
+def _iso_or_none(value):
+    return value.isoformat() + "Z" if value else None
+
+
+def list_reports(
+    db: Session, *, status: str = "pending", page: int = 1, page_size: int = 20
+) -> dict:
+    page, page_size = _clamp_page(page, page_size)
+    conds = []
+    if status != "all":
+        conds.append(ShareReport.status == status)
+    total = db.scalar(select(func.count(ShareReport.id)).where(*conds)) or 0
+    rows = db.scalars(
+        select(ShareReport)
+        .where(*conds)
+        .order_by(ShareReport.created_at.desc(), ShareReport.id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    ).all()
+    if not rows:
+        return {"items": [], "total": int(total), "page": page, "pageSize": page_size}
+
+    # 批量补充：举报人昵称、处理人昵称、该哈希当前被拉黑状态、活跃分享引用数
+    reporter_ids = {r.reporter_id for r in rows if r.reporter_id}
+    handler_ids = {r.handled_by for r in rows if r.handled_by}
+    users = {}
+    if reporter_ids | handler_ids:
+        for u in db.scalars(select(User).where(User.id.in_(reporter_ids | handler_ids))).all():
+            users[u.id] = u.username
+    shas = {r.blob_sha256 for r in rows if r.blob_sha256}
+    blocked = set()
+    if shas:
+            blocked = set(db.scalars(select(BlockedBlob.sha256).where(BlockedBlob.sha256.in_(shas))).all())
+    ref_counts = {}
+    if shas:
+        ref_rows = db.execute(
+            select(Node.blob_sha256, func.count(Node.id))
+            .where(Node.blob_sha256.in_(shas), Node.deleted_at.is_(None))
+            .group_by(Node.blob_sha256)
+        ).all()
+        ref_counts = {sha: int(cnt) for sha, cnt in ref_rows}
+    active_shares = {}
+    share_ids = {r.share_id for r in rows}
+    if share_ids:
+        for sid, revoked, token in db.execute(
+            select(Share.id, Share.revoked, Share.token).where(Share.id.in_(share_ids))
+        ).all():
+            active_shares[sid] = (not revoked, token)
+
+    items = [
+        {
+            "id": r.id,
+            "shareId": r.share_id,
+            "token": r.token,
+            "url": f"/s/{r.token}",
+            "blobSha256": r.blob_sha256,
+            "firstName": r.first_name,
+            "size": int(r.size or 0),
+            "isFolder": bool(r.is_folder),
+            "reason": r.reason or "",
+            "reporter": users.get(r.reporter_id),
+            "reporterIp": r.reporter_ip,
+            "status": r.status,
+            "handledBy": users.get(r.handled_by),
+            "handledAt": _iso_or_none(r.handled_at),
+            "createdAt": _iso_or_none(r.created_at),
+            "blocked": bool(r.blob_sha256 and r.blob_sha256 in blocked),
+            "refCount": ref_counts.get(r.blob_sha256, 0) if r.blob_sha256 else 0,
+            "shareActive": active_shares.get(r.share_id, (False, ""))[0],
+        }
+        for r in rows
+    ]
+    return {"items": items, "total": int(total), "page": page, "pageSize": page_size}
+
+
+def approve_report(db: Session, report_id: int, admin: User) -> dict:
+    """审核通过：单文件拉黑哈希（禁止分享/转存，不删文件）；文件夹撤销该分享。"""
+    report = db.get(ShareReport, report_id)
+    if not report:
+        raise ValueError("举报不存在")
+    if report.status != "pending":
+        raise ValueError("该举报已处理")
+    report.status = "approved"
+    report.handled_by = admin.id
+    report.handled_at = utcnow()
+
+    blocked_now = False
+    if report.blob_sha256:
+        exists = db.get(BlockedBlob, report.blob_sha256)
+        if not exists:
+            db.add(
+                BlockedBlob(
+                    sha256=report.blob_sha256,
+                    reason=report.reason or report.first_name,
+                    blocked_by=admin.id,
+                )
+            )
+        blocked_now = True
+    # 对应分享立即失效
+    share = db.get(Share, report.share_id)
+    if share:
+        share.revoked = True
+    return {"blocked": blocked_now, "sha256": report.blob_sha256}
+
+
+def reject_report(db: Session, report_id: int, admin: User) -> None:
+    report = db.get(ShareReport, report_id)
+    if not report:
+        raise ValueError("举报不存在")
+    if report.status != "pending":
+        raise ValueError("该举报已处理")
+    report.status = "rejected"
+    report.handled_by = admin.id
+    report.handled_at = utcnow()
+
+
+def unblock_blob(db: Session, sha256: str, admin: User) -> bool:
+    row = db.get(BlockedBlob, sha256)
+    if not row:
+        return False
+    db.delete(row)
+    return True

@@ -50,6 +50,8 @@ _SYNC_TABLES = (
     "upload_sessions",
     "upload_chunks",
     "shares",
+    "share_reports",
+    "blocked_blobs",
     "system_settings",
     "audit_logs",
 )

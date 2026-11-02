@@ -269,6 +269,63 @@ def create_folder(db: Session, user: User, parent_id: int | None, name: str) -> 
     return node
 
 
+def copy_subtree(
+    db: Session,
+    user: User,
+    node: Node,
+    parent_id: int | None,
+    *,
+    _depth: int = 0,
+) -> tuple[Node, int]:
+    """把节点（含子树）复制为 user 名下 parent_id 的副本。
+
+    文件复用同一 blob（retain_blob），不复制物理数据。
+    返回 (新根节点, 新增逻辑字节数)。
+    """
+    if _depth > 64:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "目录层级过深，无法转存")
+    require_parent(db, user.id, parent_id)
+    if node.type == "folder":
+        clone = Node(
+            user_id=user.id,
+            parent_id=parent_id,
+            type="folder",
+            name=unique_name(db, user.id, parent_id, node.name),
+            size=0,
+        )
+        db.add(clone)
+        db.flush()
+        added = 0
+        children = db.scalars(
+            select(Node).where(
+                Node.user_id == node.user_id,
+                Node.parent_id == node.id,
+                Node.deleted_at.is_(None),
+            )
+        ).all()
+        for child in children:
+            _, child_added = copy_subtree(
+                db, user, child, clone.id, _depth=_depth + 1
+            )
+            added += child_added
+        return clone, added
+    # 文件：blob 引用 +1，名字落到目标目录（重名自动 (2)）
+    if node.blob_sha256:
+        retain_blob(db, node.blob_sha256, node.size)
+    clone = Node(
+        user_id=user.id,
+        parent_id=parent_id,
+        type="file",
+        name=unique_name(db, user.id, parent_id, node.name),
+        blob_sha256=node.blob_sha256,
+        size=node.size,
+        mime=node.mime,
+    )
+    db.add(clone)
+    db.flush()
+    return clone, int(node.size or 0)
+
+
 def rename_node(db: Session, user: User, node: Node, name: str) -> Node:
     if node.name == name:
         return node

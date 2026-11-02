@@ -75,6 +75,129 @@ async function request(path, options = {}) {
 
 const icon = (name) => `<svg class="icon"><use href="#${name}"/></svg>`;
 
+/* ---------------- 轻量对话框（自定义，不用原生弹窗） ---------------- */
+function showModal({ title, body, confirmText = "确定", danger = false, onConfirm }) {
+  const backdrop = document.createElement("div");
+  backdrop.className = "share-modal__backdrop";
+  backdrop.innerHTML = `
+    <div class="share-modal" role="dialog" aria-modal="true">
+      <h2 class="share-modal__title">${esc(title)}</h2>
+      <div class="share-modal__body">${body}</div>
+      <div class="share-modal__foot">
+        <button class="btn" type="button" data-cancel>取消</button>
+        <button class="btn ${danger ? "btn--danger" : "btn--accent"}" type="button" data-ok>${esc(confirmText)}</button>
+      </div>
+    </div>`;
+  const close = () => backdrop.remove();
+  backdrop.addEventListener("click", (event) => {
+    if (event.target === backdrop) close();
+  });
+  backdrop.querySelector("[data-cancel]").addEventListener("click", close);
+  backdrop.querySelector("[data-ok]").addEventListener("click", async () => {
+    const okBtn = backdrop.querySelector("[data-ok]");
+    okBtn.disabled = true;
+    try {
+      await onConfirm?.(backdrop);
+      close();
+    } catch (err) {
+      const tip = backdrop.querySelector("[data-modal-error]");
+      if (tip) {
+        tip.textContent = err.message || "操作失败";
+        tip.hidden = false;
+      }
+      okBtn.disabled = false;
+    }
+  });
+  document.body.appendChild(backdrop);
+  return backdrop;
+}
+
+function infoModal(title, message) {
+  const backdrop = document.createElement("div");
+  backdrop.className = "share-modal__backdrop";
+  backdrop.innerHTML = `
+    <div class="share-modal" role="dialog" aria-modal="true">
+      <h2 class="share-modal__title">${esc(title)}</h2>
+      <div class="share-modal__body">${message}</div>
+      <div class="share-modal__foot">
+        <button class="btn btn--accent" type="button" data-ok>好的</button>
+      </div>
+    </div>`;
+  const close = () => backdrop.remove();
+  backdrop.addEventListener("click", (event) => {
+    if (event.target === backdrop) close();
+  });
+  backdrop.querySelector("[data-ok]").addEventListener("click", close);
+  document.body.appendChild(backdrop);
+}
+
+/* ---------------- 登录态 ---------------- */
+let me = null; // 登录用户信息；null = 未登录
+async function loadMe() {
+  try {
+    const res = await fetch("/api/me", { credentials: "include" });
+    if (res.ok) me = await res.json();
+  } catch {
+    me = null;
+  }
+}
+
+/* ---------------- 举报 ---------------- */
+function openReport() {
+  showModal({
+    title: "举报分享",
+    body: `
+      <p class="share-modal__desc">如果该分享包含违规内容，请提交举报。管理员审核确认后会禁止该文件的分享，你的举报会匿名处理。</p>
+      <label class="share-modal__label" for="report-reason">举报理由（选填）</label>
+      <textarea class="share-modal__textarea" id="report-reason" maxlength="200"
+                placeholder="例如：包含违法违规内容 / 侵权 / 垃圾广告"></textarea>
+      <p class="share-modal__error" data-modal-error hidden></p>`,
+    confirmText: "提交举报",
+    danger: true,
+    onConfirm: async (backdrop) => {
+      const reason = backdrop.querySelector("#report-reason").value.trim();
+      await request("/report", { method: "POST", body: { reason } });
+      infoModal("举报已提交", `<p class="share-modal__desc">感谢你的反馈，管理员会尽快审核处理。</p>`);
+    },
+  });
+}
+
+/* ---------------- 转存到我的网盘 ---------------- */
+async function saveToMyDrive(nodeId) {
+  if (!me) {
+    infoModal(
+      "需要登录",
+      `<p class="share-modal__desc">转存到我的网盘需要先登录账号。</p>
+       <div class="share-modal__foot" style="margin-top:14px">
+         <a class="btn btn--accent" href="/?next=${encodeURIComponent(location.pathname)}">去登录</a>
+       </div>`
+    );
+    return;
+  }
+  const name = meta?.name || "文件";
+  showModal({
+    title: "转存到我的网盘",
+    body: `
+      <p class="share-modal__desc">将「<b>${esc(name)}</b>」保存到自己网盘的根目录。文件不会占用额外存储（相同内容只存一份），但会占用你的空间配额。</p>
+      <p class="share-modal__error" data-modal-error hidden></p>`,
+    confirmText: "转存",
+    onConfirm: async () => {
+      const data = await fetch(apiUrl("/save", nodeId ? { nodeId } : {}), {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(nodeId ? { nodeId } : {}),
+      });
+      const payload = await data.json().catch(() => null);
+      if (!data.ok) throw new Error(payload?.detail || `转存失败（${data.status}）`);
+      infoModal(
+        "转存成功",
+        `<p class="share-modal__desc">「<b>${esc(payload.name || name)}</b>」已保存到你的网盘根目录。</p>`
+      );
+    },
+  });
+}
+
 /** 分享者标签：关闭「显示完整昵称」时后端只会给出前两个字，头像也不下发 */
 function authorChip(share) {
   const a = share?.author;
@@ -190,9 +313,17 @@ function renderFile(share) {
           }</p>
           ${authorChip(share)}
         </div>
-        <a class="btn btn--accent" href="${downloadUrl}" download>
-          ${icon("i-download")}<span>下载</span>
-        </a>
+        <div class="share-card__actions">
+          <button class="btn" type="button" data-save-drive title="转存到我的网盘">
+            ${icon("i-cloud")}<span>转存</span>
+          </button>
+          <button class="btn" type="button" data-report title="举报该分享">
+            ${icon("i-alert")}<span>举报</span>
+          </button>
+          <a class="btn btn--accent" href="${downloadUrl}" download>
+            ${icon("i-download")}<span>下载</span>
+          </a>
+        </div>
       </header>
       ${previewMarkup(share) || `<div class="share-nopreview">这类文件暂不支持在线预览，请下载后查看。</div>`}
       ${
@@ -201,6 +332,9 @@ function renderFile(share) {
           : ""
       }
     </section>`;
+
+  root.querySelector("[data-save-drive]").addEventListener("click", () => saveToMyDrive());
+  root.querySelector("[data-report]").addEventListener("click", openReport);
 
   if (share.previewKind === "text") {
     const pre = root.querySelector("[data-text]");
@@ -266,9 +400,20 @@ function renderFolder(folder, items) {
             ${authorChip(meta)}
           </div>
         </div>
+        <div class="share-card__actions">
+          <button class="btn" type="button" data-save-drive title="转存整个文件夹到我的网盘">
+            ${icon("i-cloud")}<span>转存</span>
+          </button>
+          <button class="btn" type="button" data-report title="举报该分享">
+            ${icon("i-alert")}<span>举报</span>
+          </button>
+        </div>
       </header>
       <div class="share-items">${rows}</div>
     </section>`;
+
+  root.querySelector("[data-save-drive]").addEventListener("click", () => saveToMyDrive(folder.isRoot ? null : folder.id));
+  root.querySelector("[data-report]").addEventListener("click", openReport);
 
   root.querySelector("[data-back]")?.addEventListener("click", () => {
     trail.pop();
@@ -311,6 +456,7 @@ async function boot() {
     renderError("链接不完整", "请确认分享链接是否复制完整。");
     return;
   }
+  loadMe(); // 并行拿登录态，供「转存」按钮判断
   try {
     const data = await request("");
     meta = data.share;
@@ -334,7 +480,8 @@ async function boot() {
     }
     await enter();
   } catch (err) {
-    if (err.status === 410) renderError("分享已失效", err.message);
+    if (err.status === 403) renderError("分享已被禁止访问", err.message || "该文件因违规被管理员禁止分享。");
+    else if (err.status === 410) renderError("分享已失效", err.message);
     else if (err.status === 404) renderError("分享不存在", "链接可能输入有误，或者分享者已取消分享。");
     else renderError("打开失败", err.message || "请稍后重试。");
   }

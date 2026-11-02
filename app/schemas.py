@@ -122,6 +122,17 @@ class ShareUnlockIn(CamelModel):
     code: str = Field(min_length=1, max_length=16)
 
 
+class ShareReportIn(CamelModel):
+    reason: str | None = Field(default=None, max_length=200)
+
+
+class ShareSaveIn(CamelModel):
+    # 文件夹分享里要转存的子文件；单文件分享留空
+    node_id: int | None = None
+    # 转存目标文件夹，缺省存到自己根目录
+    parent_id: int | None = None
+
+
 # --------------------------------------------------------------------------- #
 # 管理后台
 # --------------------------------------------------------------------------- #

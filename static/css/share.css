@@ -420,3 +420,92 @@ body {
   color: var(--text-1);
   font-weight: 600;
 }
+
+/* ---------------- 卡片操作按钮组（转存 / 举报 / 下载） ---------------- */
+.share-card__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* ---------------- 对话框（页内自绘，不用原生弹窗） ---------------- */
+.share-modal__backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(20, 12, 32, 0.42);
+  backdrop-filter: blur(6px);
+  animation: share-modal-in 0.18s ease;
+}
+@keyframes share-modal-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.share-modal {
+  width: min(420px, 100%);
+  background: color-mix(in srgb, var(--layer-2) 88%, transparent);
+  backdrop-filter: blur(18px) saturate(1.1);
+  -webkit-backdrop-filter: blur(18px) saturate(1.1);
+  border: 1px solid var(--stroke-hair);
+  border-radius: 16px;
+  padding: 20px;
+  box-shadow: 0 18px 48px rgba(30, 16, 56, 0.28);
+  animation: share-modal-pop 0.2s cubic-bezier(0.2, 0.9, 0.3, 1.2);
+}
+@keyframes share-modal-pop {
+  from { opacity: 0; transform: translateY(14px) scale(0.96); }
+  to { opacity: 1; transform: none; }
+}
+.share-modal__title {
+  margin: 0 0 10px;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text-1);
+}
+.share-modal__body {
+  font-size: 14px;
+  color: var(--text-2);
+}
+.share-modal__desc {
+  margin: 0 0 12px;
+  line-height: 1.6;
+  word-break: break-word;
+}
+.share-modal__label {
+  display: block;
+  margin: 10px 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+.share-modal__textarea {
+  width: 100%;
+  min-height: 76px;
+  resize: vertical;
+  border: 1px solid var(--stroke-strong, rgba(0, 0, 0, 0.1));
+  border-radius: 10px;
+  padding: 10px 12px;
+  font: inherit;
+  color: var(--text-1);
+  background: var(--layer-3, rgba(0, 0, 0, 0.04));
+  outline: none;
+}
+.share-modal__textarea:focus {
+  border-color: var(--accent);
+}
+.share-modal__error {
+  margin: 10px 0 0;
+  font-size: 13px;
+  color: var(--danger);
+}
+.share-modal__foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 16px;
+}

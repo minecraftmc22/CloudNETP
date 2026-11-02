@@ -19,7 +19,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from . import node_service as ns
-from .models import Node, Share, User, utcnow
+from .models import BlockedBlob, Node, Share, User, utcnow
 from .profile_service import author_payload
 from .security import (
     client_ip,
@@ -34,6 +34,14 @@ CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
 _UNLOCK_WINDOW = 10 * 60
 _UNLOCK_LIMIT = 8
 _unlock_failures: dict[str, deque[float]] = defaultdict(deque)
+
+# 举报限流：同一 IP 对同一分享 10 分钟 1 次，全站每小时 30 次
+_REPORT_WINDOW = 10 * 60
+_REPORT_LIMIT = 1
+_REPORT_GLOBAL_WINDOW = 3600
+_REPORT_GLOBAL_LIMIT = 30
+_report_failures: dict[str, deque[float]] = defaultdict(deque)
+_report_global: deque[float] = deque()
 
 
 # --------------------------------------------------------------------------- #
@@ -78,6 +86,7 @@ def create_share(
     code: str | None = None,
     max_downloads: int | None = None,
 ) -> Share:
+    assert_shareable(db, node)
     text = normalize_code(code)
     share = Share(
         user_id=user.id,
@@ -181,7 +190,91 @@ def node_of(db: Session, share: Share, node_id: int | None = None) -> Node:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "文件不存在或已被删除")
     if node.id != share.node_id and not within_share(db, share, node):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "文件不存在或已被删除")
+    if node.type == "file" and node.blob_sha256 and is_blocked(db, node.blob_sha256):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "该文件已被举报确认，禁止分享")
     return node
+
+
+# --------------------------------------------------------------------------- #
+# 哈希黑名单（举报审核通过后生效）
+# --------------------------------------------------------------------------- #
+def is_blocked(db: Session, sha256: str) -> bool:
+    return db.get(BlockedBlob, sha256) is not None
+
+
+def blocked_in_subtree(db: Session, node: Node) -> list[str]:
+    """返回节点子树里被拉黑的 blob 哈希（文件夹分享创建前检查用）。"""
+    if node.type == "file":
+        return [node.blob_sha256] if node.blob_sha256 and is_blocked(db, node.blob_sha256) else []
+    ids = ns.subtree_ids(db, node.user_id, node.id)
+    if not ids:
+        return []
+    tree_shas = set(
+        db.scalars(
+            select(Node.blob_sha256).where(
+                Node.id.in_(ids), Node.blob_sha256.is_not(None)
+            )
+        ).all()
+    )
+    if not tree_shas:
+        return []
+    blocked = set(db.scalars(select(BlockedBlob.sha256)).all())
+    return sorted(tree_shas & blocked)
+
+
+def assert_shareable(db: Session, node: Node) -> None:
+    """创建分享前的黑名单拦截（含文件夹子树）。"""
+    if blocked_in_subtree(db, node):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "包含已被举报确认的文件，禁止分享")
+
+
+def filter_blocked(db: Session, items: list[dict]) -> list[dict]:
+    """文件夹公开列表里剔除被拉黑的文件。"""
+    file_ids = [int(i["id"]) for i in items if i.get("type") == "file"]
+    if not file_ids:
+        return items
+    shas = {
+        sha
+        for sha in db.scalars(
+            select(Node.blob_sha256).where(Node.id.in_(file_ids), Node.blob_sha256.is_not(None))
+        ).all()
+        if sha
+    }
+    if not shas:
+        return items
+    blocked = set(
+        db.scalars(select(BlockedBlob.sha256).where(BlockedBlob.sha256.in_(shas))).all()
+    )
+    if not blocked:
+        return items
+    blocked_nodes = set(
+        db.scalars(
+            select(Node.id).where(Node.id.in_(file_ids), Node.blob_sha256.in_(blocked))
+        ).all()
+    )
+    return [i for i in items if int(i["id"]) not in blocked_nodes]
+
+
+# --------------------------------------------------------------------------- #
+# 举报限流
+# --------------------------------------------------------------------------- #
+def report_guard(ip: str, token: str) -> None:
+    now = time.time()
+    key = f"{ip}|{token}"
+    q = _report_failures[key]
+    while q and now - q[0] > _REPORT_WINDOW:
+        q.popleft()
+    g = _report_global
+    while g and now - g[0] > _REPORT_GLOBAL_WINDOW:
+        g.popleft()
+    if len(q) >= _REPORT_LIMIT or len(g) >= _REPORT_GLOBAL_LIMIT:
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "举报太频繁，请稍后再试")
+
+
+def report_hit(ip: str, token: str) -> None:
+    now = time.time()
+    _report_failures[f"{ip}|{token}"].append(now)
+    _report_global.append(now)
 
 
 def _has_access(request: Request, share: Share) -> bool:

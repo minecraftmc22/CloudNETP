@@ -158,6 +158,41 @@ CREATE TABLE IF NOT EXISTS shares (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- ------------------------------------------------------------
+-- 分享举报（审核对象是分享链接，附文件哈希与首次被举报文件名）
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS share_reports (
+  id           BIGINT       NOT NULL AUTO_INCREMENT,
+  share_id     BIGINT       NOT NULL,
+  token        CHAR(43)     NOT NULL,
+  blob_sha256  CHAR(64)     NULL COMMENT '单文件分享的文件哈希；文件夹分享为 NULL',
+  first_name   VARCHAR(255) NOT NULL COMMENT '第一次被举报时的文件名',
+  size         BIGINT       NOT NULL DEFAULT 0,
+  is_folder    TINYINT(1)   NOT NULL DEFAULT 0,
+  reason       VARCHAR(200) NOT NULL DEFAULT '',
+  reporter_id  BIGINT       NULL COMMENT '登录用户举报时记录；匿名举报为 NULL',
+  reporter_ip  VARCHAR(45)  NULL,
+  status       VARCHAR(8)   NOT NULL DEFAULT 'pending' COMMENT 'pending/approved/rejected',
+  handled_by   BIGINT       NULL,
+  handled_at   DATETIME     NULL,
+  created_at   DATETIME     NOT NULL,
+  PRIMARY KEY (id),
+  KEY idx_report_share (share_id),
+  KEY idx_report_blob (blob_sha256),
+  KEY idx_report_status (status, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- ------------------------------------------------------------
+-- 文件哈希黑名单：禁止分享/转存，不删除文件本体
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS blocked_blobs (
+  sha256      CHAR(64)     NOT NULL,
+  reason      VARCHAR(200) NOT NULL DEFAULT '',
+  blocked_by  BIGINT       NULL,
+  created_at  DATETIME     NOT NULL,
+  PRIMARY KEY (sha256)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- ------------------------------------------------------------
 -- 审计日志
 -- ------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS audit_logs (

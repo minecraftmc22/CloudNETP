@@ -50,7 +50,7 @@ def _get_bool(key: str, default: bool) -> bool:
 class Settings:
     # ---- 应用 ----
     APP_NAME: str = _get("APP_NAME", "CloudNETP")
-    VERSION: str = "0.3.8"
+    VERSION: str = "0.3.10"
     DEBUG: bool = _get_bool("DEBUG", True)
 
     # ---- 监听与对外地址 ----

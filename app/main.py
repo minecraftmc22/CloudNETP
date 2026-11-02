@@ -125,7 +125,8 @@ def index() -> FileResponse:
 
 @app.get("/favicon.ico", include_in_schema=False)
 def favicon() -> FileResponse:
-    return FileResponse(STATIC_DIR / "assets" / "favicon.svg", media_type="image/svg+xml")
+    """根路径兜底：浏览器即使没读到 link 标签也会主动请求 /favicon.ico。"""
+    return FileResponse(STATIC_DIR / "assets" / "favicon.ico", media_type="image/x-icon")
 
 
 @app.get("/manifest.webmanifest", include_in_schema=False)

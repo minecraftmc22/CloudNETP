@@ -226,6 +226,60 @@ def purge_logs(payload: AdminLogPurgeIn, request: Request, db: DbSession, me: Ad
 
 
 # --------------------------------------------------------------------------- #
+# 分享举报审核
+# --------------------------------------------------------------------------- #
+@router.get("/reports")
+def list_reports(
+    db: DbSession,
+    _: AdminUser,
+    report_status: str = Query(default="pending", pattern="^(pending|approved|rejected|all)$", alias="status"),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100, alias="pageSize"),
+) -> dict:
+    return admin.list_reports(db, status=report_status, page=page, page_size=page_size)
+
+
+@router.post("/reports/{report_id}/approve")
+def approve_report(
+    report_id: int, request: Request, db: DbSession, me: AdminUser
+) -> dict:
+    check_origin(request)
+    try:
+        result = admin.approve_report(db, report_id, me)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from None
+    log_action(db, "admin_report_approve", me.id, {"reportId": report_id, **result}, request)
+    db.commit()
+    return {"approved": True, **result}
+
+
+@router.post("/reports/{report_id}/reject")
+def reject_report(
+    report_id: int, request: Request, db: DbSession, me: AdminUser
+) -> dict:
+    check_origin(request)
+    try:
+        admin.reject_report(db, report_id, me)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from None
+    log_action(db, "admin_report_reject", me.id, {"reportId": report_id}, request)
+    db.commit()
+    return {"rejected": True}
+
+
+@router.post("/blacklist/{sha256}/unblock")
+def unblock_blob(sha256: str, request: Request, db: DbSession, me: AdminUser) -> dict:
+    check_origin(request)
+    if len(sha256) != 64 or not all(c in "0123456789abcdef" for c in sha256):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "哈希格式不正确")
+    removed = admin.unblock_blob(db, sha256, me)
+    if removed:
+        log_action(db, "admin_blob_unblock", me.id, {"sha256": sha256}, request)
+        db.commit()
+    return {"unblocked": removed}
+
+
+# --------------------------------------------------------------------------- #
 # 磁盘维护
 # --------------------------------------------------------------------------- #
 @router.post("/maintenance/blob-gc")

@@ -898,3 +898,11 @@
   flex: 1 1 auto;
   min-width: 0;
 }
+
+/* 小号按钮（表格行内操作等紧凑场景） */
+.btn--sm {
+  padding: 5px 12px;
+  font-size: 12.5px;
+  border-radius: 9px;
+  gap: 5px;
+}

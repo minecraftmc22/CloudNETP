@@ -177,6 +177,41 @@ class Share(Base):
     __table_args__ = (Index("idx_share_user", "user_id", "created_at"),)
 
 
+class ShareReport(Base):
+    """分享举报：审核对象是分享链接，同时记录文件哈希与首次被举报时的文件名。"""
+
+    __tablename__ = "share_reports"
+
+    id: Mapped[int] = mapped_column(AutoPK, primary_key=True, autoincrement=True)
+    share_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    token: Mapped[str] = mapped_column(String(43), nullable=False)
+    # 单文件分享记录文件哈希；文件夹分享为 NULL（审核通过只撤销该分享）
+    blob_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    first_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    size: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    is_folder: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    reason: Mapped[str] = mapped_column(String(200), nullable=False, default="")
+    reporter_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    reporter_ip: Mapped[str | None] = mapped_column(String(45), nullable=True)
+    status: Mapped[str] = mapped_column(String(8), nullable=False, default="pending", index=True)
+    handled_by: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    handled_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
+
+    __table_args__ = (Index("idx_report_status", "status", "created_at"),)
+
+
+class BlockedBlob(Base):
+    """被拉黑的文件哈希：禁止分享（创建/公开访问/转存），不删除文件本体。"""
+
+    __tablename__ = "blocked_blobs"
+
+    sha256: Mapped[str] = mapped_column(String(64), primary_key=True)
+    reason: Mapped[str] = mapped_column(String(200), nullable=False, default="")
+    blocked_by: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
+
+
 class AuditLog(Base):
     __tablename__ = "audit_logs"
 

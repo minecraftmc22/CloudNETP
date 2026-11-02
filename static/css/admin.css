@@ -624,3 +624,28 @@
     display: none;
   }
 }
+
+/* ---------------- 举报审核列表 ---------------- */
+.admin-row--report {
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1.1fr) minmax(0, 1.2fr) 132px 190px;
+}
+.report-hash {
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  color: var(--text-3);
+  word-break: break-all;
+  cursor: pointer;
+}
+.report-hash:hover {
+  color: var(--accent);
+}
+.report-reason {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.report-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}

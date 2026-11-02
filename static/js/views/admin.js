@@ -13,6 +13,7 @@ import { Toast } from "../ui/toast.js";
 const TABS = [
   { id: "overview", label: "概览", icon: "i-chart" },
   { id: "users", label: "用户", icon: "i-user" },
+  { id: "reports", label: "举报审核", icon: "i-alert" },
   { id: "logs", label: "审计日志", icon: "i-clock" },
   { id: "settings", label: "系统设置", icon: "i-settings" },
 ];
@@ -76,6 +77,7 @@ export function renderAdmin(root) {
     tab: "overview",
     actions: null,
     users: { page: 1, query: "", filter: "all", total: 0 },
+    reports: { page: 1, filter: "pending", total: 0 },
     logs: { page: 1, query: "", action: "", userId: null, username: "", total: 0 },
   };
 
@@ -542,6 +544,251 @@ export function renderAdmin(root) {
   }
 
   /* ---------------------------------------------------------------- */
+  /* 举报审核                                                          */
+  /* ---------------------------------------------------------------- */
+  const REPORT_FILTERS = [
+    { id: "pending", label: "待处理" },
+    { id: "approved", label: "已通过" },
+    { id: "rejected", label: "已驳回" },
+    { id: "all", label: "全部" },
+  ];
+
+  const REPORT_STATUS_BADGE = {
+    pending: '<span class="admin-badge is-warn">待处理</span>',
+    approved: '<span class="admin-badge is-banned">已拉黑</span>',
+    rejected: '<span class="admin-badge is-ok">已驳回</span>',
+  };
+
+  async function showReports() {
+    panel.innerHTML = `
+      <div class="admin-toolbar">
+        <div class="admin-chips">
+          ${REPORT_FILTERS.map(
+            (f) =>
+              `<button class="admin-chip ${state.reports.filter === f.id ? "is-active" : ""}" type="button" data-filter="${f.id}">${f.label}</button>`
+          ).join("")}
+        </div>
+        <div class="grow"></div>
+        <span class="admin-count" data-count></span>
+      </div>
+      <div data-table>${loading()}</div>
+      <div class="admin-pager" data-pager></div>`;
+
+    const tableEl = panel.querySelector("[data-table]");
+    const pagerEl = panel.querySelector("[data-pager]");
+    const countEl = panel.querySelector("[data-count]");
+
+    panel.querySelectorAll("[data-filter]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        state.reports.filter = btn.dataset.filter;
+        state.reports.page = 1;
+        panel.querySelectorAll("[data-filter]").forEach((b) => b.classList.toggle("is-active", b === btn));
+        loadReports();
+      });
+    });
+
+    async function loadReports() {
+      tableEl.innerHTML = loading();
+      const params = new URLSearchParams({
+        page: String(state.reports.page),
+        pageSize: String(PAGE_SIZE),
+        status: state.reports.filter,
+      });
+      let data;
+      try {
+        data = await api.get(`/api/admin/reports?${params}`);
+      } catch (err) {
+        tableEl.innerHTML = errorBlock(err.message);
+        pagerEl.innerHTML = "";
+        return;
+      }
+      state.reports.total = data.total;
+      countEl.textContent = `${data.total} 条举报`;
+      setSub(`${data.total} 条举报 · ${
+        REPORT_FILTERS.find((f) => f.id === state.reports.filter)?.label || "全部"
+      }`);
+
+      if (!data.items.length) {
+        tableEl.innerHTML = `
+          <div class="empty">
+            <div class="empty__art"><svg class="icon"><use href="#i-alert"/></svg></div>
+            <div class="empty__title">没有举报记录</div>
+            <div class="empty__desc">分享页被举报后会出现在这里等待审核。</div>
+          </div>`;
+        pagerEl.innerHTML = "";
+        return;
+      }
+
+      tableEl.innerHTML = `
+        <div class="admin-table">
+          <div class="admin-row admin-row--head admin-row--report">
+            <span>被举报文件</span><span>哈希值</span><span>举报理由 / 举报人</span><span>时间</span><span>状态</span>
+          </div>
+          ${data.items.map(reportRowHtml).join("")}
+        </div>`;
+
+      tableEl.querySelectorAll(".admin-row[data-id]").forEach((row) => {
+        const report = data.items.find((item) => item.id === Number(row.dataset.id));
+        if (!report) return;
+        row.querySelector("[data-copy-hash]")?.addEventListener("click", async (event) => {
+          event.stopPropagation();
+          const done = await copyText(report.blobSha256 || "");
+          done ? Toast.success("哈希已复制") : Toast.error("复制失败，请手动选中");
+        });
+        row.querySelector("[data-approve]")?.addEventListener("click", (event) => {
+          event.stopPropagation();
+          approveReport(report, loadReports);
+        });
+        row.querySelector("[data-reject]")?.addEventListener("click", (event) => {
+          event.stopPropagation();
+          rejectReport(report, loadReports);
+        });
+        row.querySelector("[data-unblock]")?.addEventListener("click", (event) => {
+          event.stopPropagation();
+          unblockHash(report, loadReports);
+        });
+        row.addEventListener("click", () => showReportDetail(report));
+      });
+
+      pagerEl.innerHTML = pagerHtml(state.reports.page, data.total, PAGE_SIZE);
+      pagerEl.querySelectorAll("[data-page]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const page = Number(btn.dataset.page);
+          if (!page || page === state.reports.page) return;
+          state.reports.page = page;
+          loadReports();
+        });
+      });
+    }
+
+    loadReports();
+  }
+
+  function reportRowHtml(report) {
+    const hash = report.blobSha256
+      ? `<div class="report-hash" data-copy-hash title="点击复制完整哈希">${escapeHtml(
+          report.blobSha256.slice(0, 16)
+        )}…${escapeHtml(report.blobSha256.slice(-8))}</div>
+         <div class="admin-user__meta">${report.refCount} 处引用 · ${formatBytes(report.size)}</div>`
+      : `<div class="admin-user__meta">文件夹分享 · 共 ${formatBytes(report.size)}</div>`;
+    const reason = report.reason
+      ? `<div class="report-reason" title="${escapeHtml(report.reason)}">${escapeHtml(report.reason)}</div>`
+      : `<div class="report-reason muted">未填写理由</div>`;
+    const reporter = `${escapeHtml(report.reporter || "匿名")}${
+      report.reporterIp ? ` · ${escapeHtml(report.reporterIp)}` : ""
+    }`;
+    const shareState = report.shareActive
+      ? '<span class="admin-badge is-warn">链接仍有效</span>'
+      : '<span class="admin-badge">链接已失效</span>';
+    const actions = [];
+    if (report.status === "pending") {
+      actions.push(
+        `<button class="btn btn--danger btn--sm" type="button" data-approve>通过并拉黑</button>`,
+        `<button class="btn btn--sm" type="button" data-reject>驳回</button>`
+      );
+    } else if (report.status === "approved" && report.blocked && report.blobSha256) {
+      actions.push(`<button class="btn btn--sm" type="button" data-unblock>解除拉黑</button>`);
+    }
+    return `
+      <div class="admin-row admin-row--report" data-id="${report.id}">
+        <div class="admin-user">
+          <span class="admin-avatar">${report.isFolder ? "📁" : escapeHtml((report.firstName || "?").slice(0, 1).toUpperCase())}</span>
+          <div style="min-width:0">
+            <div class="admin-user__name" title="${escapeHtml(report.firstName)}">${escapeHtml(report.firstName)}</div>
+            <div class="admin-user__meta">${shareState}</div>
+          </div>
+        </div>
+        <div>${hash}</div>
+        <div style="min-width:0">
+          ${reason}
+          <div class="admin-user__meta">${reporter}</div>
+        </div>
+        <div class="admin-cell">${formatTime(report.createdAt)}</div>
+        <div class="report-actions">
+          ${REPORT_STATUS_BADGE[report.status] || ""}
+          ${actions.join("")}
+        </div>
+      </div>`;
+  }
+
+  async function approveReport(report, reload) {
+    const detail = report.isFolder
+      ? `审核通过后该分享链接会立即失效（文件夹分享不涉及文件哈希）。`
+      : `审核通过后：
+        <div class="dialog__hint">· 哈希 <span class="code-display" style="display:inline;padding:2px 8px">${escapeHtml(
+          report.blobSha256 || ""
+        )}</span> 会被拉黑</div>
+        <div class="dialog__hint">· 该文件的所有分享链接立即失效，且不能再被分享、转存</div>
+        <div class="dialog__hint">· 文件本体不删除，分享者自己的网盘仍可查看和下载</div>`;
+    const ok = await Dialog.confirm({
+      title: "确认举报通过？",
+      message: `「<b>${escapeHtml(report.firstName)}</b>」${detail}`,
+      confirmText: "通过举报并拉黑",
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      const res = await api.post(`/api/admin/reports/${report.id}/approve`);
+      Toast.success(res.blocked ? "已拉黑该文件哈希" : "已通过，分享已失效");
+      reload();
+    } catch (err) {
+      Toast.error(err.message);
+    }
+  }
+
+  async function rejectReport(report, reload) {
+    const ok = await Dialog.confirm({
+      title: "驳回举报",
+      message: `将把「<b>${escapeHtml(report.firstName)}</b>」的举报标记为已驳回，分享不受影响。`,
+      confirmText: "驳回举报",
+    });
+    if (!ok) return;
+    try {
+      await api.post(`/api/admin/reports/${report.id}/reject`);
+      Toast.success("已驳回该举报");
+      reload();
+    } catch (err) {
+      Toast.error(err.message);
+    }
+  }
+
+  async function unblockHash(report, reload) {
+    const ok = await Dialog.confirm({
+      title: "解除拉黑",
+      message: `解除后哈希 <b>${escapeHtml(report.blobSha256 || "")}</b> 对应的文件可以重新被分享。`,
+      confirmText: "解除拉黑",
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await api.post(`/api/admin/blacklist/${report.blobSha256}/unblock`);
+      Toast.success("已解除拉黑");
+      reload();
+    } catch (err) {
+      Toast.error(err.message);
+    }
+  }
+
+  function showReportDetail(report) {
+    Dialog.alert({
+      title: `举报详情 · ${report.firstName}`,
+      message: `
+        <div class="dialog__hint">分享链接 /s/${escapeHtml(report.token)}（${report.shareActive ? "仍有效" : "已失效"}）</div>
+        <div class="dialog__hint">文件名：${escapeHtml(report.firstName)}</div>
+        ${
+          report.blobSha256
+            ? `<div class="dialog__hint">哈希值：<span class="code-display" style="display:inline;padding:2px 8px">${escapeHtml(report.blobSha256)}</span></div>`
+            : '<div class="dialog__hint">类型：文件夹分享</div>'
+        }
+        <div class="dialog__hint">大小：${formatBytes(report.size)} · 引用：${report.refCount} 处</div>
+        <div class="dialog__hint">举报理由：${escapeHtml(report.reason || "未填写")}</div>
+        <div class="dialog__hint">举报人：${escapeHtml(report.reporter || "匿名")}${report.reporterIp ? ` · IP ${escapeHtml(report.reporterIp)}` : ""}</div>
+        <div class="dialog__hint">时间：${formatTime(report.createdAt)}${report.handledAt ? ` · 处理：${escapeHtml(report.handledBy || "—")} ${formatTime(report.handledAt)}` : ""}</div>`,
+      confirmText: "关闭",
+    });
+  }
+
+  /* ---------------------------------------------------------------- */
   /* 审计日志                                                          */
   /* ---------------------------------------------------------------- */
   async function ensureActions() {
@@ -960,6 +1207,7 @@ export function renderAdmin(root) {
     window.requestAnimationFrame(layoutThumb);
     if (name === "overview") showOverview();
     else if (name === "users") showUsers();
+    else if (name === "reports") showReports();
     else if (name === "logs") showLogs();
     else showSettings();
   }
