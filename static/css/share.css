@@ -48,6 +48,13 @@ body {
   height: 16px;
   color: var(--accent);
 }
+.share-brand__mark {
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  object-fit: cover;
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--accent) 26%, transparent);
+}
 
 .share-main {
   flex: 1;
@@ -150,8 +157,8 @@ body {
   display: grid;
   place-items: center;
   border-radius: var(--radius-m);
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
-  color: var(--accent);
+  background: color-mix(in srgb, var(--tone, var(--accent)) 14%, transparent);
+  color: var(--tone, var(--accent));
 }
 .share-file__icon .icon {
   width: 22px;
@@ -320,14 +327,11 @@ body {
   height: 26px;
   display: grid;
   place-items: center;
-  color: var(--text-2);
+  color: var(--tone, var(--text-2));
 }
 .share-item__icon .icon {
   width: 17px;
   height: 17px;
-}
-.share-item[data-type="folder"] .share-item__icon {
-  color: var(--accent);
 }
 .share-item__name {
   flex: 1;
@@ -508,4 +512,30 @@ body {
   justify-content: flex-end;
   gap: 10px;
   margin-top: 16px;
+}
+
+/* Markdown / Office 预览：与主应用共用 preview.css 的排版，这里只管容器 */
+.share-preview--md {
+  background: var(--layer-1);
+  max-height: 62vh;
+  overflow: auto;
+  padding: 18px 22px;
+}
+.share-preview--md .md-body {
+  max-width: none;
+}
+.share-preview--office {
+  background: var(--layer-1);
+  max-height: 62vh;
+  overflow: auto;
+  padding: 10px 10px 14px;
+}
+.share-preview--office .office-host {
+  min-height: 360px;
+}
+.share-preview__loading {
+  padding: 28px 12px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-3);
 }

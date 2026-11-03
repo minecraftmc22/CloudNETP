@@ -36,6 +36,9 @@ class User(Base):
     id: Mapped[int] = mapped_column(AutoPK, primary_key=True, autoincrement=True)
     username: Mapped[str] = mapped_column(String(32), unique=True, nullable=False, index=True)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    # 绑定邮箱：可用于登录、找回密码；未验证时只做「联系方式」用
+    email: Mapped[str | None] = mapped_column(String(254), nullable=True, index=True)
+    email_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     # 展示资料（与登录名解耦）：昵称可改可重复，头像只存文件名
     display_name: Mapped[str | None] = mapped_column(String(32), nullable=True)
     bio: Mapped[str | None] = mapped_column(String(200), nullable=True)

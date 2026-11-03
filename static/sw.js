@@ -10,7 +10,7 @@
  *
  * 改版本号时记得同步改这里的 VERSION 与 app/config.py 的 VERSION。
  */
-const VERSION = "0.3.10";
+const VERSION = "0.3.20";
 const SHELL = `cloudnetp-shell-${VERSION}`;
 const RUNTIME = `cloudnetp-runtime-${VERSION}`;
 const CACHE_PREFIX = "cloudnetp-";
@@ -24,6 +24,8 @@ const PRECACHE = [
   "/manifest.webmanifest",
   "/assets/favicon.ico",
   "/assets/favicon-32.png",
+  "/assets/brand-avatar.png",
+  "/assets/brand-avatar-256.png",
   "/assets/icon-192.png",
   "/assets/icon-512.png",
   "/assets/icon-maskable-512.png",
@@ -34,6 +36,7 @@ const PRECACHE = [
   "/static/css/views.css",
   "/static/css/files.css",
   "/static/css/viewer.css",
+  "/static/css/preview.css",
   "/static/css/admin.css",
   "/static/css/share.css",
   "/static/css/mobile.css",
@@ -52,13 +55,19 @@ const PRECACHE = [
   "/static/js/views/trash.js",
   "/static/js/views/settings.js",
   "/static/js/views/admin.js",
+  "/static/js/views/about.js",
   "/static/js/ui/avatar.js",
   "/static/js/ui/dialog.js",
+  "/static/js/ui/live2d.js",
   "/static/js/ui/menu.js",
   "/static/js/ui/picker.js",
   "/static/js/ui/share.js",
   "/static/js/ui/tasks.js",
   "/static/js/ui/toast.js",
+  "/static/js/ui/markdown.js",
+  "/static/js/ui/office.js",
+  "/static/js/ui/odf.js",
+  "/static/js/ui/docparse.js",
   "/static/js/ui/viewer.js",
   "/static/js/ui/artplayer-plugins.js",
 ];
@@ -215,6 +224,8 @@ self.addEventListener("fetch", (event) => {
   const path = url.pathname;
   // 接口、WebDAV、上传下载：一律不参与缓存
   if (path.startsWith("/api/") || path === "/dav" || path.startsWith("/dav/")) return;
+  // Live2D 模型随时可能被换掉，必须回源（缓存优先会让人以为「换模型没生效」）
+  if (path.startsWith("/live2d/")) return;
   // Range 请求（音视频拖动、断点续传）必须回源，缓存会破坏 206 语义
   if (request.headers.has("range")) return;
 

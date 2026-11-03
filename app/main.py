@@ -6,12 +6,15 @@ import logging
 import time
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi import Depends, FastAPI, Request
+from fastapi.openapi.docs import get_swagger_ui_html
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .config import STATIC_DIR, settings
+from .deps import require_admin
+from .models import User
 from . import db_failover
 
 logger = logging.getLogger("uvicorn.error").getChild("cloudnetp")
@@ -24,6 +27,7 @@ def _prepare_dirs() -> None:
         settings.tmp_dir,
         settings.thumb_dir,
         settings.chunk_dir,
+        settings.live2d_model_dir,
     ):
         path.mkdir(parents=True, exist_ok=True)
 
@@ -91,7 +95,31 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="CloudNETP", version=settings.VERSION, lifespan=lifespan, docs_url="/api/docs", openapi_url="/api/openapi.json")
+app = FastAPI(
+    title="CloudNETP",
+    version=settings.VERSION,
+    lifespan=lifespan,
+    # 默认的 /docs、/redoc、/openapi.json 会公开列出所有接口（含 /api/admin/*），
+    # 这里全关掉，改成下面的自定义路由，只放给管理员看。
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
+)
+
+
+@app.get("/api/openapi.json", include_in_schema=False)
+def openapi_spec(_: User = Depends(require_admin)) -> JSONResponse:
+    """接口清单只对管理员开放（内网自用项目，不打算对外提供 API 文档）。"""
+    return JSONResponse(app.openapi())
+
+
+@app.get("/api/docs", include_in_schema=False)
+def api_docs(_: User = Depends(require_admin)) -> HTMLResponse:
+    return get_swagger_ui_html(
+        openapi_url="/api/openapi.json",
+        title=f"{settings.APP_NAME} API",
+        swagger_favicon_url="/assets/favicon-32.png",
+    )
 
 
 @app.exception_handler(StarletteHTTPException)
@@ -153,9 +181,14 @@ if STATIC_DIR.is_dir():
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
     app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets"), name="assets")
 
+# Live2D 模型：/live2d/model/<模型名>/xxx.model3.json，目录不存在时先建出来再挂载
+settings.live2d_model_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/live2d", StaticFiles(directory=settings.LIVE2D_DIR), name="live2d")
+
 from .routers import admin as admin_router  # noqa: E402
 from .routers import auth as auth_router  # noqa: E402
 from .routers import dav as dav_router  # noqa: E402
+from .routers import live2d as live2d_router  # noqa: E402
 from .routers import nodes as nodes_router  # noqa: E402
 from .routers import shares as shares_router  # noqa: E402
 from .routers import uploads as uploads_router  # noqa: E402
@@ -166,6 +199,7 @@ app.include_router(shares_router.router)
 app.include_router(uploads_router.router)
 app.include_router(admin_router.router)
 app.include_router(dav_router.router)
+app.include_router(live2d_router.router)
 
 
 @app.get("/s/{token}", include_in_schema=False)

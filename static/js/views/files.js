@@ -245,7 +245,7 @@ export function renderFiles(root) {
           (item, index) => `
         <div class="tile ${state.selected.has(item.id) ? "is-selected" : ""} ${state.cursor === index ? "is-cursor" : ""}"
              data-id="${item.id}" data-type="${item.type}" data-index="${index}" tabindex="0" role="button">
-          <div class="tile__icon"><svg class="icon"><use href="#${item.icon || "i-file"}"/></svg></div>
+          <div class="tile__icon" data-kind="${(item.icon || "i-file").slice(2)}"><svg class="icon"><use href="#${item.icon || "i-file"}"/></svg></div>
           <div class="tile__name" title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</div>
           <div class="tile__meta">${escapeHtml(metaOf(item))}</div>
           <button class="tile__more" type="button" data-more="${item.id}" title="更多">
@@ -276,7 +276,7 @@ export function renderFiles(root) {
         <div class="frow ${state.selected.has(item.id) ? "is-selected" : ""}"
              data-id="${item.id}" data-type="${item.type}" data-index="${index}" tabindex="0" role="button">
           <span class="frow__check"><input type="checkbox" ${state.selected.has(item.id) ? "checked" : ""} tabindex="-1"></span>
-          <span class="frow__icon"><svg class="icon"><use href="#${item.icon || "i-file"}"/></svg></span>
+          <span class="frow__icon" data-kind="${(item.icon || "i-file").slice(2)}"><svg class="icon"><use href="#${item.icon || "i-file"}"/></svg></span>
           <span class="frow__name">
             <span title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</span>
             ${item.path ? `<span class="frow__path">${escapeHtml(item.path)}</span>` : ""}

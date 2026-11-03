@@ -111,16 +111,16 @@
   border-radius: 12px;
   display: grid;
   place-items: center;
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--tone, var(--accent));
+  background: color-mix(in srgb, var(--tone, var(--accent)) 12%, transparent);
   flex: none;
 }
 .tile__icon .icon {
   width: 22px;
   height: 22px;
 }
-.tile[data-type="file"] .tile__icon {
-  color: var(--text-2);
+/* 认不出类型的文件保持中性底色，不要染成强调色 */
+.tile__icon[data-kind="file"] {
   background: var(--fill-hover);
 }
 
@@ -260,10 +260,7 @@
 .frow__icon {
   display: grid;
   place-items: center;
-  color: var(--accent);
-}
-.frow[data-type="file"] .frow__icon {
-  color: var(--text-2);
+  color: var(--tone, var(--accent));
 }
 .frow__icon .icon {
   width: 17px;

@@ -11,10 +11,13 @@
 }
 .admin-tabs .segmented {
   width: auto;
+  /* 容器被压缩时 grid 列会变窄、按钮文字折行并溢出药丸，索性禁止收缩，交给横向滚动 */
+  flex: none;
 }
 .admin-tabs .segmented__btn {
   padding: 0 14px;
   gap: 6px;
+  white-space: nowrap;
 }
 .admin-tabs .segmented__btn .icon {
   width: 14px;
@@ -597,6 +600,11 @@
   .admin-tabs {
     padding: 0 var(--sp-3) var(--sp-2);
     overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+  }
+  .admin-tabs::-webkit-scrollbar {
+    display: none;
   }
   .stat-grid {
     grid-template-columns: minmax(0, 1fr);
@@ -621,6 +629,30 @@
     grid-template-columns: 8px minmax(0, 1fr) 76px;
   }
   .log-ip {
+    display: none;
+  }
+}
+
+/* 手机：分段控件等分撑满整行，避免 grid 列被压窄后文字折行 */
+@media (max-width: 560px) {
+  .admin-tabs .segmented {
+    flex: 1 1 auto;
+    min-width: 0;
+    grid-auto-columns: minmax(0, 1fr);
+  }
+  .admin-tabs .segmented__btn {
+    padding: 0 4px;
+    gap: 4px;
+    font-size: 12px;
+  }
+}
+
+/* 再窄一些，图标 + 四个字挤在等分列里贴边，去掉图标 */
+@media (max-width: 520px) {
+  .admin-tabs .segmented__btn {
+    gap: 0;
+  }
+  .admin-tabs .segmented__btn .icon {
     display: none;
   }
 }

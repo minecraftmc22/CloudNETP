@@ -360,6 +360,45 @@ h1, h2, h3, h4, p {
 }
 
 /* ------------------------------------------------------------
+   文件类型色调
+   图标容器（列表/网格/分享页）上的 data-kind 由 item.icon 推导，
+   容器用 var(--tone, ...) 取色，没匹配到就回落到默认色。
+   ------------------------------------------------------------ */
+[data-kind="image"] {
+  --tone: #38bdf8;
+}
+[data-kind="video"] {
+  --tone: #a78bfa;
+}
+[data-kind="music"] {
+  --tone: #f472b6;
+}
+[data-kind="text"] {
+  --tone: #94a3b8;
+}
+[data-kind="code"] {
+  --tone: #34d399;
+}
+[data-kind="doc"] {
+  --tone: #60a5fa;
+}
+[data-kind="pdf"] {
+  --tone: #f87171;
+}
+[data-kind="sheet"] {
+  --tone: #2dd4bf;
+}
+[data-kind="slide"] {
+  --tone: #fb923c;
+}
+[data-kind="archive"] {
+  --tone: #fbbf24;
+}
+[data-kind="file"] {
+  --tone: #64748b;
+}
+
+/* ------------------------------------------------------------
    动效降级
    ------------------------------------------------------------ */
 @media (prefers-reduced-motion: reduce) {

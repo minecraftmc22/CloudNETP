@@ -26,7 +26,11 @@ AUDIO_EXT = {
     ".mp3", ".flac", ".wav", ".ogg", ".oga", ".m4a", ".aac", ".opus",
     ".wma", ".ape", ".aiff", ".aif", ".dsf", ".wv",
 }
-ARCHIVE_EXT = {".zip", ".rar", ".7z", ".tar", ".gz", ".xz", ".bz2"}
+ARCHIVE_EXT = {".zip", ".rar", ".7z", ".tar", ".gz", ".xz", ".bz2", ".tgz"}
+DOC_EXT = {".doc", ".docx", ".odt", ".rtf", ".pdf", ".pages"}
+SHEET_EXT = {".xls", ".xlsx", ".csv", ".tsv", ".ods", ".numbers"}
+SLIDE_EXT = {".ppt", ".pptx", ".pps", ".ppsx", ".odp", ".key"}
+TEXT_EXT = {".txt", ".md", ".markdown", ".log", ".srt", ".vtt", ".ass", ".sub", ".nfo"}
 CODE_EXT = {
     ".py", ".js", ".ts", ".jsx", ".tsx", ".json", ".html", ".css", ".scss", ".vue",
     ".java", ".c", ".h", ".cpp", ".cs", ".go", ".rs", ".rb", ".php", ".sh", ".sql",
@@ -35,6 +39,24 @@ CODE_EXT = {
     ".vtt", ".srt", ".ass",
 }
 
+# 能在线预览的 Office 格式：
+# - OOXML（docx/xlsx/pptx）：前端用 docx-preview / SheetJS / 自带解析器直接读 zip
+# - ODF（odt/ods/odp）：同样是 zip，读 content.xml 就能还原
+# - .doc/.ppt 是老的 OLE2 二进制，前端只能做文本级提取（保留文字、丢格式）
+# - .rtf 是纯文本控制的富文本，自己写个小解析器足够
+PREVIEW_DOCX_EXT = {".docx", ".docm"}
+PREVIEW_SHEET_EXT = {".xlsx", ".xlsm", ".xls", ".csv", ".tsv"}
+# 放映（.ppsx）和模板（.potx）跟 .pptx 是同一套 OOXML 结构，只差 presentation.xml
+# 里的 show 标记，解析器照常读 ppt/presentation.xml + slideN.xml 即可。
+PREVIEW_SLIDE_EXT = {".pptx", ".pptm", ".ppsx", ".ppsm", ".potx", ".potm"}
+PREVIEW_MD_EXT = {".md", ".markdown"}
+PREVIEW_ODOC_EXT = {".odt", ".ott", ".fodt"}
+PREVIEW_OSHEET_EXT = {".ods", ".ots"}
+PREVIEW_OSLIDE_EXT = {".odp", ".otp"}
+PREVIEW_RTF_EXT = {".rtf"}
+PREVIEW_LEGACY_DOC_EXT = {".doc"}
+PREVIEW_LEGACY_PPT_EXT = {".ppt", ".pps", ".pot"}
+
 
 def extension(name: str) -> str:
     dot = name.rfind(".")
@@ -42,23 +64,94 @@ def extension(name: str) -> str:
 
 
 def icon_for(node: Node) -> str:
+    """列表/网格里显示的文件类型图标（对应 index.html icon-sprite 里的 symbol id）。
+
+    先按扩展名判定，认不出再按 MIME 兜底（无扩展名的文件也能有个像样的图标）。
+    """
     if node.type == "folder":
         return "i-folder"
     ext = extension(node.name)
     if ext in IMAGE_EXT:
         return "i-image"
-    if ext in VIDEO_EXT or ext in AUDIO_EXT:
-        return "i-star"
+    if ext in VIDEO_EXT:
+        return "i-video"
+    if ext in AUDIO_EXT:
+        return "i-music"
+    if ext == ".pdf" or (node.mime or "").lower() == "application/pdf":
+        return "i-pdf"
+    if ext in DOC_EXT:
+        return "i-doc"
+    if ext in SHEET_EXT:
+        return "i-sheet"
+    if ext in SLIDE_EXT:
+        return "i-slide"
     if ext in ARCHIVE_EXT:
-        return "i-download"
+        return "i-archive"
+    if ext in TEXT_EXT:
+        return "i-text"
+    if ext in CODE_EXT:
+        return "i-code"
+
+    mime = (node.mime or "").lower()
+    if mime.startswith("image/"):
+        return "i-image"
+    if mime.startswith("video/"):
+        return "i-video"
+    if mime.startswith("audio/"):
+        return "i-music"
+    if mime == "application/pdf":
+        return "i-pdf"
+    if mime.startswith("text/"):
+        return "i-text"
     return "i-file"
 
 
-def preview_kind(node: Node) -> str:
-    """前端预览器类型：image / video / audio / pdf / text / none。
+def preview_mime(kind: str, mime: str | None) -> str | None:
+    """预览下发的 Content-Type。
 
-    HTML、SVG 一律按文本处理，不给它们在同源下当文档执行的机会。
+    Office 文档统一给 application/octet-stream：前端只读字节自己解析，
+    而且 Chrome 遇到 application/vnd.ms-powerpoint 这类插件 MIME 时，
+    会把 fetch 的响应直接换成 204 空响应（实测），文件就读不到了。
     """
+    if kind in {
+        "docx", "doc", "odoc", "rtf",
+        "sheet", "osheet",
+        "slide", "ppt", "oslide",
+    }:
+        return "application/octet-stream"
+    return mime
+
+
+# 文档类的在线预览上限：这些格式要把整个文件读进内存再解析，体积一大浏览器就卡死，
+# 不如干脆让用户下载。图片/音视频/PDF 是流式或浏览器原生渲染，不受此限。
+PREVIEW_MAX_BYTES = 50 * 1024 * 1024
+PREVIEW_SIZE_LIMITED = {
+    "docx", "doc", "odoc", "rtf",
+    "sheet", "osheet",
+    "slide", "ppt", "oslide",
+    "markdown", "text",
+}
+
+
+def preview_kind(node: Node, *, is_admin: bool = False) -> str:
+    """前端预览器类型。
+
+    取值：image / video / audio / pdf / markdown / text /
+          docx / sheet / slide（OOXML）/ odoc / osheet / oslide（OpenDocument）/
+          rtf / doc / ppt（旧二进制，文本级提取）/
+          toolarge（文档类超 50 MB，只提示下载）/ none。
+
+    管理员不受 50 MB 体积限制（admin 预览大文件不走 toolarge 分支）。
+    HTML、SVG 一律按文本处理，不给它们在同源下当文档执行的机会。
+    所有 Office 解析都在浏览器里做，服务端只把二进制流出去。
+    """
+    kind = _preview_kind_raw(node)
+    if kind in PREVIEW_SIZE_LIMITED and (node.size or 0) > PREVIEW_MAX_BYTES and not is_admin:
+        return "toolarge"
+    return kind
+
+
+def _preview_kind_raw(node: Node) -> str:
     if node.type != "file" or not node.blob_sha256:
         return "none"
     ext = extension(node.name)
@@ -72,12 +165,32 @@ def preview_kind(node: Node) -> str:
         return "video"
     if ext in AUDIO_EXT:
         return "audio"
+    if ext in PREVIEW_MD_EXT:
+        return "markdown"
+    if ext in PREVIEW_DOCX_EXT:
+        return "docx"
+    if ext in PREVIEW_SHEET_EXT:
+        return "sheet"
+    if ext in PREVIEW_SLIDE_EXT:
+        return "slide"
+    if ext in PREVIEW_ODOC_EXT:
+        return "odoc"
+    if ext in PREVIEW_OSHEET_EXT:
+        return "osheet"
+    if ext in PREVIEW_OSLIDE_EXT:
+        return "oslide"
+    if ext in PREVIEW_RTF_EXT:
+        return "rtf"
+    if ext in PREVIEW_LEGACY_DOC_EXT:
+        return "doc"
+    if ext in PREVIEW_LEGACY_PPT_EXT:
+        return "ppt"
     if ext in CODE_EXT or mime.startswith("text/"):
         return "text"
     return "none"
 
 
-def node_payload(node: Node, child_count: int | None = None) -> dict:
+def node_payload(node: Node, child_count: int | None = None, *, is_admin: bool = False) -> dict:
     return {
         "id": node.id,
         "type": node.type,
@@ -86,7 +199,7 @@ def node_payload(node: Node, child_count: int | None = None) -> dict:
         "mime": node.mime,
         "icon": icon_for(node),
         "ext": extension(node.name),
-        "previewKind": preview_kind(node),
+        "previewKind": preview_kind(node, is_admin=is_admin),
         "parentId": node.parent_id,
         "createdAt": node.created_at.isoformat() + "Z" if node.created_at else None,
         "updatedAt": node.updated_at.isoformat() + "Z" if node.updated_at else None,
@@ -139,6 +252,8 @@ def list_children(
     parent_id: int | None,
     sort: str = "name",
     order: str = "asc",
+    *,
+    is_admin: bool = False,
 ) -> list[dict]:
     sort_column = {
         "name": Node.name,
@@ -160,7 +275,7 @@ def list_children(
     ).all()
 
     counts = child_counts(db, user_id, [n.id for n in rows if n.type == "folder"])
-    return [node_payload(n, counts.get(n.id)) for n in rows]
+    return [node_payload(n, counts.get(n.id), is_admin=is_admin) for n in rows]
 
 
 def child_counts(db: Session, user_id: int, folder_ids: Iterable[int]) -> dict[int, int]:
@@ -179,7 +294,7 @@ def child_counts(db: Session, user_id: int, folder_ids: Iterable[int]) -> dict[i
     return {int(pid): int(count) for pid, count in rows if pid is not None}
 
 
-def search(db: Session, user_id: int, keyword: str, limit: int = 200) -> list[dict]:
+def search(db: Session, user_id: int, keyword: str, limit: int = 200, *, is_admin: bool = False) -> list[dict]:
     text = (keyword or "").strip()
     if not text:
         return []
@@ -211,7 +326,7 @@ def search(db: Session, user_id: int, keyword: str, limit: int = 200) -> list[di
     counts = child_counts(db, user_id, [n.id for n in rows if n.type == "folder"])
     items = []
     for node in rows:
-        payload = node_payload(node, counts.get(node.id))
+        payload = node_payload(node, counts.get(node.id), is_admin=is_admin)
         payload["path"] = path_of(node)
         items.append(payload)
     return items
@@ -496,7 +611,7 @@ def recalc_usage(db: Session, user: User) -> int:
 # --------------------------------------------------------------------------- #
 # 回收站
 # --------------------------------------------------------------------------- #
-def trash_list(db: Session, user_id: int, limit: int = 500) -> list[dict]:
+def trash_list(db: Session, user_id: int, limit: int = 500, *, is_admin: bool = False) -> list[dict]:
     """只展示回收站里的“顶层”条目：父节点没被删的那些。"""
     rows = db.scalars(
         select(Node)
@@ -509,7 +624,7 @@ def trash_list(db: Session, user_id: int, limit: int = 500) -> list[dict]:
     for node in rows:
         if node.parent_id is not None and node.parent_id in deleted_ids:
             continue
-        payload = node_payload(node)
+        payload = node_payload(node, is_admin=is_admin)
         payload["deletedAt"] = node.deleted_at.isoformat() + "Z" if node.deleted_at else None
         payload["originalParentId"] = node.restore_parent_id
         items.append(payload)

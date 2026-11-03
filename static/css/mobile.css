@@ -96,10 +96,6 @@
     height: 24px;
     border-radius: 8px;
   }
-  .brand__mark .icon {
-    width: 16px;
-    height: 16px;
-  }
   .brand__name {
     font-size: 13px;
   }
@@ -717,5 +713,77 @@
   }
   .task-panel {
     bottom: calc(54px + env(safe-area-inset-bottom, 0px) + 8px);
+  }
+}
+
+/* ------------------------------------------------------------
+   关于页
+   ------------------------------------------------------------ */
+@media (max-width: 640px) {
+  .about-feats {
+    grid-template-columns: 1fr;
+  }
+  .about-hero {
+    padding: var(--sp-4);
+    gap: 12px;
+    align-items: flex-start;
+  }
+  .about-hero__avatar {
+    width: 52px;
+    height: 52px;
+    border-radius: 15px;
+    margin-top: 2px;
+  }
+  .about-hero__title h2 {
+    font-size: 19px;
+  }
+  .about-hero__desc {
+    font-size: 12px;
+  }
+  .about-hero__side {
+    flex-direction: row;
+    align-items: center;
+    width: 100%;
+    margin-left: 0;
+    gap: 8px;
+  }
+  .about-hero__side .btn {
+    flex: 1;
+    justify-content: center;
+  }
+  .about-badge {
+    flex: none;
+  }
+  .about-stack,
+  .about-log {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+  .about-card__head {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+  .about-card__note {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+  .about-author {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+  .about-lrow__value {
+    font-size: 10.5px;
+  }
+  /* 页脚在窄屏会折行，点分隔符落在行首难看，改为竖排 */
+  .about-foot {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+  }
+  .about-foot__sep {
+    display: none;
+  }
+  .about-log::before {
+    left: 19px;
   }
 }

@@ -34,6 +34,10 @@ def user_payload(db: Session, user: User) -> dict[str, Any]:
         "displayName": user.display_name or user.username,
         "bio": user.bio or "",
         "avatarUrl": f"/api/avatar/{user.avatar}" if user.avatar else None,
+        "email": user.email or "",
+        "emailVerified": bool(user.email_verified),
+        # 没绑邮箱时前端会在右上角提醒（可关闭）
+        "needEmail": not bool(user.email),
         "role": user.role,
         "quotaBytes": user.quota_bytes,
         "usedBytes": user.used_bytes,

@@ -148,8 +148,9 @@ export function renderSettings(root) {
           </div>
           <div class="setting-row">
             <div class="setting-row__main">
-              <div class="setting-row__label">云宝（看板娘）</div>
-              <div class="setting-row__desc">右下角的小云朵，会随页面进入打招呼</div>
+              <div class="setting-row__label">看板娘（Live2D）</div>
+              <div class="setting-row__desc">右下角的 Live2D 模型；把模型文件夹放进服务器的
+                <code>live2d/model/</code> 就会自动出现，不用改代码<span data-live2d-hint></span></div>
             </div>
             <label class="switch">
               <input type="checkbox" data-toggle="showMascot" ${s.showMascot === false ? "" : "checked"}>
@@ -253,18 +254,30 @@ export function renderSettings(root) {
 
           <div class="setting-row">
             <div class="setting-row__main">
+              <div class="setting-row__label">邮箱</div>
+              <div class="setting-row__desc" data-email-desc>${
+                user?.email
+                  ? `${escapeHtml(user.email)}${user.emailVerified ? "" : "（未验证）"} · 可用于登录和找回密码`
+                  : "还没有绑定 · 忘记密码时只能联系管理员"
+              }</div>
+            </div>
+            <button class="btn" type="button" data-act="email">${user?.email ? "换绑" : "绑定邮箱"}</button>
+          </div>
+          <div class="setting-row">
+            <div class="setting-row__main">
               <div class="setting-row__label">登录密码</div>
               <div class="setting-row__desc">修改后其它设备上的登录状态会立即失效</div>
             </div>
             <button class="btn" type="button" data-act="password">修改密码</button>
           </div>
-          <div class="setting-row">
+          <a class="setting-row setting-row--link" href="#/about">
             <div class="setting-row__main">
               <div class="setting-row__label">关于</div>
               <div class="setting-row__desc" data-version>CloudNETP</div>
             </div>
             <span class="chip">${user?.role === 1 ? "管理员" : "普通用户"}</span>
-          </div>
+            <svg class="icon icon--s setting-row__chevron"><use href="#i-chevron"/></svg>
+          </a>
         </section>
 
       </div>
@@ -321,6 +334,37 @@ export function renderSettings(root) {
       Toast.success("挂载地址已复制");
     } catch {
       Toast.error("复制失败，请手动选中地址");
+    }
+  });
+
+  /* --- 绑定邮箱 --- */
+  root.querySelector('[data-act="email"]')?.addEventListener("click", async () => {
+    const values = await Dialog.form({
+      title: user?.email ? "换绑邮箱" : "绑定邮箱",
+      message:
+        "邮箱用来登录和找回密码。邮件服务还没接入，现在绑定的邮箱会标记为「未验证」。",
+      confirmText: "保存",
+      fields: [
+        {
+          name: "email",
+          label: "邮箱地址",
+          type: "email",
+          placeholder: "you@example.com",
+          value: user?.email || "",
+        },
+      ],
+    });
+    if (!values?.email) return;
+    try {
+      const res = await api.patch("/api/me/email", { email: values.email.trim() });
+      store.set({ user: res.user });
+      window.dispatchEvent(new CustomEvent("user:refresh", { detail: res.user }));
+      root.querySelector("[data-email-desc]").textContent = `${res.user.email}（未验证） · 可用于登录和找回密码`;
+      const btn = root.querySelector('[data-act="email"]');
+      if (btn) btn.textContent = "换绑";
+      Toast.success("邮箱已保存");
+    } catch (err) {
+      Toast.error(err.message);
     }
   });
 
@@ -382,6 +426,21 @@ export function renderSettings(root) {
       persist({ wallpaper: btn.dataset.wallpaper });
     });
   });
+
+  /* --- Live2D 模型目录概览（目录里新增模型会自动出现） --- */
+  (async () => {
+    const hint = root.querySelector("[data-live2d-hint]");
+    if (!hint) return;
+    try {
+      const data = await api.get("/api/live2d/models");
+      const names = (data.models || []).map((m) => m.name);
+      hint.textContent = names.length
+        ? ` · 已发现 ${names.length} 个：${names.join("、")}`
+        : " · 目录里还没有模型，先用云朵兜底";
+    } catch {
+      /* 拿不到就不提示，不影响设置项本身 */
+    }
+  })();
 
   /* --- 开关 --- */
   root.querySelectorAll("[data-toggle]").forEach((input) => {

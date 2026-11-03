@@ -3,6 +3,8 @@
  * 与主应用共用主题 token，但不依赖登录态与 store。
  */
 import { registerPwa } from "./pwa.js";
+import { renderMarkdown } from "./ui/markdown.js";
+import { mountOffice, OFFICE_KINDS } from "./ui/office.js";
 
 registerPwa();
 
@@ -295,6 +297,24 @@ function previewMarkup(share) {
       return `<div class="share-preview share-preview--text">
           <pre data-text>加载中…</pre>
         </div>`;
+    case "markdown":
+      return `<div class="share-preview share-preview--md">
+          <article class="md-body" data-md>加载中…</article>
+        </div>`;
+    case "docx":
+    case "doc":
+    case "odoc":
+    case "rtf":
+    case "sheet":
+    case "osheet":
+    case "slide":
+    case "oslide":
+    case "ppt":
+      return `<div class="share-preview share-preview--office">
+          <div class="office-host" data-office><div class="share-preview__loading">正在解析文档…</div></div>
+        </div>`;
+    case "toolarge":
+      return `<div class="share-nopreview">文件较大（${formatBytes(share.size)}），超过 50 MB 的文档不在线预览，请下载到本地后打开。</div>`;
     default:
       return "";
   }
@@ -305,7 +325,7 @@ function renderFile(share) {
   root.innerHTML = `
     <section class="share-card">
       <header class="share-file">
-        <span class="share-file__icon">${icon(share.icon || "i-file")}</span>
+        <span class="share-file__icon" data-kind="${(share.icon || "i-file").slice(2)}">${icon(share.icon || "i-file")}</span>
         <div class="share-file__main">
           <h1 class="share-file__name" title="${esc(share.name)}">${esc(share.name)}</h1>
           <p class="share-file__meta">${formatBytes(share.size)}${
@@ -347,6 +367,24 @@ function renderFile(share) {
         pre.textContent = `无法预览文本：${err.message}`;
       });
   }
+
+  if (share.previewKind === "markdown") {
+    const article = root.querySelector("[data-md]");
+    request("/text")
+      .then((data) => {
+        article.innerHTML = renderMarkdown(data.content || "");
+      })
+      .catch((err) => {
+        article.textContent = `无法预览 Markdown：${err.message}`;
+      });
+  }
+
+  if (OFFICE_KINDS.has(share.previewKind)) {
+    const host = root.querySelector("[data-office]");
+    mountOffice(host, share, share.previewKind, apiUrl("/preview")).catch((err) => {
+      host.innerHTML = `<p class="share-tip">文档解析失败：${esc(err.message)}，可以下载后查看。</p>`;
+    });
+  }
 }
 
 /* ---------------- 文件夹浏览 ---------------- */
@@ -360,7 +398,7 @@ function renderFolder(folder, items) {
           const isFolder = item.type === "folder";
           return `
         <div class="share-item" data-id="${item.id}" data-type="${item.type}">
-          <span class="share-item__icon">${icon(item.icon || (isFolder ? "i-folder" : "i-file"))}</span>
+          <span class="share-item__icon" data-kind="${(item.icon || (isFolder ? "i-folder" : "i-file")).slice(2)}">${icon(item.icon || (isFolder ? "i-folder" : "i-file"))}</span>
           <span class="share-item__name" title="${esc(item.name)}">${esc(item.name)}</span>
           <span class="share-item__size">${isFolder ? `${item.childCount ?? 0} 项` : formatBytes(item.size)}</span>
           <span class="share-item__actions">

@@ -10,8 +10,10 @@ import { avatarMarkup } from "./ui/avatar.js";
 import { Toast } from "./ui/toast.js";
 import { openMenu } from "./ui/menu.js";
 import { installState, promptInstall, registerPwa } from "./pwa.js";
+import { initLive2DMascot } from "./ui/live2d.js";
 import { renderAuth } from "./views/auth.js";
 import { renderAdmin } from "./views/admin.js";
+import { renderAbout } from "./views/about.js";
 import { renderFiles } from "./views/files.js";
 import { renderSettings } from "./views/settings.js";
 import { renderShares } from "./views/shares.js";
@@ -24,6 +26,7 @@ const NAV_ITEMS = [
   { route: "trash", label: "回收站", icon: "i-trash" },
   { group: "系统" },
   { route: "settings", label: "设置", icon: "i-settings" },
+  { route: "about", label: "关于", icon: "i-info" },
   { route: "admin", label: "管理后台", icon: "i-shield", adminOnly: true },
 ];
 
@@ -32,6 +35,7 @@ const TITLES = {
   shares: "我的分享",
   trash: "回收站",
   settings: "设置",
+  about: "关于",
   admin: "管理后台",
 };
 
@@ -112,11 +116,15 @@ function enterApp(user) {
 
   applyAppearance(user.settings || {});
   paintUserChip(user);
+  updateEmailTip(user);
 
   applyNavState(!!user.settings?.navCollapsed);
   renderNav();
 
-  if (!location.hash || !location.hash.startsWith("#/")) {
+  // 登录成功后如果地址栏还停在 #/login 这种非视图路由上，顺手归一化到 #/files，
+  // 否则刷新页面时地址栏会一直留着一个不存在的路由
+  const hashRoute = location.hash.replace(/^#\/?/, "");
+  if (!location.hash || !location.hash.startsWith("#/") || !TITLES[hashRoute]) {
     location.hash = "#/files";
   }
   route();
@@ -249,6 +257,7 @@ function route() {
   else if (name === "shares") renderShares(root, { user });
   else if (name === "trash") renderTrash(root, { user });
   else if (name === "settings") renderSettings(root);
+  else if (name === "about") renderAbout(root);
   else if (name === "admin") renderAdmin(root);
   else renderPlaceholder(root, PLACEHOLDERS.admin);
 
@@ -364,22 +373,76 @@ async function logout() {
 }
 
 /* ------------------------------------------------------------------ */
-/* 看板娘                                                            */
+/* 未绑定邮箱提醒（可永久关闭）                                        */
+/* ------------------------------------------------------------------ */
+const EMAIL_TIP_KEY = "cloudnetp.emailTipDismissed";
+
+function emailTipDismissed() {
+  try {
+    return localStorage.getItem(EMAIL_TIP_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function updateEmailTip(user) {
+  const tip = el("email-tip");
+  if (!tip) return;
+  tip.hidden = !(user?.needEmail && !emailTipDismissed());
+}
+
+function setupEmailTip() {
+  const tip = el("email-tip");
+  if (!tip) return;
+  tip.querySelector("[data-email-go]").addEventListener("click", () => {
+    location.hash = "#/settings";
+  });
+  tip.querySelector("[data-email-dismiss]").addEventListener("click", () => {
+    try {
+      localStorage.setItem(EMAIL_TIP_KEY, "1");
+    } catch {
+      /* 隐私模式下写不进去也没关系，本次会话仍然隐藏 */
+    }
+    tip.hidden = true;
+    Toast.info("已关闭提醒，需要时可在设置里绑定邮箱");
+  });
+}
+
+/* ------------------------------------------------------------------ */
+/* 看板娘（Live2D，没有模型时退回云朵 SVG）                            */
 /* ------------------------------------------------------------------ */
 let mascotTimer = 0;
+let bubbleTimer = 0;
+let mascotLive = null;
+
+function saySomething() {
+  const bubble = el("mascot-bubble");
+  if (!bubble) return;
+  bubble.textContent = MASCOT_LINES[(Math.random() * MASCOT_LINES.length) | 0];
+  bubble.classList.add("is-on");
+  window.clearTimeout(bubbleTimer);
+  bubbleTimer = window.setTimeout(() => bubble.classList.remove("is-on"), 5200);
+}
+
 function setupMascot(user) {
   const mascot = el("mascot");
-  const bubble = el("mascot-bubble");
   const enabled = user.settings?.showMascot !== false;
   mascot.classList.toggle("is-hidden", !enabled);
+
+  if (!mascotLive) {
+    mascotLive = initLive2DMascot({
+      host: mascot,
+      stage: el("mascot-stage"),
+      pick: el("mascot-pick"),
+      pickLabel: el("mascot-pick-label"),
+      onPoke: () => saySomething(),
+    });
+  }
+  mascotLive?.setActive(enabled);
   if (!enabled) return;
 
   window.clearTimeout(mascotTimer);
-  mascotTimer = window.setTimeout(() => {
-    bubble.textContent = MASCOT_LINES[(Math.random() * MASCOT_LINES.length) | 0];
-    bubble.classList.add("is-on");
-    window.setTimeout(() => bubble.classList.remove("is-on"), 5200);
-  }, 1400);
+  mascotTimer = window.setTimeout(saySomething, 1400);
 }
 
 /* ------------------------------------------------------------------ */
@@ -398,6 +461,7 @@ window.addEventListener("user:refresh", (event) => {
   if (!user) return;
   store.set({ user });
   paintUserChip(user);
+  updateEmailTip(user);
   renderNav();
 });
 
@@ -416,4 +480,5 @@ window.addEventListener("resize", () => {
 setupNavToggle();
 setupThemeToggle();
 setupUserMenu();
+setupEmailTip();
 boot();

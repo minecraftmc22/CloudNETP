@@ -101,6 +101,8 @@ _COLUMN_PATCHES: dict[str, dict[str, str]] = {
         "bio": "VARCHAR(200) NULL",
         "avatar": "VARCHAR(64) NULL",
         "dav_ha1": "VARCHAR(32) NULL",
+        "email": "VARCHAR(254) NULL",
+        "email_verified": "BOOLEAN NOT NULL DEFAULT 0",
     },
 }
 

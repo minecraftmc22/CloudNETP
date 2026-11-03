@@ -322,6 +322,9 @@ def settings_payload(db: Session) -> dict:
         "maxFileSizeBytes": num("max_file_size_bytes"),
         "chunkSizeBytes": num("chunk_size_bytes"),
         "trashRetentionDays": num("trash_retention_days"),
+        # 找回密码兜底联系方式
+        "contactEmail": values.get("contact_email", ""),
+        "contactQq": values.get("contact_qq", ""),
         "runtime": {
             "version": settings.VERSION,
             "database": "mysql" if settings.DATABASE_URL.startswith("mysql") else "sqlite",

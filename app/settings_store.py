@@ -15,6 +15,9 @@ DEFAULTS: dict[str, str] = {
     "max_file_size_bytes": str(settings.max_file_size_bytes),
     "chunk_size_bytes": str(settings.chunk_size_bytes),
     "trash_retention_days": "30",
+    # 管理员联系方式：找回密码走不通时，页面会引导用户直接联系这个邮箱/QQ
+    "contact_email": "",
+    "contact_qq": "",
 }
 
 

@@ -40,7 +40,7 @@ def list_nodes(
 ) -> dict:
     if parentId is not None:
         ns.require_parent(db, user.id, parentId)
-    items = ns.list_children(db, user.id, parentId, sort, order)
+    items = ns.list_children(db, user.id, parentId, sort, order, is_admin=user.role == 1)
     return {
         "parentId": parentId,
         "breadcrumb": ns.breadcrumb(db, user.id, parentId),
@@ -52,7 +52,7 @@ def list_nodes(
 @router.get("/nodes/{node_id}")
 def node_detail(node_id: int, db: DbSession, user: CurrentUser) -> dict:
     node = ns.get_node(db, user.id, node_id, allow_deleted=True)
-    return {"node": ns.node_payload(node)}
+    return {"node": ns.node_payload(node, is_admin=user.role == 1)}
 
 
 @router.get("/search")
@@ -62,7 +62,7 @@ def search_nodes(
     q: str = Query(default="", max_length=128),
     limit: int = Query(default=200, ge=1, le=500),
 ) -> dict:
-    items = ns.search(db, user.id, q, limit)
+    items = ns.search(db, user.id, q, limit, is_admin=user.role == 1)
     return {"query": q, "items": items, "total": len(items)}
 
 
@@ -77,7 +77,7 @@ def create_folder(payload: FolderIn, request: Request, db: DbSession, user: Curr
     log_action(db, "folder_create", user.id, {"name": node.name, "parentId": payload.parent_id}, request)
     db.commit()
     db.refresh(node)
-    return {"node": ns.node_payload(node, 0)}
+    return {"node": ns.node_payload(node, 0, is_admin=user.role == 1)}
 
 
 @router.patch("/nodes/{node_id}")
@@ -90,7 +90,7 @@ def patch_node(
     log_action(db, "node_rename", user.id, {"id": node_id, "name": node.name}, request)
     db.commit()
     db.refresh(node)
-    return {"node": ns.node_payload(node)}
+    return {"node": ns.node_payload(node, is_admin=user.role == 1)}
 
 
 @router.post("/nodes/{node_id}/move")
@@ -101,7 +101,7 @@ def move_node(node_id: int, payload: MoveIn, request: Request, db: DbSession, us
     log_action(db, "node_move", user.id, {"id": node_id, "parentId": payload.parent_id}, request)
     db.commit()
     db.refresh(node)
-    return {"node": ns.node_payload(node)}
+    return {"node": ns.node_payload(node, is_admin=user.role == 1)}
 
 
 # --------------------------------------------------------------------------- #
@@ -136,7 +136,7 @@ def restore_node(node_id: int, request: Request, db: DbSession, user: CurrentUse
     log_action(db, "node_restore", user.id, {"id": node_id, "name": node.name}, request)
     db.commit()
     db.refresh(node)
-    return {"node": ns.node_payload(node)}
+    return {"node": ns.node_payload(node, is_admin=user.role == 1)}
 
 
 @router.delete("/nodes/{node_id}/purge")
@@ -152,14 +152,14 @@ def purge_node(node_id: int, request: Request, db: DbSession, user: CurrentUser)
 
 @router.get("/trash")
 def trash(db: DbSession, user: CurrentUser) -> dict:
-    items = ns.trash_list(db, user.id)
+    items = ns.trash_list(db, user.id, is_admin=user.role == 1)
     return {"items": items, "total": len(items), "usedBytes": user.used_bytes}
 
 
 @router.post("/trash/empty")
 def empty_trash(request: Request, db: DbSession, user: CurrentUser) -> dict:
     check_origin(request)
-    items = ns.trash_list(db, user.id)
+    items = ns.trash_list(db, user.id, is_admin=user.role == 1)
     removed = 0
     for item in items:
         node = db.get(Node, item["id"])
@@ -201,12 +201,19 @@ def preview(node_id: int, request: Request, db: DbSession, user: CurrentUser):
         raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, "该类型暂不支持在线预览")
 
     path = storage.blob_path(node.blob_sha256)
+    # Office / 旧版二进制一律按二进制流下发：Chrome 会把
+    # application/vnd.ms-powerpoint 这类「插件 MIME」的 fetch 响应吞成 204 空响应，
+    # 预览端只关心字节，不需要浏览器去识别类型。
+    # 顺带对这批类型禁用缓存：万一把旧版本带插件 MIME 的响应留在缓存里，
+    # 重新校验拿到 304 后会继续沿用旧头，预览依旧打不开。
+    media = ns.preview_mime(kind, node.mime)
     return storage.file_response(
         path,
         node.name,
-        node.mime,
+        media,
         request,
         inline=True,
+        cache="no-store" if media == "application/octet-stream" else "private, max-age=0",
         # PDF 交给浏览器内置查看器，sandbox 会让它渲染不出来
         csp="" if kind == "pdf" else None,
     )
@@ -225,7 +232,7 @@ def preview_text(
     node = ns.get_node(db, user.id, node_id)
     if node.type != "file" or not node.blob_sha256:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "文件夹不支持在线预览")
-    if ns.preview_kind(node) != "text":
+    if ns.preview_kind(node) not in ("text", "markdown"):
         raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, "该文件不是文本类型")
 
     try:
@@ -548,7 +555,7 @@ async def upload(
     )
     db.commit()
     db.refresh(node)
-    return {"node": ns.node_payload(node), "deduplicated": dedup}
+    return {"node": ns.node_payload(node, is_admin=user.role == 1), "deduplicated": dedup}
 
 
 @router.post("/nodes/check-hash")

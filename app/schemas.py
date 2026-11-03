@@ -17,13 +17,56 @@ class CamelModel(BaseModel):
 
 
 class RegisterIn(CamelModel):
-    username: str = Field(min_length=2, max_length=32)
+    username: str = Field(min_length=4, max_length=32)
     password: str = Field(min_length=8, max_length=128)
+    # 邮箱可选：还没接邮件服务，先存下来，绑不绑都不影响使用
+    email: str | None = Field(default=None, max_length=254)
+    captcha_id: str = Field(default="", max_length=64)
+    captcha: str = Field(default="", max_length=16)
 
 
 class LoginIn(CamelModel):
-    username: str = Field(min_length=1, max_length=32)
+    # 账号：用户名或邮箱，服务端都能认
+    username: str = Field(min_length=1, max_length=254)
     password: str = Field(min_length=1, max_length=128)
+    captcha_id: str = Field(default="", max_length=64)
+    captcha: str = Field(default="", max_length=16)
+
+
+class EmailCodeIn(CamelModel):
+    """申请邮箱验证码。scene: register / bind / reset"""
+
+    scene: Literal["register", "bind", "reset"]
+    target: str = Field(min_length=1, max_length=254)
+    # 前端生成的设备标识，仅用于「同一设备」限流，不涉及隐私
+    device: str = Field(default="", max_length=64)
+
+
+class EmailVerifyIn(CamelModel):
+    scene: Literal["register", "bind", "reset"]
+    target: str = Field(min_length=1, max_length=254)
+    code: str = Field(min_length=1, max_length=16)
+
+
+class ForgotStartIn(CamelModel):
+    # 用户名或邮箱
+    account: str = Field(min_length=1, max_length=254)
+
+
+class ForgotCheckIn(CamelModel):
+    """用用户名重置密码时，需要填对绑定的邮箱。"""
+
+    account: str = Field(min_length=1, max_length=254)
+    email: str = Field(min_length=1, max_length=254)
+
+
+class ResetPasswordIn(CamelModel):
+    token: str = Field(min_length=8, max_length=512)
+    password: str = Field(min_length=8, max_length=128)
+
+
+class EmailBindIn(CamelModel):
+    email: str = Field(min_length=3, max_length=254)
 
 
 class PasswordIn(CamelModel):
@@ -150,6 +193,9 @@ class AdminSettingsIn(CamelModel):
     max_file_size_bytes: int | None = Field(default=None, ge=0, le=1024**5)
     chunk_size_bytes: int | None = Field(default=None, ge=64 * 1024, le=32 * 1024 * 1024)
     trash_retention_days: int | None = Field(default=None, ge=0, le=3650)
+    # 找回密码兜底联系方式（留空则页面不展示）
+    contact_email: str | None = Field(default=None, max_length=254)
+    contact_qq: str | None = Field(default=None, max_length=32)
 
 
 class AdminLogPurgeIn(CamelModel):

@@ -6,7 +6,7 @@ import os
 import secrets
 import socket
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 ENV_FILE = BASE_DIR / ".env"
@@ -47,10 +47,33 @@ def _get_bool(key: str, default: bool) -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _compose_database_url() -> str:
+    """拼数据库连接串。
+
+    优先级：DATABASE_URL > DB_USER/DB_PASSWORD 组合 > 本地 dev.db。
+    密码里的 @ : / ? # 等字符会自动 URL 编码，不用手动转义。
+    """
+    explicit = _get("DATABASE_URL").strip()
+    if explicit:
+        return explicit
+
+    user = _get("DB_USER").strip()
+    name = _get("DB_NAME").strip()
+    if not user or not name:
+        return f"sqlite:///{(BASE_DIR / 'dev.db').as_posix()}"
+
+    host = _get("DB_HOST", "127.0.0.1").strip() or "127.0.0.1"
+    port = _get("DB_PORT", "3306").strip() or "3306"
+    password = quote(_get("DB_PASSWORD"), safe="")
+    driver = _get("DB_DRIVER", "mysql+pymysql").strip() or "mysql+pymysql"
+    charset = _get("DB_CHARSET", "utf8mb4").strip() or "utf8mb4"
+    return f"{driver}://{quote(user, safe='')}:{password}@{host}:{port}/{name}?charset={charset}"
+
+
 class Settings:
     # ---- 应用 ----
     APP_NAME: str = _get("APP_NAME", "CloudNETP")
-    VERSION: str = "0.3.10"
+    VERSION: str = "0.3.20"
     DEBUG: bool = _get_bool("DEBUG", True)
 
     # ---- 监听与对外地址 ----
@@ -82,8 +105,12 @@ class Settings:
     SESSION_TTL_SECONDS: int = _get_int("SESSION_TTL_SECONDS", 60 * 60 * 24 * 14)
 
     # ---- 数据库 ----
-    # 单点切换：mysql+pymysql://user:pass@host:3306/db?charset=utf8mb4  <->  sqlite:///D:/.../dev.db
-    DATABASE_URL: str = _get("DATABASE_URL") or f"sqlite:///{(BASE_DIR / 'dev.db').as_posix()}"
+    # 两种写法任选其一：
+    # 1) 直接给完整连接串（最高优先级）
+    #    DATABASE_URL=mysql+pymysql://user:pass@host:3306/db?charset=utf8mb4
+    # 2) 分开写账号密码（DATABASE_URL 留空时才会用）
+    #    DB_HOST / DB_PORT / DB_USER / DB_PASSWORD / DB_NAME
+    DATABASE_URL: str = _compose_database_url()
     DB_ECHO: bool = _get_bool("DB_ECHO", False)
     # 跨网络访问 MySQL 时，显式超时避免请求永久阻塞
     DB_CONNECT_TIMEOUT: int = _get_int("DB_CONNECT_TIMEOUT", 10)
@@ -99,11 +126,34 @@ class Settings:
     DB_PROBE_INTERVAL: int = _get_int("DB_PROBE_INTERVAL", 30)
     # 主库 → SQLite 镜像间隔（秒）。0 = 不做周期镜像（启动时仍会镜像一次）
     DB_MIRROR_INTERVAL: int = _get_int("DB_MIRROR_INTERVAL", 300)
+    # 容灾 SQLite 的落盘位置。SQLite 是单文件库，没有账号/密码概念，
+    # 所以这里只开放「路径」与「锁等待」。要访问控制就把文件放在只有服务账号能读的目录。
+    SQLITE_PATH: str = _get("SQLITE_PATH").strip()
+    SQLITE_TIMEOUT: int = _get_int("SQLITE_TIMEOUT", 30)
 
     # ---- 歌词 API（音频预览的逐词歌词）----
     # 密钥只放服务端，前端通过 /api/lyrics 代理访问，避免密钥泄露
     LYRICS_API_BASE: str = _get("LYRICS_API_BASE", "https://minecraftmc22.top/lyric/api/v1").rstrip("/")
     LYRICS_API_KEY: str = _get("LYRICS_API_KEY")
+
+    # ---- Live2D 看板娘 ----
+    # 模型根目录（默认项目根下的 live2d/），对外挂载为 /live2d；模型放 live2d/model/<模型名>/
+    LIVE2D_DIR: Path = Path(_get("LIVE2D_DIR") or str(BASE_DIR / "live2d")).resolve()
+
+    # ---- 邮件服务（暂未接入：留空时所有发信接口返回「未配置」）----
+    # 目前验证码只落服务端内存、不发信，接口与限流逻辑已经就绪，
+    # 之后填上 SMTP 参数就能直接启用，前端不用改。
+    MAIL_HOST: str = _get("MAIL_HOST")
+    MAIL_PORT: int = _get_int("MAIL_PORT", 465)
+    MAIL_USER: str = _get("MAIL_USER")
+    MAIL_PASSWORD: str = _get("MAIL_PASSWORD")
+    MAIL_FROM: str = _get("MAIL_FROM") or _get("MAIL_USER")
+    MAIL_FROM_NAME: str = _get("MAIL_FROM_NAME", "CloudNETP")
+    MAIL_SSL: bool = _get_bool("MAIL_SSL", True)
+
+    @property
+    def mail_ready(self) -> bool:
+        return bool(self.MAIL_HOST and self.MAIL_USER and self.MAIL_PASSWORD)
 
     # ---- 存储 ----
     STORAGE_DIR: Path = Path(_get("STORAGE_DIR") or str(BASE_DIR / "storage")).resolve()
@@ -152,13 +202,20 @@ class Settings:
         return self.STORAGE_DIR / "thumbs"
 
     @property
+    def live2d_model_dir(self) -> Path:
+        """Live2D 模型目录：live2d/model/<模型名>/xxx.model3.json"""
+        return self.LIVE2D_DIR / "model"
+
+    @property
     def avatar_dir(self) -> Path:
         """用户头像：storage/avatars/<user_id>-<随机>.webp"""
         return self.STORAGE_DIR / "avatars"
 
     @property
     def fallback_db_path(self) -> Path:
-        """容灾 SQLite：storage/db/fallback.db（随 storage 一起备份）。"""
+        """容灾 SQLite：默认 storage/db/fallback.db，可用 SQLITE_PATH 改到别处。"""
+        if self.SQLITE_PATH:
+            return Path(self.SQLITE_PATH).expanduser().resolve()
         return self.STORAGE_DIR / "db" / "fallback.db"
 
     @property

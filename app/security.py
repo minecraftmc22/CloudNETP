@@ -66,12 +66,24 @@ def verify_password(password: str, stored: str) -> bool:
 
 
 def password_problem(password: str) -> str | None:
+    """密码规则：8-128 位、必须同时含数字与小写字母、只允许可见 ASCII。
+
+    大写字母和符号是可选的（加了更安全，但不强制）。
+    非 ASCII 一律拒绝——emoji、全角字符、带变体选择符的组合字符在不同输入法下
+    长度和比对结果不一致，很容易出现「明明输对了却登不上」。
+    """
     if len(password) < 8:
         return "密码至少 8 位"
     if len(password) > 128:
         return "密码太长（上限 128 位）"
     if password.strip() != password:
         return "密码首尾不能是空格"
+    if any(ord(ch) < 33 or ord(ch) > 126 for ch in password):
+        return "密码只能用键盘上的英文、数字和符号，不支持中文、空格和 emoji"
+    if not any(ch.isdigit() for ch in password):
+        return "密码需要包含数字"
+    if not any("a" <= ch <= "z" for ch in password):
+        return "密码需要包含小写字母"
     if password.isdigit():
         return "密码不能是纯数字"
     return None
@@ -142,6 +154,35 @@ def verify_resource(scope: str, resource_id: int, token: str, extra: str = "") -
 
 
 # --------------------------------------------------------------------------- #
+# 找回密码令牌
+# --------------------------------------------------------------------------- #
+def sign_reset(user_id: int, password_hash: str, ttl: int = 900) -> str:
+    """签发一次性重置令牌。
+
+    签名里带 password_hash 的尾巴：密码一改，旧令牌立刻失效，
+    不需要额外存表，也不会出现「重置完还能再重置一次」。
+    """
+    exp = int(time.time()) + ttl
+    raw = f"pwreset:{user_id}:{exp}:{password_hash[-16:]}".encode()
+    return f"{user_id}.{exp}.{_sign(raw)}"
+
+
+def verify_reset(token: str, password_hash: str) -> int | None:
+    """校验令牌，返回 user_id；失败返回 None。"""
+    try:
+        uid_s, exp_s, sig = token.split(".")
+        uid, exp = int(uid_s), int(exp_s)
+    except (ValueError, AttributeError):
+        return None
+    if exp < int(time.time()):
+        return None
+    raw = f"pwreset:{uid}:{exp}:{password_hash[-16:]}".encode()
+    if not hmac.compare_digest(_sign(raw), sig):
+        return None
+    return uid
+
+
+# --------------------------------------------------------------------------- #
 # 请求来源 / IP
 # --------------------------------------------------------------------------- #
 def client_ip(request: Request) -> str:
@@ -170,7 +211,7 @@ def check_origin(request: Request) -> None:
 # --------------------------------------------------------------------------- #
 # 名称校验
 # --------------------------------------------------------------------------- #
-_USERNAME_RE = re.compile(r"^[\w\u4e00-\u9fa5.-]{2,32}$")
+_USERNAME_RE = re.compile(r"^[\w\u4e00-\u9fa5.-]{4,32}$")
 _ILLEGAL_NAME_CHARS = set('/\\:*?"<>|\0\n\r\t')
 _RESERVED_NAMES = {"CON", "PRN", "AUX", "NUL"} | {f"COM{i}" for i in range(1, 10)} | {
     f"LPT{i}" for i in range(1, 10)
@@ -178,8 +219,29 @@ _RESERVED_NAMES = {"CON", "PRN", "AUX", "NUL"} | {f"COM{i}" for i in range(1, 10
 
 
 def username_problem(username: str) -> str | None:
+    if len(username) < 4:
+        return "用户名至少 4 个字符"
     if not _USERNAME_RE.match(username):
-        return "用户名 2-32 位，仅支持中英文、数字、下划线、点、连字符"
+        return "用户名 4-32 位，仅支持中英文、数字、下划线、点、连字符"
+    return None
+
+
+# 只做「看起来像邮箱」的宽松校验：真正的有效性靠验证码证明
+_EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+\-]{1,64}@[A-Za-z0-9\-]{1,63}(\.[A-Za-z0-9\-]{1,63})+$")
+
+
+def normalize_email(email: str) -> str:
+    return (email or "").strip().lower()
+
+
+def email_problem(email: str) -> str | None:
+    email = normalize_email(email)
+    if not email:
+        return None  # 邮箱是可选的
+    if len(email) > 254:
+        return "邮箱地址过长"
+    if not _EMAIL_RE.match(email):
+        return "邮箱格式不正确"
     return None
 
 

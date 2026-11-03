@@ -3,11 +3,13 @@
  */
 
 export class ApiError extends Error {
-  constructor(message, status = 0, code = 0) {
+  constructor(message, status = 0, code = 0, payload = null) {
     super(message);
     this.name = "ApiError";
     this.status = status;
     this.code = code || status;
+    // 原始响应体：登录失败要靠 needCaptcha 判断是否弹验证码
+    this.payload = payload;
   }
 }
 
@@ -42,7 +44,7 @@ async function request(path, { method = "GET", body, headers = {}, raw = false }
     if (res.status === 401 && !path.startsWith("/api/auth/")) {
       window.dispatchEvent(new CustomEvent("session:expired"));
     }
-    throw new ApiError(errorText(data, res.status), res.status, data?.code);
+    throw new ApiError(errorText(data, res.status), res.status, data?.code, data);
   }
   return data;
 }

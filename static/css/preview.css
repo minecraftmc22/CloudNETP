@@ -1,0 +1,384 @@
+/* ============================================================
+   在线预览：Markdown / Office（主应用与分享页共用，独立成文件方便两处引用）
+   ============================================================ */
+
+/* ============================================================
+   Markdown 预览
+   ============================================================ */
+.md-wrap {
+  flex: 1;
+  overflow: auto;
+  padding: 26px 22px 60px;
+  overscroll-behavior: contain;
+}
+.md-body {
+  max-width: 760px;
+  margin: 0 auto;
+  font-size: 14px;
+  line-height: 1.78;
+  color: var(--text-1);
+  word-wrap: break-word;
+}
+.md-body h1,
+.md-body h2,
+.md-body h3,
+.md-body h4,
+.md-body h5,
+.md-body h6 {
+  font-family: var(--font-display);
+  line-height: 1.35;
+  margin: 1.6em 0 0.6em;
+  font-weight: 600;
+}
+.md-body h1 {
+  font-size: 24px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--stroke-hair);
+}
+.md-body h2 {
+  font-size: 20px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--stroke-hair);
+}
+.md-body h3 {
+  font-size: 17px;
+}
+.md-body h4 {
+  font-size: 15px;
+}
+.md-body h5,
+.md-body h6 {
+  font-size: 13.5px;
+  color: var(--text-2);
+}
+.md-body > *:first-child {
+  margin-top: 0;
+}
+.md-body p {
+  margin: 0.85em 0;
+}
+.md-body a {
+  color: var(--accent);
+  text-decoration: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+}
+.md-body a:hover {
+  border-bottom-color: var(--accent);
+}
+.md-body strong {
+  font-weight: 650;
+  color: var(--text-1);
+}
+.md-body del {
+  color: var(--text-3);
+}
+.md-body ul,
+.md-body ol {
+  margin: 0.85em 0;
+  padding-left: 1.6em;
+}
+.md-body li {
+  margin: 0.32em 0;
+}
+.md-body li > ul,
+.md-body li > ol {
+  margin: 0.3em 0;
+}
+.md-body blockquote {
+  margin: 1em 0;
+  padding: 2px 16px;
+  border-left: 3px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  background: var(--fill-subtle, rgba(255, 255, 255, 0.03));
+  border-radius: 0 var(--radius-s) var(--radius-s) 0;
+  color: var(--text-2);
+}
+.md-body blockquote p {
+  margin: 0.45em 0;
+}
+.md-body hr {
+  margin: 1.8em 0;
+  border: 0;
+  height: 1px;
+  background: var(--stroke-hair);
+}
+.md-body code {
+  padding: 1.5px 5px;
+  border-radius: 5px;
+  font-family: "Cascadia Mono", "Consolas", ui-monospace, monospace;
+  font-size: 12.5px;
+  background: var(--fill-hover);
+  color: var(--accent-warm, var(--accent));
+}
+.md-body pre.md-code {
+  margin: 1em 0;
+  padding: 14px 16px;
+  overflow: auto;
+  border-radius: var(--radius-m);
+  border: 1px solid var(--stroke-hair);
+  background: var(--layer-1);
+  line-height: 1.6;
+}
+.md-body pre.md-code code {
+  padding: 0;
+  background: none;
+  color: var(--text-1);
+  font-size: 12.5px;
+  white-space: pre;
+}
+.md-body img {
+  max-width: 100%;
+  border-radius: var(--radius-m);
+  display: block;
+  margin: 1em auto;
+}
+.md-table {
+  margin: 1.1em 0;
+  overflow: auto;
+  border: 1px solid var(--stroke-hair);
+  border-radius: var(--radius-m);
+}
+.md-body table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 13px;
+}
+.md-body th,
+.md-body td {
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--stroke-hair);
+  text-align: left;
+  white-space: nowrap;
+}
+.md-body th {
+  background: var(--fill-hover);
+  font-weight: 600;
+}
+.md-body tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+/* ============================================================
+   Office 预览（docx / xlsx / pptx）
+   ============================================================ */
+.office-host {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.office {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.office__hint {
+  margin: 10px 16px 16px;
+  font-size: 11.5px;
+  color: var(--text-3);
+  text-align: center;
+}
+
+/* ---- Word ---- */
+.office--docx {
+  padding: 20px 12px 40px;
+  overflow: auto;
+}
+.office--docx .docx-wrapper {
+  background: transparent;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+}
+.office--docx .docx-wrapper > section.docx {
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.28);
+  border-radius: 2px;
+  margin-bottom: 0;
+}
+
+/* ---- Excel ---- */
+.office--sheet {
+  overflow: hidden;
+}
+.office__tabs {
+  margin: 12px 16px 0;
+  width: auto;
+  align-self: flex-start;
+  max-width: calc(100% - 32px);
+  grid-auto-columns: max-content;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.office__tabs .segmented__btn {
+  padding: 0 14px;
+  white-space: nowrap;
+}
+.office__tabs .segmented__btn.is-active {
+  background: var(--acrylic-strong);
+  box-shadow: var(--shadow-1);
+}
+.office__tabs::-webkit-scrollbar {
+  display: none;
+}
+.office__tabname {
+  margin: 12px 18px 0;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.office__sheet-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  margin-top: 10px;
+  overscroll-behavior: contain;
+}
+.office__sheet-scroll {
+  display: inline-block;
+  min-width: 100%;
+}
+.sh-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+.sh-table th,
+.sh-table td {
+  border-right: 1px solid var(--stroke-hair);
+  border-bottom: 1px solid var(--stroke-hair);
+  padding: 5px 10px;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+  color: var(--text-1);
+}
+.sh-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--layer-2);
+  color: var(--text-3);
+  font-weight: 500;
+  font-size: 11px;
+}
+.sh-table .sh-gutter {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--layer-2);
+  color: var(--text-3);
+  font-weight: 500;
+  font-size: 11px;
+  text-align: center;
+  min-width: 42px;
+}
+.sh-table thead .sh-gutter {
+  z-index: 3;
+}
+.sh-table td.is-num {
+  text-align: right;
+}
+
+/* ---- PowerPoint ---- */
+.office--slide {
+  overflow: auto;
+  padding: 20px 12px 40px;
+}
+.office__slides {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+}
+.sl-page {
+  position: relative;
+  flex: none;
+  background: #ffffff;
+  color: #1f2430;
+  border-radius: 6px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.3);
+  overflow: hidden;
+}
+.sl-box {
+  position: absolute;
+  overflow: hidden;
+  line-height: 1.42;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.sl-img {
+  position: absolute;
+  object-fit: contain;
+}
+.sl-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 12px;
+}
+.sl-table td {
+  border: 1px solid #c9cfda;
+  padding: 4px 7px;
+  color: #1f2430;
+}
+.sl-no {
+  position: absolute;
+  right: 10px;
+  bottom: 6px;
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+/* ---- 旧版 doc / ppt / rtf：文本级预览 ---- */
+.office__notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0 0 18px;
+  padding: 10px 13px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--accent, #c084fc) 32%, transparent);
+  background: color-mix(in srgb, var(--accent, #c084fc) 10%, transparent);
+  color: var(--text-2, #5a5f6b);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+.office__notice .icon {
+  flex: none;
+  margin-top: 2px;
+  color: var(--accent, #c084fc);
+}
+.doc-text p {
+  white-space: pre-wrap;
+}
+.odf-doc .md-list {
+  margin: 0 0 14px;
+}
+.odf-doc table.md-table {
+  margin: 0 0 16px;
+}
+.sl-box--img {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed #c9cfda;
+  border-radius: 4px;
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+@media (max-width: 720px) {
+  .md-wrap {
+    padding: 18px 14px 48px;
+  }
+  .office--docx {
+    padding: 12px 6px 30px;
+  }
+  .office--slide {
+    padding: 12px 6px 30px;
+  }
+}

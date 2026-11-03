@@ -1,15 +1,18 @@
-"""注册 / 登录 / 当前用户 / 偏好设置。"""
+"""注册 / 登录 / 当前用户 / 偏好设置 / 找回密码。"""
 
 from __future__ import annotations
 
+import base64
 import time
 from collections import defaultdict, deque
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
-from fastapi.responses import FileResponse
-from sqlalchemy import func, select
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from fastapi.responses import FileResponse, JSONResponse
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
+from .. import captcha as cap
+from .. import email_code
 from .. import profile_service as ps
 from .. import dav_auth as da
 from .. import settings_store, trash_guard
@@ -18,11 +21,17 @@ from ..db import get_db
 from ..deps import get_current_user
 from ..models import User, utcnow
 from ..schemas import (
+    EmailBindIn,
+    EmailCodeIn,
+    EmailVerifyIn,
+    ForgotCheckIn,
+    ForgotStartIn,
     LoginIn,
     PasswordIn,
     PasswordOnlyIn,
     ProfileIn,
     RegisterIn,
+    ResetPasswordIn,
     SettingsIn,
     TrashSwitchIn,
 )
@@ -30,10 +39,14 @@ from ..security import (
     check_origin,
     client_ip,
     create_token,
+    email_problem,
     hash_password,
+    normalize_email,
     password_problem,
+    sign_reset,
     username_problem,
     verify_password,
+    verify_reset,
 )
 from ..user_service import ensure_settings, log_action, user_payload
 
@@ -41,19 +54,29 @@ router = APIRouter(prefix="/api", tags=["auth"])
 
 _FAIL_WINDOW = 15 * 60
 _FAIL_LIMIT = 5
+# 连续失败到这个次数就必须过验证码（需求：输错两次开始弹）
+CAPTCHA_AFTER_FAILURES = 2
+
+_FAIL_MESSAGE = "用户名或密码错误"
+
 _failures: dict[str, deque[float]] = defaultdict(deque)
 
 
-def _rate_key(request: Request, username: str) -> str:
-    return f"{client_ip(request)}|{username.strip().lower()}"
+def _rate_key(request: Request, account: str) -> str:
+    return f"{client_ip(request)}|{account.strip().lower()}"
 
 
-def _guard_rate(key: str) -> None:
+def _recent_failures(key: str) -> int:
+    """清掉窗口外的记录后，返回窗口内的失败次数。"""
     now = time.time()
     q = _failures[key]
     while q and now - q[0] > _FAIL_WINDOW:
         q.popleft()
-    if len(q) >= _FAIL_LIMIT:
+    return len(q)
+
+
+def _guard_rate(key: str) -> None:
+    if _recent_failures(key) >= _FAIL_LIMIT:
         raise HTTPException(
             status.HTTP_429_TOO_MANY_REQUESTS, "失败次数过多，请 15 分钟后再试"
         )
@@ -61,6 +84,14 @@ def _guard_rate(key: str) -> None:
 
 def _record_failure(key: str) -> None:
     _failures[key].append(time.time())
+
+
+def _auth_error(message: str, need_captcha: bool, failures: int = 0) -> JSONResponse:
+    """登录失败统一出口：把「要不要验证码」明确告诉前端。"""
+    return JSONResponse(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        content={"detail": message, "needCaptcha": need_captcha, "failures": failures},
+    )
 
 
 def _set_session(response: Response, user: User) -> None:
@@ -91,11 +122,47 @@ def meta(db: Session = Depends(get_db)) -> dict:
         "siteUrl": settings.SITE_URL,
         # primary = 主库（MySQL）；fallback = 主库不可用，本地 SQLite 接管
         "dbMode": db_failover.mode_label(),
+        # 认证相关：前端据此决定要不要显示验证码、找回密码走哪条路
+        "mailReady": settings.mail_ready,
+        "contactEmail": settings_store.get_value(db, "contact_email"),
+        "contactQq": settings_store.get_value(db, "contact_qq"),
         "preview": {
             "chromecast": settings.PREVIEW_CHROMECAST,
             "vastTag": settings.PREVIEW_VAST_TAG,
         },
     }
+
+
+@router.get("/auth/captcha")
+def get_captcha(request: Request) -> dict:
+    """签发一张图形验证码。码只存在服务端，前端拿到的是渲染好的 SVG。"""
+    try:
+        cid, svg = cap.issue(client_ip(request))
+    except cap.TooManyRequests:
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS, "验证码获取过于频繁，请稍后再试"
+        ) from None
+    encoded = base64.b64encode(svg.encode("utf-8")).decode("ascii")
+    return {
+        "captchaId": cid,
+        "image": f"data:image/svg+xml;base64,{encoded}",
+        "expiresIn": cap.CODE_TTL_SECONDS,
+    }
+
+
+@router.get("/auth/check-username")
+def check_username(
+    username: str = Query(min_length=1, max_length=32), db: Session = Depends(get_db)
+) -> dict:
+    """注册时实时查重。只回答「能不能用」，不返回任何账号信息。"""
+    name = username.strip()
+    problem = username_problem(name)
+    if problem:
+        return {"available": False, "reason": problem}
+    taken = db.scalar(select(User.id).where(func.lower(User.username) == name.lower()))
+    if taken:
+        return {"available": False, "reason": "该用户名已被占用"}
+    return {"available": True, "reason": ""}
 
 
 @router.post("/auth/register", status_code=status.HTTP_201_CREATED)
@@ -106,19 +173,35 @@ def register(
     if not settings_store.get_flag(db, "allow_register"):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "站点已关闭注册")
 
+    # 先查格式，再验验证码：格式错误不该白烧一张验证码
     username = payload.username.strip()
-    problem = username_problem(username) or password_problem(payload.password)
+    problem = (
+        username_problem(username)
+        or password_problem(payload.password)
+        or email_problem(payload.email or "")
+    )
     if problem:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, problem)
+
+    passed, reason = cap.verify(payload.captcha_id, payload.captcha)
+    if not passed:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, reason)
 
     exists = db.scalar(select(User).where(func.lower(User.username) == username.lower()))
     if exists:
         raise HTTPException(status.HTTP_409_CONFLICT, "该用户名已被占用")
 
+    email = normalize_email(payload.email or "") or None
+    if email:
+        if db.scalar(select(User.id).where(func.lower(User.email) == email)):
+            raise HTTPException(status.HTTP_409_CONFLICT, "该邮箱已被其它账号绑定")
+
     is_first = db.scalar(select(func.count()).select_from(User)) == 0
     user = User(
         username=username,
         password_hash=hash_password(payload.password),
+        email=email,
+        email_verified=False,
         dav_ha1=da.ha1(username, payload.password),
         role=1 if is_first else 0,
         quota_bytes=settings_store.get_int(db, "default_quota_bytes") or settings.default_quota_bytes,
@@ -140,18 +223,33 @@ def register(
 @router.post("/auth/login")
 def login(
     payload: LoginIn, request: Request, response: Response, db: Session = Depends(get_db)
-) -> dict:
+):
     check_origin(request)
     key = _rate_key(request, payload.username)
     _guard_rate(key)
 
-    username = payload.username.strip()
-    user = db.scalar(select(User).where(func.lower(User.username) == username.lower()))
+    failures = _recent_failures(key)
+    need_captcha = failures >= CAPTCHA_AFTER_FAILURES
+    if need_captcha:
+        passed, reason = cap.verify(payload.captcha_id, payload.captcha)
+        if not passed:
+            # 验证码错不算密码失败，但照样要换一张新的
+            return _auth_error(reason, True, failures)
+
+    account = payload.username.strip()
+    ident = account.lower()
+    user = db.scalar(
+        select(User).where(
+            or_(func.lower(User.username) == ident, func.lower(User.email) == ident)
+        )
+    )
     if user is None or not verify_password(payload.password, user.password_hash):
         _record_failure(key)
-        log_action(db, "login_failed", user.id if user else None, {"username": username}, request)
+        count = _recent_failures(key)
+        log_action(db, "login_failed", user.id if user else None, {"account": account}, request)
         db.commit()
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "用户名或密码错误")
+        return _auth_error(_FAIL_MESSAGE, count >= CAPTCHA_AFTER_FAILURES, count)
+
     if user.banned:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "该账号已被封禁")
 
@@ -165,6 +263,162 @@ def login(
 
     _set_session(response, user)
     return {"user": user_payload(db, user)}
+
+
+# --------------------------------------------------------------------------- #
+# 邮箱验证码（接口已就绪，邮件服务未接入时返回 503）
+# --------------------------------------------------------------------------- #
+def _mask_email(email: str) -> str:
+    name, _, domain = email.partition("@")
+    if not domain:
+        return "***"
+    head = name[:2] if len(name) > 2 else name[:1]
+    return f"{head}***@{domain}"
+
+
+@router.post("/auth/email/code")
+def send_email_code(
+    payload: EmailCodeIn, request: Request, db: Session = Depends(get_db)
+) -> dict:
+    """发送邮箱验证码。
+
+    限流全部在服务端：同目标 30 秒一次、同设备发满 10 次冷却 1 小时、
+    新码覆盖旧码。邮件服务没配好之前直接 503，不消耗任何配额。
+    """
+    check_origin(request)
+    if not settings.mail_ready:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "邮件服务尚未配置，暂时无法发送验证码"
+        )
+
+    target = payload.target.strip()
+    problem = email_problem(target)
+    if problem:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, problem)
+    target = normalize_email(target)
+
+    if payload.scene in ("register", "bind"):
+        if db.scalar(select(User.id).where(func.lower(User.email) == target)):
+            raise HTTPException(status.HTTP_409_CONFLICT, "该邮箱已被其它账号绑定")
+
+    try:
+        retry_after = email_code.issue(payload.scene, target, payload.device or client_ip(request))
+    except email_code.SendError as exc:
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, exc.message) from None
+
+    log_action(db, "email_code_send", None, {"scene": payload.scene}, request)
+    db.commit()
+    return {"sent": True, "retryAfter": retry_after}
+
+
+@router.post("/auth/email/verify")
+def verify_email_code(payload: EmailVerifyIn, request: Request) -> dict:
+    """核验邮箱验证码。通过即销毁，前端无法伪造。"""
+    check_origin(request)
+    passed, reason = email_code.verify(payload.scene, payload.target, payload.code)
+    if not passed:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, reason)
+    return {"ok": True}
+
+
+# --------------------------------------------------------------------------- #
+# 忘记密码：用户名 + 绑定邮箱（邮箱链接流程预留）
+# --------------------------------------------------------------------------- #
+def _contact(db: Session) -> dict:
+    return {
+        "contactEmail": settings_store.get_value(db, "contact_email"),
+        "contactQq": settings_store.get_value(db, "contact_qq"),
+    }
+
+
+@router.post("/auth/forgot/start")
+def forgot_start(
+    payload: ForgotStartIn, request: Request, db: Session = Depends(get_db)
+) -> dict:
+    """看这个账号能走哪条路。
+
+    - 填的是邮箱 → 走邮件链接（未开通，先返回 mailReady=false）
+    - 填的是用户名 → 需要再填一次绑定的邮箱来证明身份
+    """
+    check_origin(request)
+    account = payload.account.strip()
+    base = {"mailReady": settings.mail_ready, **_contact(db)}
+
+    if "@" in account:
+        email = normalize_email(account)
+        user = db.scalar(select(User.id).where(func.lower(User.email) == email))
+        return {"mode": "email", "found": bool(user), **base}
+
+    user = db.scalar(
+        select(User).where(func.lower(User.username) == account.lower())
+    )
+    if user is None:
+        return {"mode": "username", "found": False, "hasEmail": False, **base}
+    return {
+        "mode": "username",
+        "found": True,
+        "hasEmail": bool(user.email),
+        "maskedEmail": _mask_email(user.email) if user.email else "",
+        **base,
+    }
+
+
+@router.post("/auth/forgot/email")
+def forgot_by_email(
+    payload: ForgotCheckIn, request: Request, db: Session = Depends(get_db)
+) -> dict:
+    """用用户名重置：填对绑定邮箱才发重置令牌。
+
+    邮箱验证码通道已经预留（/auth/email/code?scene=reset），
+    等邮件服务上线后在这里多校验一步即可。
+    """
+    check_origin(request)
+    key = _rate_key(request, payload.account)
+    _guard_rate(key)
+
+    user = db.scalar(
+        select(User).where(func.lower(User.username) == payload.account.strip().lower())
+    )
+    if user is None or not user.email:
+        _record_failure(key)
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "该账号不存在或还没有绑定邮箱")
+    if normalize_email(payload.email) != normalize_email(user.email):
+        _record_failure(key)
+        log_action(db, "password_reset_failed", user.id, None, request)
+        db.commit()
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "邮箱与绑定的邮箱不一致")
+
+    token = sign_reset(user.id, user.password_hash)
+    log_action(db, "password_reset_ticket", user.id, None, request)
+    db.commit()
+    return {"token": token, "expiresIn": 900}
+
+
+@router.post("/auth/reset")
+def reset_password(
+    payload: ResetPasswordIn, request: Request, db: Session = Depends(get_db)
+) -> dict:
+    """凭令牌重置密码。令牌一次性，改完密码立刻失效。"""
+    check_origin(request)
+    problem = password_problem(payload.password)
+    if problem:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, problem)
+
+    # 先按 uid 取人，再用当前 password_hash 验签 —— 密码一变签名就对不上
+    try:
+        uid = int(payload.token.split(".")[0])
+    except (ValueError, IndexError):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "重置链接无效或已过期") from None
+    user = db.get(User, uid)
+    if user is None or verify_reset(payload.token, user.password_hash) is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "重置链接无效或已过期")
+
+    user.password_hash = hash_password(payload.password)
+    user.dav_ha1 = da.ha1(user.username, payload.password)
+    user.token_version += 1  # 旧会话全部失效
+    log_action(db, "password_reset", user.id, None, request)
+    db.commit()
+    return {"ok": True, "username": user.username}
 
 
 @router.post("/auth/logout")
@@ -200,6 +454,37 @@ def activate_dav(
 
 @router.get("/me")
 def me(user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
+    return {"user": user_payload(db, user)}
+
+
+@router.patch("/me/email")
+def update_email(
+    payload: EmailBindIn,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """绑定 / 换绑邮箱。
+
+    邮件服务还没通，所以现在只能存下来、标记为未验证；
+    等 /auth/email/code 可用后，这里接一步验证码即可转成已验证。
+    """
+    check_origin(request)
+    problem = email_problem(payload.email)
+    if problem:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, problem)
+
+    email = normalize_email(payload.email)
+    other = db.scalar(
+        select(User.id).where(func.lower(User.email) == email, User.id != user.id)
+    )
+    if other:
+        raise HTTPException(status.HTTP_409_CONFLICT, "该邮箱已被其它账号绑定")
+
+    user.email = email or None
+    user.email_verified = False
+    log_action(db, "email_bind", user.id, {"email": email}, request)
+    db.commit()
     return {"user": user_payload(db, user)}
 
 

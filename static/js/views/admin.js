@@ -1001,6 +1001,29 @@ export function renderAdmin(root) {
         </div>
       </section>
 
+      <section class="settings-card" data-card="contact">
+        <div class="settings-card__head"><svg class="icon icon--s"><use href="#i-mail"/></svg>找回密码兜底联系</div>
+        <div class="setting-row">
+          <div class="setting-row__main">
+            <div class="setting-row__label">什么时候会用到</div>
+            <div class="setting-row__desc">用户既没绑邮箱、邮箱又收不到信时，登录页的「忘记密码」会把这两个联系方式显示出来</div>
+          </div>
+        </div>
+        <div class="admin-form-grid">
+          <label class="field">
+            <span class="field__label">管理员邮箱</span>
+            <span class="textbox"><input data-key="contactEmail" maxlength="254" placeholder="you@example.com" value="${escapeHtml(settings.contactEmail || "")}"></span>
+          </label>
+          <label class="field">
+            <span class="field__label">管理员 QQ</span>
+            <span class="textbox"><input data-key="contactQq" maxlength="32" placeholder="选填" value="${escapeHtml(settings.contactQq || "")}"></span>
+          </label>
+        </div>
+        <div class="admin-card__foot">
+          <button class="btn btn--accent" type="button" data-save="contact">保存联系方式</button>
+        </div>
+      </section>
+
       <section class="settings-card" data-card="limits">
         <div class="settings-card__head"><svg class="icon icon--s"><use href="#i-upload"/></svg>配额与上传</div>
         <div class="admin-form-grid">

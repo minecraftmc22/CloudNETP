@@ -207,12 +207,16 @@ def public_preview(
     if kind == "none":
         raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, "该类型暂不支持在线预览")
 
+    # 与登录态预览保持一致：Office 类降级成 application/octet-stream 并禁用缓存，
+    # 避免浏览器把旧版本带插件 MIME 的响应继续从缓存里复用。
+    media = ns.preview_mime(kind, node.mime)
     resp = storage.file_response(
         storage.blob_path(node.blob_sha256),
         node.name,
-        node.mime,
+        media,
         request,
         inline=True,
+        cache="no-store" if media == "application/octet-stream" else "private, max-age=0",
         csp="" if kind == "pdf" else None,
     )
     if fresh:
@@ -236,7 +240,7 @@ def public_text(
     node = ss.node_of(db, share, node_id)
     if node.type != "file" or not node.blob_sha256:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "文件夹不支持在线预览")
-    if ns.preview_kind(node) != "text":
+    if ns.preview_kind(node) not in ("text", "markdown"):
         raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, "该文件不是文本类型")
 
     try:

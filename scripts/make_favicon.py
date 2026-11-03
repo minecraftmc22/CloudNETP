@@ -30,9 +30,12 @@ BG_BOTTOM = (46, 27, 66)
 GLOW = (249, 168, 212)
 GLOW_ALPHA = 92
 
+# 品牌头像的裁切范围（原图绝对坐标）：脸 + 头部 + 两侧双马尾上半
+HEAD_BOX = (300, 260, 760, 720)
 
-def cutout(src: Path) -> Image.Image:
-    """挖掉外部白底，返回裁到角色 bbox 的 RGBA。"""
+
+def cutout(src: Path) -> tuple[Image.Image, Image.Image]:
+    """挖掉外部白底。返回 (裁到角色 bbox 的 RGBA, 保留原坐标的整幅 RGBA)。"""
     im = Image.open(src).convert("RGB")
     w, h = im.size
     key = (255, 0, 255)
@@ -55,7 +58,7 @@ def cutout(src: Path) -> Image.Image:
     bbox = out.getbbox()
     if not bbox:
         raise SystemExit("抠图失败：整张都被当成背景了")
-    return out.crop(bbox)
+    return out.crop(bbox), out
 
 
 def backdrop() -> Image.Image:
@@ -133,7 +136,7 @@ def main() -> None:
     ASSETS.mkdir(parents=True, exist_ok=True)
 
     print(f"源图 {src.name} {Image.open(src).size}")
-    role = cutout(src)
+    role, masked = cutout(src)
     print(f"抠图完成 bbox={role.size}")
 
     # 圆角版：PWA any + favicon
@@ -142,6 +145,13 @@ def main() -> None:
     save(round_src, "icon-192.png", 192)
     save(round_src, "favicon-32.png", 32)
     save(round_src, "favicon-16.png", 16)
+
+    # 侧栏品牌头像：26px 下全身看不清，只取头部特写（直角，圆角交给 CSS）
+    head = masked.crop(HEAD_BOX)
+    head = head.crop(head.getbbox())
+    save(sticker(head, 0.84), "brand-avatar.png", 96)
+    # 登录页 / 分享页用的大尺寸同款（56~96px 显示，96 会糊）
+    save(sticker(head, 0.84), "brand-avatar-256.png", 256)
 
     # maskable：安全区更小，四角出血（系统自己裁）
     save(sticker(role, 0.64), "icon-maskable-512.png", 512)

@@ -5,6 +5,8 @@
  */
 import { api, escapeHtml, formatBytes } from "../api.js";
 import { store } from "../store.js";
+import { renderMarkdown } from "./markdown.js";
+import { mountOffice, OFFICE_KINDS } from "./office.js";
 import {
   buildVideoPlugins,
   loadRuntime,
@@ -13,18 +15,63 @@ import {
   playerTheme,
 } from "./artplayer-plugins.js";
 
-const SUPPORTED = new Set(["image", "video", "audio", "pdf", "text"]);
+const SUPPORTED = new Set([
+  "image",
+  "video",
+  "audio",
+  "pdf",
+  "text",
+  "markdown",
+  "docx",
+  "sheet",
+  "slide",
+  "odoc",
+  "osheet",
+  "oslide",
+  "rtf",
+  "doc",
+  "ppt",
+]);
 
 const KIND_ICON = {
   image: "i-image",
-  video: "i-star",
-  audio: "i-star",
-  pdf: "i-file",
-  text: "i-file",
+  video: "i-video",
+  audio: "i-music",
+  pdf: "i-pdf",
+  text: "i-text",
+  markdown: "i-text",
+  docx: "i-doc",
+  doc: "i-doc",
+  odoc: "i-doc",
+  rtf: "i-doc",
+  sheet: "i-sheet",
+  osheet: "i-sheet",
+  slide: "i-slide",
+  oslide: "i-slide",
+  ppt: "i-slide",
   none: "i-file",
+  toolarge: "i-file",
 };
 
+/** 预览器顶部显示的类型名 */
+function officeLabel(kind) {
+  const labels = {
+    docx: "Word 文档",
+    doc: "Word 97-2003（仅文字）",
+    odoc: "OpenDocument 文字",
+    rtf: "RTF 富文本（仅文字）",
+    sheet: "电子表格",
+    osheet: "OpenDocument 表格",
+    slide: "演示文稿",
+    oslide: "OpenDocument 演示",
+    ppt: "PowerPoint 97-2003（仅文字）",
+  };
+  return labels[kind] || "Office";
+}
+
 const TEXT_PREVIEW_BYTES = 1_000_000;
+// 与后端 node_service.PREVIEW_MAX_BYTES 保持一致：文档类超过这个体积不给预览
+const PREVIEW_MAX_BYTES = 50 * 1024 * 1024;
 const ZOOM_MIN = 1;
 const ZOOM_MAX = 6;
 const ARTPLAYER_SRC = "/static/vendor/artplayer/artplayer.min.js";
@@ -68,7 +115,12 @@ export function isViewerOpen() {
 
 export function closeViewer() {
   if (!active) return;
-  const { host, keyHandler, restoreOverflow, player } = active;
+  const { host, keyHandler, restoreOverflow, player, cleanup } = active;
+  try {
+    cleanup?.fn?.();
+  } catch {
+    /* 清理失败不影响关闭 */
+  }
   active = null;
   document.removeEventListener("keydown", keyHandler);
   document.body.style.overflow = restoreOverflow;
@@ -155,7 +207,9 @@ async function loadSidecars(node) {
 export function openViewer(item, { onDownload } = {}) {
   closeViewer();
 
-  const kind = canPreview(item) ? item.previewKind : "none";
+  // toolarge 不是「不支持」，是文档类超过体积上限，提示语要说清楚
+  const kind =
+    item?.previewKind === "toolarge" ? "toolarge" : canPreview(item) ? item.previewKind : "none";
   const previewUrl = `/api/nodes/${item.id}/preview`;
   const downloadUrl = `/api/nodes/${item.id}/download`;
 
@@ -180,7 +234,11 @@ export function openViewer(item, { onDownload } = {}) {
                  </div>`
               : ""
           }
-          ${kind === "text" ? `<button class="btn btn--subtle" type="button" data-act="copy">复制</button>` : ""}
+          ${
+            kind === "text" || kind === "markdown"
+              ? `<button class="btn btn--subtle" type="button" data-act="copy">复制</button>`
+              : ""
+          }
           <a class="btn btn--subtle" href="${downloadUrl}">
             <svg class="icon icon--s"><use href="#i-download"/></svg>下载
           </a>
@@ -211,6 +269,7 @@ export function openViewer(item, { onDownload } = {}) {
   let fitW = 0; // 100% 时的显示宽度，作为放大基准
   let pendingZoom = false; // 图片未加载完就点了缩放
   let player = null; // ArtPlayer 实例（视频预览）
+  const cleanup = { fn: null }; // Office 预览的清理钩子（blob URL / 监听器）
 
   const hideLoader = () => loadEl.classList.add("is-hidden");
 
@@ -1095,6 +1154,41 @@ export function openViewer(item, { onDownload } = {}) {
         hideLoader();
       })
       .catch((err) => fail(err.message));
+  } else if (kind === "markdown") {
+    bodyEl.innerHTML = `<div class="md-wrap"><article class="md-body" data-md></article><pre data-code hidden></pre></div>`;
+    const article = bodyEl.querySelector("[data-md]");
+    const sourceEl = bodyEl.querySelector("[data-code]");
+    api
+      .get(`/api/nodes/${item.id}/text`)
+      .then((data) => {
+        const text = data.content || "";
+        sourceEl.textContent = text;
+        article.innerHTML = renderMarkdown(text);
+        const extra = [formatBytes(item.size), "Markdown"];
+        if (data.truncated) extra.push(`仅解析前 ${formatBytes(TEXT_PREVIEW_BYTES)}`);
+        metaEl.textContent = extra.join(" · ");
+        hideLoader();
+      })
+      .catch((err) => fail(err.message));
+  } else if (OFFICE_KINDS.has(kind)) {
+    bodyEl.innerHTML = `<div class="office-host" data-office></div>`;
+    mountOffice(bodyEl.querySelector("[data-office]"), item, kind)
+      .then((dispose) => {
+        cleanup.fn = typeof dispose === "function" ? dispose : null;
+        metaEl.textContent = `${formatBytes(item.size)} · ${officeLabel(kind)}`;
+        hideLoader();
+      })
+      .catch((err) => fail(err.message));
+  } else if (kind === "toolarge") {
+    bodyEl.innerHTML = `<div class="viewer__fallback">
+        <div class="viewer__fallback-art"><svg class="icon"><use href="#i-download"/></svg></div>
+        <div class="viewer__fallback-title">文件太大，不在线预览</div>
+        <div class="viewer__fallback-desc">${escapeHtml(item.name)} · ${formatBytes(item.size)}<br>超过 ${formatBytes(PREVIEW_MAX_BYTES)} 的文档需要下载到本地打开。</div>
+        <a class="btn btn--accent" href="${downloadUrl}">
+          <svg class="icon icon--s"><use href="#i-download"/></svg>下载到本地
+        </a>
+      </div>`;
+    hideLoader();
   } else {
     bodyEl.innerHTML = `<div class="viewer__fallback">
         <div class="viewer__fallback-art"><svg class="icon"><use href="#i-file"/></svg></div>
@@ -1183,7 +1277,7 @@ export function openViewer(item, { onDownload } = {}) {
     }
   };
   document.addEventListener("keydown", keyHandler);
-  active = { host, keyHandler, restoreOverflow, player };
+  active = { host, keyHandler, restoreOverflow, player, cleanup };
 
   host.querySelector('button[data-act="close"]')?.focus({ preventScroll: true });
 
