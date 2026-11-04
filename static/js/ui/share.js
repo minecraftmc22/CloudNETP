@@ -36,48 +36,54 @@ export async function copyText(text) {
   }
 }
 
+const SHARE_FIELDS = [
+  {
+    name: "days",
+    label: "有效期",
+    type: "select",
+    value: "7",
+    options: DAY_OPTIONS,
+  },
+  {
+    name: "code",
+    label: "提取码（可选）",
+    placeholder: "留空则凭链接直接访问",
+    validate: (v) => {
+      const t = v.trim();
+      if (t && !/^[A-Za-z0-9]{1,8}$/.test(t)) return "只能填 1–8 位字母或数字";
+      return null;
+    },
+  },
+  {
+    name: "max",
+    label: "下载次数上限（可选）",
+    placeholder: "留空表示不限次数",
+    validate: (v) => {
+      const t = v.trim();
+      if (t && !/^[1-9]\d{0,5}$/.test(t)) return "请填 1–999999 之间的整数";
+      return null;
+    },
+  },
+];
+
 /**
- * 弹出「创建分享」对话框并提交。
- * @param {{id:number,name:string,type:string}} item
+ * 创建分享（单个或多个）。
+ * @param {Array<{id:number,name:string,type:string}>} items 至少一项
  * @returns {Promise<object|null>} 创建成功的 share 数据
  */
-export async function shareItem(item) {
+async function createShare(items) {
+  const single = items.length === 1 ? items[0] : null;
+  const total = items.length;
+
   const values = await Dialog.form({
-    title: `分享「${item.name}」`,
-    message:
-      item.type === "folder"
+    title: single ? `分享「${single.name}」` : `分享 ${total} 个项目`,
+    message: single
+      ? single.type === "folder"
         ? "任何人打开链接都能浏览这个文件夹里的内容，你可以随时取消分享。"
-        : "任何人打开链接都能在线预览或下载这个文件，你可以随时取消分享。",
+        : "任何人打开链接都能在线预览或下载这个文件，你可以随时取消分享。"
+      : `这 ${total} 个项目会合并成一条链接，打开后是一个列表，可逐个预览或下载。`,
     confirmText: "创建链接",
-    fields: [
-      {
-        name: "days",
-        label: "有效期",
-        type: "select",
-        value: "7",
-        options: DAY_OPTIONS,
-      },
-      {
-        name: "code",
-        label: "提取码（可选）",
-        placeholder: "留空则凭链接直接访问",
-        validate: (v) => {
-          const t = v.trim();
-          if (t && !/^[A-Za-z0-9]{1,8}$/.test(t)) return "只能填 1–8 位字母或数字";
-          return null;
-        },
-      },
-      {
-        name: "max",
-        label: "下载次数上限（可选）",
-        placeholder: "留空表示不限次数",
-        validate: (v) => {
-          const t = v.trim();
-          if (t && !/^[1-9]\d{0,5}$/.test(t)) return "请填 1–999999 之间的整数";
-          return null;
-        },
-      },
-    ],
+    fields: SHARE_FIELDS,
   });
   if (!values) return null;
 
@@ -85,7 +91,7 @@ export async function shareItem(item) {
   let payload;
   try {
     payload = await api.post("/api/shares", {
-      nodeId: item.id,
+      nodeIds: items.map((item) => item.id),
       expiresDays: values.days ? Number(values.days) : null,
       extractCode: code || null,
       maxDownloads: values.max.trim() ? Number(values.max.trim()) : null,
@@ -101,7 +107,7 @@ export async function shareItem(item) {
   Toast.success(copied ? "链接已复制到剪贴板" : "分享链接已创建");
 
   await Dialog.alert({
-    title: "分享链接已创建",
+    title: total > 1 ? `已创建合集分享（${total} 项）` : "分享链接已创建",
     message: `
       <div class="share-result">
         <div class="share-result__row">
@@ -129,4 +135,14 @@ export async function shareItem(item) {
   });
 
   return share;
+}
+
+/** 单个文件/文件夹：弹出创建对话框并提交。 */
+export function shareItem(item) {
+  return createShare([item]);
+}
+
+/** 批量分享：多项合并成一条合集链接。 */
+export function shareItems(items) {
+  return createShare(items);
 }

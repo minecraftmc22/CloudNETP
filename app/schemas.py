@@ -155,7 +155,9 @@ class UploadInitIn(CamelModel):
 # 分享链接
 # --------------------------------------------------------------------------- #
 class ShareIn(CamelModel):
-    node_id: int
+    node_id: int | None = None
+    # 合集分享：一次选中多项；与 nodeId 二选一，同时给时以 nodeIds 为准
+    node_ids: list[int] | None = Field(default=None, max_length=100)
     expires_days: int | None = Field(default=None, ge=1, le=3650)
     extract_code: str | None = Field(default=None, max_length=16)
     max_downloads: int | None = Field(default=None, ge=1, le=1_000_000)
@@ -172,6 +174,8 @@ class ShareReportIn(CamelModel):
 class ShareSaveIn(CamelModel):
     # 文件夹分享里要转存的子文件；单文件分享留空
     node_id: int | None = None
+    # 合集分享里勾选的多项；与 node_id 二选一
+    node_ids: list[int] | None = Field(default=None, max_length=100)
     # 转存目标文件夹，缺省存到自己根目录
     parent_id: int | None = None
 

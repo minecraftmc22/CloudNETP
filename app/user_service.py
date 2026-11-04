@@ -49,6 +49,9 @@ def user_payload(db: Session, user: User) -> dict[str, Any]:
             "themeMode": s.theme_mode,
             "accentColor": s.accent_color,
             "wallpaper": s.wallpaper,
+            "backgroundImage": (
+                f"/api/background/{s.background_image}" if s.background_image else None
+            ),
             "showMascot": bool(s.show_mascot),
             "showPetals": bool(s.show_petals),
             "trashEnabled": bool(s.trash_enabled),

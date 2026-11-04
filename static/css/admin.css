@@ -347,11 +347,27 @@
   border-radius: 9px;
   display: grid;
   place-items: center;
+  overflow: hidden;
   font-size: 13px;
   font-weight: 600;
   color: #fff;
   background: linear-gradient(135deg, var(--accent), var(--accent-warm));
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+/* 有头像用图，没有时保留昵称首字 + 渐变底（avatarMarkup 统一产出这两种结构） */
+.admin-avatar .avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  border-radius: inherit;
+}
+.admin-avatar .avatar-initial {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  border-radius: inherit;
 }
 .admin-user__name {
   display: flex;
@@ -680,4 +696,83 @@
   display: flex;
   gap: 6px;
   justify-content: flex-end;
+}
+
+/* 举报内容预览：让管理员先看清是什么文件 */
+.admin-fileicon {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--tone, var(--accent)) 14%, transparent);
+  color: var(--tone, var(--accent));
+}
+.admin-fileicon .icon {
+  width: 17px;
+  height: 17px;
+}
+.admin-thumb {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: 9px;
+  overflow: hidden;
+  display: block;
+  border: 1px solid var(--stroke-hair);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+.admin-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transition: transform var(--dur-fast) var(--ease-standard);
+}
+.admin-thumb:hover img {
+  transform: scale(1.06);
+}
+.report-detail__head {
+  margin: 14px 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-1);
+}
+.report-files {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 300px;
+  overflow: auto;
+  padding-right: 2px;
+}
+.report-file {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+.report-file__thumb {
+  flex: none;
+  width: 56px;
+  height: 56px;
+  border-radius: 8px;
+  object-fit: cover;
+  display: block;
+  border: 1px solid var(--stroke-hair);
+}
+.report-file__main {
+  flex: 1;
+  min-width: 0;
+}
+.report-file__name {
+  font-size: 12.5px;
+  color: var(--text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

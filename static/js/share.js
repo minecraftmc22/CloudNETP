@@ -135,13 +135,17 @@ function infoModal(title, message) {
 
 /* ---------------- 登录态 ---------------- */
 let me = null; // 登录用户信息；null = 未登录
-async function loadMe() {
-  try {
-    const res = await fetch("/api/me", { credentials: "include" });
-    if (res.ok) me = await res.json();
-  } catch {
-    me = null;
-  }
+let mePromise = null;
+function loadMe() {
+  mePromise = fetch("/api/me", { credentials: "include" })
+    .then((res) => (res.ok ? res.json() : null))
+    .then((data) => {
+      me = data || null;
+    })
+    .catch(() => {
+      me = null;
+    });
+  return mePromise;
 }
 
 /* ---------------- 举报 ---------------- */
@@ -165,7 +169,13 @@ function openReport() {
 }
 
 /* ---------------- 转存到我的网盘 ---------------- */
-async function saveToMyDrive(nodeId) {
+/**
+ * 转存到我的网盘。
+ * @param {Array<{id:number,name:string}>|null} items 要转存的项；传 null / 空数组表示整条分享
+ */
+async function saveToMyDrive(items) {
+  // 登录态是并发拉取的，点得太快时先等它落地，免得误判成未登录
+  if (mePromise) await mePromise;
   if (!me) {
     infoModal(
       "需要登录",
@@ -176,26 +186,29 @@ async function saveToMyDrive(nodeId) {
     );
     return;
   }
-  const name = meta?.name || "文件";
+  const list = Array.isArray(items) ? items.filter(Boolean) : [];
+  const count = list.length;
+  const what =
+    count === 1 ? `「<b>${esc(list[0].name)}</b>」` : count > 1 ? `这 <b>${count}</b> 个项目` : `「<b>${esc(meta?.name || "文件")}</b>」`;
   showModal({
     title: "转存到我的网盘",
     body: `
-      <p class="share-modal__desc">将「<b>${esc(name)}</b>」保存到自己网盘的根目录。文件不会占用额外存储（相同内容只存一份），但会占用你的空间配额。</p>
+      <p class="share-modal__desc">将${what}保存到自己网盘的根目录。文件不会占用额外存储（相同内容只存一份），但会占用你的空间配额。</p>
       <p class="share-modal__error" data-modal-error hidden></p>`,
-    confirmText: "转存",
+    confirmText: count > 1 ? `转存 ${count} 项` : "转存",
     onConfirm: async () => {
-      const data = await fetch(apiUrl("/save", nodeId ? { nodeId } : {}), {
+      const body = count ? { nodeIds: list.map((i) => i.id) } : {};
+      const data = await fetch(apiUrl("/save"), {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(nodeId ? { nodeId } : {}),
+        body: JSON.stringify(body),
       });
       const payload = await data.json().catch(() => null);
       if (!data.ok) throw new Error(payload?.detail || `转存失败（${data.status}）`);
-      infoModal(
-        "转存成功",
-        `<p class="share-modal__desc">「<b>${esc(payload.name || name)}</b>」已保存到你的网盘根目录。</p>`
-      );
+      const savedName =
+        payload.count > 1 ? `这 ${payload.count} 个项目` : `「<b>${esc(payload.name || meta?.name || "文件")}</b>」`;
+      infoModal("转存成功", `<p class="share-modal__desc">${savedName}已保存到你的网盘根目录。</p>`);
     },
   });
 }
@@ -387,38 +400,149 @@ function renderFile(share) {
   }
 }
 
+/* ---------------- 列表（合集与文件夹布局一致） ---------------- */
+function itemRowHtml(item) {
+  const isFolder = item.type === "folder";
+  const iconName = item.icon || (isFolder ? "i-folder" : "i-file");
+  return `
+    <div class="share-item" data-id="${item.id}" data-type="${item.type}">
+      <label class="share-item__pick" title="选择这一项">
+        <input class="pickbox" type="checkbox" data-check>
+      </label>
+      <span class="share-item__icon" data-kind="${iconName.slice(2)}">${icon(iconName)}</span>
+      <span class="share-item__name" title="${esc(item.name)}">${esc(item.name)}</span>
+      <span class="share-item__size">${isFolder ? `${item.childCount ?? 0} 项` : formatBytes(item.size)}</span>
+      <span class="share-item__actions">
+        ${
+          isFolder
+            ? ""
+            : `<a class="icon-btn" href="${apiUrl("/preview", { nodeId: item.id })}" target="_blank" rel="noopener" title="在新标签页预览">
+                 ${icon("i-arrow-up-right")}
+               </a>`
+        }
+        ${
+          isFolder
+            ? `<button class="icon-btn" type="button" data-enter title="打开文件夹">${icon("i-folder")}</button>`
+            : `<a class="icon-btn" href="${apiUrl("/download", { nodeId: item.id })}" download title="下载">${icon("i-download")}</a>`
+        }
+      </span>
+    </div>`;
+}
+
+function listItemsHtml(items, emptyText) {
+  if (!items.length) {
+    return `<div class="share-empty__desc" style="text-align:center;padding:28px 0">${emptyText}</div>`;
+  }
+  return `<div class="share-listbar">
+      <label class="share-listbar__all">
+        <input class="pickbox" type="checkbox" data-pick-all>
+        <span>全选</span>
+      </label>
+      <span class="share-listbar__count" data-picked-count></span>
+    </div>
+    <div class="share-items">${items.map(itemRowHtml).join("")}</div>`;
+}
+
+/** 勾选与转存按钮的公共绑定：文件夹内页和合集页都用这一套。 */
+function bindList({ items, onEnter }) {
+  const rows = [...root.querySelectorAll(".share-item")];
+  const saveBtn = root.querySelector("[data-save-picked]");
+  const saveLabel = root.querySelector("[data-picked-label]");
+  const allBox = root.querySelector("[data-pick-all]");
+  const countEl = root.querySelector("[data-picked-count]");
+  const picked = new Set();
+
+  const sync = () => {
+    const n = picked.size;
+    if (saveBtn) saveBtn.disabled = n === 0;
+    if (saveLabel) saveLabel.textContent = n ? `转存 ${n} 项` : "转存选中";
+    if (countEl) countEl.textContent = n ? `已选 ${n} 项` : "";
+    if (allBox) allBox.checked = rows.length > 0 && n === rows.length;
+  };
+
+  rows.forEach((row) => {
+    const id = Number(row.dataset.id);
+    const box = row.querySelector("[data-check]");
+    box.addEventListener("change", () => {
+      if (box.checked) picked.add(id);
+      else picked.delete(id);
+      row.classList.toggle("is-picked", box.checked);
+      sync();
+    });
+    row.querySelector("[data-enter]")?.addEventListener("click", () => {
+      onEnter?.(items.find((i) => i.id === id));
+    });
+  });
+
+  allBox?.addEventListener("change", () => {
+    rows.forEach((row) => {
+      const id = Number(row.dataset.id);
+      row.querySelector("[data-check]").checked = allBox.checked;
+      row.classList.toggle("is-picked", allBox.checked);
+      if (allBox.checked) picked.add(id);
+      else picked.delete(id);
+    });
+    sync();
+  });
+
+  saveBtn?.addEventListener("click", () => {
+    const chosen = items.filter((i) => picked.has(i.id));
+    if (chosen.length) saveToMyDrive(chosen);
+  });
+
+  sync();
+}
+
+/* ---------------- 合集分享（一条链接含多个项目） ---------------- */
+function renderCollection(share, items) {
+  root.innerHTML = `
+    <section class="share-card">
+      <header class="share-folder__head">
+        <div class="share-folder__title">
+          <span class="share-folder__icon">${icon("i-folder")}</span>
+          <div>
+            <h1 class="share-file__name">${esc(share.name)}</h1>
+            <p class="share-file__meta">共 ${items.length} 项 · ${formatBytes(share.size)}${
+              share.expiresAt ? ` · ${new Date(share.expiresAt).toLocaleDateString("zh-CN")} 到期` : ""
+            }</p>
+            ${authorChip(share)}
+          </div>
+        </div>
+        <div class="share-card__actions">
+          ${
+            items.length
+              ? `<button class="btn" type="button" data-save-picked disabled title="勾选项目后转存到自己网盘">
+            ${icon("i-cloud")}<span data-picked-label>转存选中</span>
+          </button>`
+              : ""
+          }
+          <button class="btn" type="button" data-report title="举报该分享">
+            ${icon("i-alert")}<span>举报</span>
+          </button>
+        </div>
+      </header>
+      ${listItemsHtml(items, "分享的内容都已被删除。")}
+      ${
+        share.remainingDownloads !== null
+          ? `<p class="share-tip">剩余可下载 ${share.remainingDownloads} 次</p>`
+          : ""
+      }
+    </section>`;
+
+  root.querySelector("[data-report]").addEventListener("click", openReport);
+  bindList({
+    items,
+    onEnter: (item) => {
+      trail.push({ id: item.id, name: item.name });
+      loadFolder(item.id);
+    },
+  });
+}
+
 /* ---------------- 文件夹浏览 ---------------- */
 function renderFolder(folder, items) {
-  const downloadUrl = (id) => apiUrl("/download", { nodeId: id });
-  const previewUrl = (id) => apiUrl("/preview", { nodeId: id });
-
-  const rows = items.length
-    ? items
-        .map((item) => {
-          const isFolder = item.type === "folder";
-          return `
-        <div class="share-item" data-id="${item.id}" data-type="${item.type}">
-          <span class="share-item__icon" data-kind="${(item.icon || (isFolder ? "i-folder" : "i-file")).slice(2)}">${icon(item.icon || (isFolder ? "i-folder" : "i-file"))}</span>
-          <span class="share-item__name" title="${esc(item.name)}">${esc(item.name)}</span>
-          <span class="share-item__size">${isFolder ? `${item.childCount ?? 0} 项` : formatBytes(item.size)}</span>
-          <span class="share-item__actions">
-            ${
-              isFolder
-                ? ""
-                : `<a class="icon-btn" href="${previewUrl(item.id)}" target="_blank" rel="noopener" title="在新标签页预览">
-                     ${icon("i-arrow-up-right")}
-                   </a>`
-            }
-            ${
-              isFolder
-                ? `<button class="icon-btn" type="button" data-enter title="打开文件夹">${icon("i-folder")}</button>`
-                : `<a class="icon-btn" href="${downloadUrl(item.id)}" download title="下载">${icon("i-download")}</a>`
-            }
-          </span>
-        </div>`;
-        })
-        .join("")
-    : `<div class="share-empty__desc" style="text-align:center;padding:28px 0">这个文件夹是空的。</div>`;
+  // 合集分享的虚拟根（id 为 null）没有单一可转存的对象，靠勾选来转存
+  const virtualRoot = folder.id === null;
 
   root.innerHTML = `
     <section class="share-card">
@@ -439,18 +563,31 @@ function renderFolder(folder, items) {
           </div>
         </div>
         <div class="share-card__actions">
-          <button class="btn" type="button" data-save-drive title="转存整个文件夹到我的网盘">
-            ${icon("i-cloud")}<span>转存</span>
-          </button>
+          ${
+            items.length
+              ? `<button class="btn" type="button" data-save-picked disabled title="勾选项目后转存到自己网盘">
+            ${icon("i-cloud")}<span data-picked-label>转存选中</span>
+          </button>`
+              : ""
+          }
+          ${
+            virtualRoot
+              ? ""
+              : `<button class="btn" type="button" data-save-drive title="转存整个文件夹到我的网盘">
+            ${icon("i-cloud")}<span>转存此文件夹</span>
+          </button>`
+          }
           <button class="btn" type="button" data-report title="举报该分享">
             ${icon("i-alert")}<span>举报</span>
           </button>
         </div>
       </header>
-      <div class="share-items">${rows}</div>
+      ${listItemsHtml(items, "这个文件夹是空的。")}
     </section>`;
 
-  root.querySelector("[data-save-drive]").addEventListener("click", () => saveToMyDrive(folder.isRoot ? null : folder.id));
+  root
+    .querySelector("[data-save-drive]")
+    ?.addEventListener("click", () => saveToMyDrive([{ id: folder.id, name: folder.name }]));
   root.querySelector("[data-report]").addEventListener("click", openReport);
 
   root.querySelector("[data-back]")?.addEventListener("click", () => {
@@ -458,14 +595,12 @@ function renderFolder(folder, items) {
     loadFolder(trail[trail.length - 1].id);
   });
 
-  root.querySelectorAll(".share-item").forEach((row) => {
-    const id = Number(row.dataset.id);
-    const type = row.dataset.type;
-    const item = items.find((i) => i.id === id);
-    row.querySelector("[data-enter]")?.addEventListener("click", () => {
-      trail.push({ id, name: item.name });
-      loadFolder(id);
-    });
+  bindList({
+    items,
+    onEnter: (item) => {
+      trail.push({ id: item.id, name: item.name });
+      loadFolder(item.id);
+    },
   });
 }
 
@@ -481,7 +616,10 @@ async function loadFolder(folderId) {
 }
 
 async function enter() {
-  if (meta.type === "folder") {
+  if (meta.type === "multi") {
+    trail = [{ id: null, name: meta.name }];
+    renderCollection(meta, meta.items || []);
+  } else if (meta.type === "folder") {
     trail = [{ id: null, name: meta.name }];
     await loadFolder(null);
   } else {

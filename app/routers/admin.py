@@ -13,7 +13,9 @@ from sqlalchemy.orm import Session
 
 from .. import admin_service as admin
 from .. import dav_auth as da
+from .. import node_service as ns
 from .. import profile_service as ps
+from .. import storage
 from ..db import get_db
 from ..deps import require_admin
 from ..models import User
@@ -237,6 +239,82 @@ def list_reports(
     page_size: int = Query(default=20, ge=1, le=100, alias="pageSize"),
 ) -> dict:
     return admin.list_reports(db, status=report_status, page=page, page_size=page_size)
+
+
+@router.get("/reports/{report_id}/files")
+def report_files(report_id: int, db: DbSession, _: AdminUser) -> dict:
+    """举报涉及的文件清单：管理员先看清是什么内容，再决定通过还是驳回。"""
+    try:
+        return admin.report_files(db, report_id)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from None
+
+
+@router.get("/reports/{report_id}/preview")
+def report_preview(
+    report_id: int,
+    request: Request,
+    db: DbSession,
+    _: AdminUser,
+    node_id: int | None = Query(default=None, alias="nodeId"),
+    download: bool = Query(default=False),
+):
+    """被举报文件的内容流（支持 Range）。与分享是否撤销无关，管理员始终能看。"""
+    try:
+        report, node, sha = admin.report_file_for_preview(db, report_id, node_id)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from None
+    path = storage.blob_path(sha)
+    name = (node.name if node else report.first_name) or "file"
+    kind = ns.preview_kind(node, is_admin=True) if node else "none"
+    media = ns.preview_mime(kind, node.mime if node else None) if kind != "none" else None
+    # 浏览器不能内联显示的类型（压缩包、可执行文件等）直接按附件下载
+    return storage.file_response(
+        path,
+        name,
+        media,
+        request,
+        inline=(not download) and kind != "none",
+        cache="no-store",
+    )
+
+
+@router.get("/reports/{report_id}/thumb")
+def report_thumb(
+    report_id: int,
+    db: DbSession,
+    _: AdminUser,
+    node_id: int | None = Query(default=None, alias="nodeId"),
+    w: int = Query(default=160, ge=64, le=640),
+):
+    """举报图片的缩略图，列表与详情里直接看到画面。"""
+    try:
+        path = admin.report_thumb_path(db, report_id, node_id, w)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from None
+    except Exception:  # Pillow 打不开的格式（HEIC 等）
+        raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, "这个格式没法生成缩略图") from None
+    return storage.file_response(path, "thumb.webp", "image/webp", cache="private, max-age=86400")
+
+
+@router.get("/reports/{report_id}/text")
+def report_text(
+    report_id: int,
+    db: DbSession,
+    _: AdminUser,
+    node_id: int | None = Query(default=None, alias="nodeId"),
+    max_bytes: int = Query(default=200_000, ge=1024, le=4_000_000, alias="maxBytes"),
+) -> dict:
+    try:
+        report, node, sha = admin.report_file_for_preview(db, report_id, node_id)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from None
+    try:
+        return storage.text_payload(storage.blob_path(sha), max_bytes)
+    except ValueError:
+        raise HTTPException(
+            status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, "这是二进制文件，无法按文本预览"
+        ) from None
 
 
 @router.post("/reports/{report_id}/approve")

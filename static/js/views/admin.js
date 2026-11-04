@@ -5,6 +5,7 @@
  */
 import { api, escapeHtml, formatBytes, formatTime, percent } from "../api.js";
 import { store } from "../store.js";
+import { avatarMarkup } from "../ui/avatar.js";
 import { Dialog } from "../ui/dialog.js";
 import { openMenu } from "../ui/menu.js";
 import { copyText } from "../ui/share.js";
@@ -355,13 +356,16 @@ export function renderAdmin(root) {
     const status = user.banned
       ? '<span class="admin-badge is-banned">已封禁</span>'
       : '<span class="admin-badge is-ok">正常</span>';
+    // 名称优先用昵称（display_name），登录名只在两者不同时作为次要标识
+    const shownName = user.displayName || user.username;
+    const alias = shownName !== user.username ? `@${user.username} · ` : "";
     return `
       <div class="admin-row" data-id="${user.id}">
         <div class="admin-user">
-          <span class="admin-avatar">${escapeHtml((user.username || "?").slice(0, 1).toUpperCase())}</span>
+          <span class="admin-avatar">${avatarMarkup({ displayName: shownName, username: user.username, avatarUrl: user.avatarUrl })}</span>
           <div style="min-width:0">
-            <div class="admin-user__name">${escapeHtml(user.username)} ${roleChip}</div>
-            <div class="admin-user__meta">#${user.id} · ${user.createdAt ? `注册于 ${formatTime(user.createdAt)}` : "—"}</div>
+            <div class="admin-user__name" title="${escapeHtml(shownName)}">${escapeHtml(shownName)} ${roleChip}</div>
+            <div class="admin-user__meta">${escapeHtml(alias)}#${user.id} · ${user.createdAt ? `注册于 ${formatTime(user.createdAt)}` : "—"}</div>
           </div>
         </div>
         <div class="admin-space">
@@ -390,8 +394,8 @@ export function renderAdmin(root) {
       anchor,
       align: "end",
       header: {
-        name: user.username,
-        meta: `#${user.id} · ${user.role === 1 ? "管理员" : "普通用户"} · ${formatBytes(user.usedBytes)}`,
+        name: user.displayName || user.username,
+        meta: `@${user.username} · #${user.id} · ${user.role === 1 ? "管理员" : "普通用户"} · ${formatBytes(user.usedBytes)}`,
       },
       items: [
         { label: "查看审计日志", icon: "i-clock", onClick: () => openUserLogs(user) },
@@ -559,6 +563,29 @@ export function renderAdmin(root) {
     rejected: '<span class="admin-badge is-ok">已驳回</span>',
   };
 
+  // 举报内容预览用的类型名与图标
+  const PREVIEW_LABEL = {
+    image: "图片",
+    video: "视频",
+    audio: "音频",
+    pdf: "PDF",
+    text: "文本",
+    markdown: "Markdown",
+    docx: "Word 文档",
+    doc: "Word 文档",
+    odoc: "Word 文档",
+    rtf: "RTF 文档",
+    sheet: "表格",
+    osheet: "表格",
+    slide: "演示文稿",
+    ppt: "演示文稿",
+    oslide: "演示文稿",
+    toolarge: "大文件",
+    none: "其他文件",
+  };
+
+  const svgIcon = (name) => `<svg class="icon"><use href="#${name}"/></svg>`;
+
   async function showReports() {
     panel.innerHTML = `
       <div class="admin-toolbar">
@@ -635,6 +662,8 @@ export function renderAdmin(root) {
           const done = await copyText(report.blobSha256 || "");
           done ? Toast.success("哈希已复制") : Toast.error("复制失败，请手动选中");
         });
+        // 点缩略图直接看原图，不要再弹出详情
+        row.querySelector(".admin-thumb")?.addEventListener("click", (event) => event.stopPropagation());
         row.querySelector("[data-approve]")?.addEventListener("click", (event) => {
           event.stopPropagation();
           approveReport(report, loadReports);
@@ -665,12 +694,31 @@ export function renderAdmin(root) {
   }
 
   function reportRowHtml(report) {
+    const iconName = report.icon || (report.isFolder ? "i-folder" : "i-file");
+    const previewHref = report.nodeId
+      ? `/api/admin/reports/${report.id}/preview?nodeId=${report.nodeId}`
+      : `/api/admin/reports/${report.id}/preview`;
+    // 图片直接给缩略图，审核时一眼能看出内容；点开就是原图
+    const visual =
+      report.previewKind === "image"
+        ? `<a class="admin-thumb" href="${previewHref}" target="_blank" rel="noopener" title="查看原图">
+             <img src="/api/admin/reports/${report.id}/thumb?w=96${
+            report.nodeId ? `&nodeId=${report.nodeId}` : ""
+          }" alt="" loading="lazy">
+           </a>`
+        : `<span class="admin-fileicon" data-kind="${iconName.replace(/^i-/, "")}">${svgIcon(iconName)}</span>`;
+    const kindLabel = PREVIEW_LABEL[report.previewKind] || "文件";
+    // 单文件能看到确切大小；文件夹/合集只报总量，点开才看清单
+    const metaLine = report.blobSha256
+      ? `${kindLabel} · ${formatBytes(report.size)}`
+      : `合集 · 共 ${formatBytes(report.size)}`;
     const hash = report.blobSha256
       ? `<div class="report-hash" data-copy-hash title="点击复制完整哈希">${escapeHtml(
           report.blobSha256.slice(0, 16)
         )}…${escapeHtml(report.blobSha256.slice(-8))}</div>
-         <div class="admin-user__meta">${report.refCount} 处引用 · ${formatBytes(report.size)}</div>`
-      : `<div class="admin-user__meta">文件夹分享 · 共 ${formatBytes(report.size)}</div>`;
+         <div class="admin-user__meta">${report.refCount} 处引用</div>`
+      : `<div class="admin-user__meta">合集分享不记单个哈希</div>
+         <div class="admin-user__meta">共 ${formatBytes(report.size)}</div>`;
     const reason = report.reason
       ? `<div class="report-reason" title="${escapeHtml(report.reason)}">${escapeHtml(report.reason)}</div>`
       : `<div class="report-reason muted">未填写理由</div>`;
@@ -692,10 +740,10 @@ export function renderAdmin(root) {
     return `
       <div class="admin-row admin-row--report" data-id="${report.id}">
         <div class="admin-user">
-          <span class="admin-avatar">${report.isFolder ? "📁" : escapeHtml((report.firstName || "?").slice(0, 1).toUpperCase())}</span>
+          ${visual}
           <div style="min-width:0">
             <div class="admin-user__name" title="${escapeHtml(report.firstName)}">${escapeHtml(report.firstName)}</div>
-            <div class="admin-user__meta">${shareState}</div>
+            <div class="admin-user__meta">${metaLine} · ${shareState}</div>
           </div>
         </div>
         <div>${hash}</div>
@@ -769,21 +817,75 @@ export function renderAdmin(root) {
     }
   }
 
-  function showReportDetail(report) {
-    Dialog.alert({
+  async function showReportDetail(report) {
+    let files = null;
+    try {
+      files = await api.get(`/api/admin/reports/${report.id}/files`);
+    } catch (err) {
+      Toast.error(err.message);
+      return;
+    }
+    const items = files.items || [];
+    const fileRows = items.length
+      ? items
+          .map((f) => {
+            const iconName = f.icon || "i-file";
+            const visual =
+              f.previewKind === "image" && !f.missing
+                ? `<img class="report-file__thumb" src="/api/admin/reports/${report.id}/thumb?nodeId=${f.nodeId}&w=120" alt="" loading="lazy">`
+                : `<span class="admin-fileicon" data-kind="${iconName.replace(/^i-/, "")}">${svgIcon(
+                    iconName
+                  )}</span>`;
+            const open = f.missing
+              ? '<span class="admin-user__meta">内容已删除</span>'
+              : `<a class="btn btn--subtle btn--sm" href="/api/admin/reports/${report.id}/preview?nodeId=${
+                  f.nodeId
+                }" target="_blank" rel="noopener">打开</a>`;
+            return `
+              <div class="report-file">
+                ${visual}
+                <div class="report-file__main">
+                  <div class="report-file__name" title="${escapeHtml(f.label || f.name)}">${escapeHtml(
+              f.label || f.name
+            )}</div>
+                  <div class="admin-user__meta">${PREVIEW_LABEL[f.previewKind] || "文件"} · ${formatBytes(
+              f.size
+            )}</div>
+                </div>
+                ${open}
+              </div>`;
+          })
+          .join("")
+      : '<div class="admin-user__meta">这个分享里的内容已经被删除了。</div>';
+
+    await Dialog.alert({
       title: `举报详情 · ${report.firstName}`,
       message: `
-        <div class="dialog__hint">分享链接 /s/${escapeHtml(report.token)}（${report.shareActive ? "仍有效" : "已失效"}）</div>
-        <div class="dialog__hint">文件名：${escapeHtml(report.firstName)}</div>
+        <div class="dialog__hint">分享链接 /s/${escapeHtml(report.token)}（${
+        report.shareActive ? "仍有效" : "已失效"
+      }）</div>
         ${
           report.blobSha256
-            ? `<div class="dialog__hint">哈希值：<span class="code-display" style="display:inline;padding:2px 8px">${escapeHtml(report.blobSha256)}</span></div>`
-            : '<div class="dialog__hint">类型：文件夹分享</div>'
+            ? `<div class="dialog__hint">哈希值：<span class="code-display" style="display:inline;padding:2px 8px">${escapeHtml(
+                report.blobSha256
+              )}</span></div>`
+            : '<div class="dialog__hint">类型：文件夹 / 合集分享</div>'
         }
-        <div class="dialog__hint">大小：${formatBytes(report.size)} · 引用：${report.refCount} 处</div>
         <div class="dialog__hint">举报理由：${escapeHtml(report.reason || "未填写")}</div>
-        <div class="dialog__hint">举报人：${escapeHtml(report.reporter || "匿名")}${report.reporterIp ? ` · IP ${escapeHtml(report.reporterIp)}` : ""}</div>
-        <div class="dialog__hint">时间：${formatTime(report.createdAt)}${report.handledAt ? ` · 处理：${escapeHtml(report.handledBy || "—")} ${formatTime(report.handledAt)}` : ""}</div>`,
+        <div class="dialog__hint">举报人：${escapeHtml(report.reporter || "匿名")}${
+        report.reporterIp ? ` · IP ${escapeHtml(report.reporterIp)}` : ""
+      }</div>
+        <div class="dialog__hint">时间：${formatTime(report.createdAt)}${
+        report.handledAt
+          ? ` · 处理：${escapeHtml(report.handledBy || "—")} ${formatTime(report.handledAt)}`
+          : ""
+      }</div>
+        <div class="report-detail__head">
+          被举报内容 · ${items.length ? `${items.length} 个文件 · ${formatBytes(
+          items.reduce((sum, f) => sum + (f.size || 0), 0)
+        )}` : "无"}
+        </div>
+        <div class="report-files">${fileRows}</div>`,
       confirmText: "关闭",
     });
   }

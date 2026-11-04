@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import time
 from datetime import timedelta
+from pathlib import Path
 
 from sqlalchemy import and_, case, delete, func, or_, select
 from sqlalchemy.orm import Session
@@ -244,6 +245,9 @@ def list_users(
             {
                 "id": user.id,
                 "username": user.username,
+                # 后台列表要展示真实头像与昵称：昵称可重复，username 仍是唯一标识
+                "displayName": user.display_name or user.username,
+                "avatarUrl": f"/api/avatar/{user.avatar}" if user.avatar else None,
                 "role": user.role,
                 "quotaBytes": int(user.quota_bytes),
                 "usedBytes": int(user.used_bytes),
@@ -292,6 +296,8 @@ def user_row(db: Session, user: User) -> dict:
     return {
         "id": user.id,
         "username": user.username,
+        "displayName": user.display_name or user.username,
+        "avatarUrl": f"/api/avatar/{user.avatar}" if user.avatar else None,
         "role": user.role,
         "quotaBytes": int(user.quota_bytes),
         "usedBytes": int(user.used_bytes),
@@ -576,30 +582,248 @@ def list_reports(
         ).all():
             active_shares[sid] = (not revoked, token)
 
-    items = [
-        {
-            "id": r.id,
-            "shareId": r.share_id,
-            "token": r.token,
-            "url": f"/s/{r.token}",
-            "blobSha256": r.blob_sha256,
-            "firstName": r.first_name,
-            "size": int(r.size or 0),
-            "isFolder": bool(r.is_folder),
-            "reason": r.reason or "",
-            "reporter": users.get(r.reporter_id),
-            "reporterIp": r.reporter_ip,
-            "status": r.status,
-            "handledBy": users.get(r.handled_by),
-            "handledAt": _iso_or_none(r.handled_at),
-            "createdAt": _iso_or_none(r.created_at),
-            "blocked": bool(r.blob_sha256 and r.blob_sha256 in blocked),
-            "refCount": ref_counts.get(r.blob_sha256, 0) if r.blob_sha256 else 0,
-            "shareActive": active_shares.get(r.share_id, (False, ""))[0],
+    # 代表文件节点：单文件举报按哈希找同内容的节点，用来给列表上类型图标/缩略图
+    node_by_sha: dict[str, Node] = {}
+    if shas:
+        for n in db.scalars(
+            select(Node)
+            .where(Node.blob_sha256.in_(shas), Node.deleted_at.is_(None))
+            .order_by(Node.id)
+        ).all():
+            node_by_sha.setdefault(n.blob_sha256, n)
+
+    # 合集/文件夹举报没有哈希，用分享第一项当代表（是文件就能出缩略图）
+    node_by_report: dict[int, Node] = {}
+    folder_rows = [r for r in rows if not r.blob_sha256 and r.share_id]
+    if folder_rows:
+        from .share_service import root_ids  # 局部导入，避免模块级互相牵制
+
+        share_map = {
+            s.id: s
+            for s in db.scalars(
+                select(Share).where(Share.id.in_({r.share_id for r in folder_rows}))
+            ).all()
         }
-        for r in rows
-    ]
+        first_ids: dict[int, int] = {}
+        for r in folder_rows:
+            share = share_map.get(r.share_id)
+            ids = root_ids(share) if share else []
+            if ids:
+                first_ids[r.id] = ids[0]
+        if first_ids:
+            by_id = {
+                n.id: n
+                for n in db.scalars(select(Node).where(Node.id.in_(set(first_ids.values())))).all()
+            }
+            # 首项是文件夹时，用它的第一个文件当代表，列表才有缩略图/类型图标
+            folders = [n.id for n in by_id.values() if n.type == "folder"]
+            if folders:
+                lead = {}
+                for kid in db.scalars(
+                    select(Node)
+                    .where(
+                        Node.parent_id.in_(folders),
+                        Node.type == "file",
+                        Node.deleted_at.is_(None),
+                    )
+                    .order_by(Node.name, Node.id)
+                ).all():
+                    lead.setdefault(kid.parent_id, kid)
+                for nid, node in list(by_id.items()):
+                    if node.type == "folder" and node.id in lead:
+                        by_id[nid] = lead[node.id]
+            for rid, nid in first_ids.items():
+                if nid in by_id:
+                    node_by_report[rid] = by_id[nid]
+
+    def _node_of(report: ShareReport) -> Node | None:
+        if report.blob_sha256:
+            return node_by_sha.get(report.blob_sha256)
+        return node_by_report.get(report.id)
+
+    items = []
+    for r in rows:
+        rep_node = _node_of(r)
+        items.append(
+            {
+                "id": r.id,
+                "shareId": r.share_id,
+                "token": r.token,
+                "url": f"/s/{r.token}",
+                "blobSha256": r.blob_sha256,
+                "nodeId": rep_node.id if rep_node else None,
+                "firstName": r.first_name,
+                "size": int(r.size or 0),
+                "isFolder": bool(r.is_folder),
+                "mime": rep_node.mime if rep_node else None,
+                "icon": ns.icon_for(rep_node) if rep_node else ("i-folder" if r.is_folder else "i-file"),
+                "previewKind": ns.preview_kind(rep_node, is_admin=True) if rep_node else "none",
+                "reason": r.reason or "",
+                "reporter": users.get(r.reporter_id),
+                "reporterIp": r.reporter_ip,
+                "status": r.status,
+                "handledBy": users.get(r.handled_by),
+                "handledAt": _iso_or_none(r.handled_at),
+                "createdAt": _iso_or_none(r.created_at),
+                "blocked": bool(r.blob_sha256 and r.blob_sha256 in blocked),
+                "refCount": ref_counts.get(r.blob_sha256, 0) if r.blob_sha256 else 0,
+                "shareActive": active_shares.get(r.share_id, (False, ""))[0],
+            }
+        )
     return {"items": items, "total": int(total), "page": page, "pageSize": page_size}
+
+
+# --------------------------------------------------------------------------- #
+# 举报内容核对：管理员得先看清被举报的是什么才能判断
+# --------------------------------------------------------------------------- #
+def _share_file_nodes(db: Session, share: Share | None) -> list[Node]:
+    """分享里实际可看的文件（含合集/文件夹递归展开）。"""
+    if not share:
+        return []
+    from .share_service import root_ids  # 局部导入，避免模块级互相牵制
+
+    ids: list[int] = []
+    for rid in root_ids(share):
+        root = db.get(Node, rid)
+        if not root or root.deleted_at:
+            continue
+        if root.type == "file":
+            ids.append(root.id)
+        else:
+            ids.extend(ns.subtree_ids(db, share.user_id, root.id))
+    if not ids:
+        return []
+    return list(
+        db.scalars(
+            select(Node)
+            .where(Node.id.in_(ids), Node.type == "file", Node.deleted_at.is_(None))
+            .order_by(Node.name, Node.id)
+        ).all()
+    )
+
+
+def _fallback_file(db: Session, report: ShareReport) -> Node | None:
+    """分享已删/根没了时，按哈希找任意同内容节点。"""
+    if not report.blob_sha256:
+        return None
+    return db.scalars(
+        select(Node)
+        .where(Node.blob_sha256 == report.blob_sha256, Node.deleted_at.is_(None))
+        .order_by(Node.id)
+    ).first()
+
+
+def report_file_nodes(db: Session, report_id: int) -> tuple[ShareReport, list[Node]]:
+    report = db.get(ShareReport, report_id)
+    if not report:
+        raise ValueError("举报不存在")
+    share = db.get(Share, report.share_id) if report.share_id else None
+    files = _share_file_nodes(db, share)
+    if not files:
+        single = _fallback_file(db, report)
+        if single:
+            files = [single]
+    return report, files
+
+
+def report_files(db: Session, report_id: int) -> dict:
+    """举报涉及的文件清单，供管理后台核对内容。"""
+    from .share_service import root_ids
+
+    report, files = report_file_nodes(db, report_id)
+    share = db.get(Share, report.share_id) if report.share_id else None
+    root_set = set(root_ids(share)) if share else set()
+
+    # 一级父目录名，用来区分不同文件夹里的同名文件
+    parent_ids = {n.parent_id for n in files if n.parent_id}
+    parents = {}
+    if parent_ids:
+        for p in db.scalars(select(Node).where(Node.id.in_(parent_ids))).all():
+            parents[p.id] = p.name
+
+    items = []
+    for n in files:
+        prefix = ""
+        if n.parent_id and n.parent_id not in root_set:
+            prefix = f"{parents.get(n.parent_id, '…')} / "
+        items.append(
+            {
+                "nodeId": n.id,
+                "name": n.name,
+                "label": prefix + n.name,
+                "size": int(n.size or 0),
+                "mime": n.mime,
+                "icon": ns.icon_for(n),
+                "previewKind": ns.preview_kind(n, is_admin=True),
+                "missing": not storage.blob_path(n.blob_sha256).is_file() if n.blob_sha256 else True,
+            }
+        )
+    return {
+        "reportId": report.id,
+        "shareId": report.share_id,
+        "token": report.token,
+        "url": f"/s/{report.token}",
+        "shareActive": bool(share and not share.revoked),
+        "reason": report.reason or "",
+        "firstName": report.first_name,
+        "isFolder": bool(report.is_folder),
+        "status": report.status,
+        "items": items,
+        "total": len(items),
+        "size": int(report.size or 0),
+    }
+
+
+def report_file_for_preview(
+    db: Session, report_id: int, node_id: int | None = None
+) -> tuple[ShareReport, Node | None, str]:
+    """定位要预览的文件，返回 (举报, 节点, 哈希)。
+
+    节点可以已删除（分享被撤销/文件被删），只要 blob 还在就允许管理员看内容。
+    """
+    report, files = report_file_nodes(db, report_id)
+    if node_id is not None:
+        node = db.get(Node, node_id)
+        # 只允许看这条举报相关的内容，避免管理员页面被拼参数当通用下载器
+        allowed = {f.id for f in files}
+        if node and (node.id in allowed or (report.blob_sha256 and node.blob_sha256 == report.blob_sha256)):
+            return report, node, node.blob_sha256 or ""
+        if report.blob_sha256:
+            return report, None, report.blob_sha256
+        raise ValueError("该文件不在这条举报的范围内")
+    if files:
+        node = files[0]
+        return report, node, node.blob_sha256 or ""
+    if report.blob_sha256:
+        return report, None, report.blob_sha256
+    raise ValueError("这条举报没有可预览的文件")
+
+
+def report_thumb_path(
+    db: Session, report_id: int, node_id: int | None = None, width: int = 160
+) -> Path:
+    """举报图片的缩略图（webp 缓存），审核列表里直接看到内容。"""
+    from PIL import Image
+
+    report, node, sha = report_file_for_preview(db, report_id, node_id)
+    if not sha:
+        raise ValueError("没有可预览的内容")
+    width = max(64, min(640, int(width)))
+    target = settings.thumb_dir / "reports" / f"{sha}-{width}.webp"
+    if target.is_file():
+        return target
+
+    source = storage.blob_path(sha)
+    if not source.is_file():
+        raise ValueError("文件内容不存在")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with Image.open(source) as img:
+        img.draft("RGB", (width, width))  # JPEG 直接降采样，省内存
+        if img.mode not in ("RGB", "RGBA"):
+            img = img.convert("RGBA" if "A" in img.getbands() else "RGB")
+        img.thumbnail((width, width))
+        img.save(target, "WEBP", quality=82, method=4)
+    return target
 
 
 def approve_report(db: Session, report_id: int, admin: User) -> dict:

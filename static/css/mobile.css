@@ -513,12 +513,19 @@
   /* 占满整行的控件 */
   .setting-row > .segmented,
   .setting-row > .swatch-row,
+  .setting-row > .accent-tools,
   .setting-row > .wallpaper-row,
   .setting-row > .dav-addr,
   .setting-row > .row {
     flex: 1 1 100%;
     width: 100%;
     max-width: none;
+  }
+  .accent-tools {
+    justify-content: flex-start;
+  }
+  .wallpaper-actions {
+    padding: 0 14px 12px;
   }
   .dav-addr code {
     font-size: 11px;

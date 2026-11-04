@@ -41,7 +41,21 @@ def format_bytes(n: int) -> str:
 @router.post("/shares")
 def create_share(body: ShareIn, request: Request, db: DbSession, user: CurrentUser) -> dict:
     check_origin(request)
-    node = ns.get_node(db, user.id, body.node_id)
+
+    # nodeIds 优先；单文件分享仍走 nodeId，两者都兼容
+    raw_ids = body.node_ids or ([body.node_id] if body.node_id else [])
+    if not raw_ids:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "请选择要分享的文件")
+    seen: set[int] = set()
+    ids: list[int] = []
+    for node_id in raw_ids:
+        if node_id not in seen:
+            seen.add(node_id)
+            ids.append(node_id)
+    if len(ids) > 100:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "一次最多分享 100 个项目")
+
+    nodes = [ns.get_node(db, user.id, node_id) for node_id in ids]
 
     problem = ss.code_problem(body.extract_code)
     if problem:
@@ -50,15 +64,22 @@ def create_share(body: ShareIn, request: Request, db: DbSession, user: CurrentUs
     share = ss.create_share(
         db,
         user,
-        node,
+        nodes[0],
         days=body.expires_days,
         code=body.extract_code,
         max_downloads=body.max_downloads,
+        nodes=nodes,
     )
-    log_action(db, "share_create", user.id, {"id": share.id, "node": node.name}, request)
+    log_action(
+        db,
+        "share_create",
+        user.id,
+        {"id": share.id, "node": nodes[0].name, "count": len(nodes)},
+        request,
+    )
     db.commit()
     db.refresh(share)
-    return {"share": ss.share_payload(db, share, node)}
+    return {"share": ss.share_payload(db, share, nodes[0], {n.id: n for n in nodes})}
 
 
 @router.get("/shares")
@@ -85,7 +106,7 @@ def revoke_share(share_id: int, request: Request, db: DbSession, user: CurrentUs
 @router.get("/public/shares/{token}")
 def public_meta(token: str, request: Request, db: DbSession) -> dict:
     share = ss.load_share(db, token)
-    node = ss.node_of(db, share)
+    node = ss.root_node(db, share)
     return {"share": ss.public_payload(request, share, node, db)}
 
 
@@ -111,7 +132,7 @@ def unlock_share(
     token: str, body: ShareUnlockIn, request: Request, response: Response, db: DbSession
 ) -> dict:
     share = ss.load_share(db, token)
-    node = ss.node_of(db, share)
+    node = ss.root_node(db, share)
     if ss.check_access(request, share, body.code):
         ss.set_access_cookie(response, share)
     payload = ss.public_payload(request, share, node, db)
@@ -133,11 +154,39 @@ def public_list(
     if ss.check_access(request, share, code):
         ss.set_access_cookie(response, share)
 
-    root = ss.node_of(db, share)
-    if root.type != "folder":
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "该分享不是文件夹")
+    ids = ss.root_ids(share)
 
-    folder = ss.node_of(db, share, folder_id) if folder_id else root
+    # 合集分享的「虚拟根」：列出被选中的每一项（可再点进文件夹）
+    if folder_id is None and len(ids) > 1:
+        rows = db.scalars(
+            select(Node).where(
+                Node.id.in_(ids),
+                Node.user_id == share.user_id,
+                Node.deleted_at.is_(None),
+            )
+        ).all()
+        order = {rid: idx for idx, rid in enumerate(ids)}
+        rows.sort(key=lambda n: order.get(n.id, len(order)))
+        counts = ns.child_counts(db, share.user_id, [n.id for n in rows if n.type == "folder"])
+        items = ss.filter_blocked(db, [ns.node_payload(n, counts.get(n.id)) for n in rows])
+        return {
+            "folder": {
+                "id": None,
+                "name": f"{len(ids)} 个项目",
+                "parentId": None,
+                "isRoot": True,
+            },
+            "items": items,
+            "total": len(items),
+        }
+
+    root = ss.root_node(db, share)
+    folder = ss.node_of(db, share, folder_id) if folder_id else None
+    if folder is None:
+        # 单根文件夹分享：不带 folderId 就是进根目录；根是文件则本接口不适用
+        if root.type != "folder":
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "该分享不是文件夹")
+        folder = root
     if folder.type != "folder":
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "目标不是文件夹")
 
@@ -260,19 +309,43 @@ def report_share(
 ) -> dict:
     """匿名举报分享：记录分享链接、文件哈希与首次被举报时的文件名。"""
     share = ss.load_share(db, token)
-    node = ss.node_of(db, share)
+    node = ss.root_node(db, share)
     ip = client_ip(request)
     ss.report_guard(ip, token)
     ss.report_hit(ip, token)
 
     reason = (body.reason or "").strip()
+    # 合集/文件夹分享举报到整条链接，不定位到单个文件哈希（避免误拉黑同哈希的其它文件）
+    multi = ss.is_multi(share)
+    whole = multi or node.type == "folder"
+    # 合集要按所有根的实际内容求和，否则后台只会显示第一项的大小
+    if multi:
+        total = 0
+        for rid in ss.root_ids(share):
+            root = db.get(Node, rid)
+            if not root or root.deleted_at:
+                continue
+            if root.type == "file":
+                total += int(root.size or 0)
+            else:
+                total += int(
+                    db.scalar(
+                        select(func.coalesce(func.sum(Node.size), 0)).where(
+                            Node.id.in_(ns.subtree_ids(db, share.user_id, root.id)),
+                            Node.type == "file",
+                        )
+                    )
+                    or 0
+                )
+    else:
+        total = int(node.size or 0)
     report = ShareReport(
         share_id=share.id,
         token=share.token,
-        blob_sha256=node.blob_sha256 if node.type == "file" else None,
-        first_name=node.name,
-        size=int(node.size or 0),
-        is_folder=node.type == "folder",
+        blob_sha256=None if whole else node.blob_sha256,
+        first_name=f"{len(ss.root_ids(share))} 个项目" if multi else node.name,
+        size=total,
+        is_folder=whole,
         reason=reason,
         reporter_ip=ip,
     )
@@ -287,42 +360,75 @@ def report_share(
 def save_share(
     token: str, body: ShareSaveIn, request: Request, db: DbSession, user: CurrentUser
 ) -> dict:
-    """转存到我的网盘：文件复用同一 blob，不复制物理数据。"""
+    """转存到我的网盘：文件复用同一 blob，不复制物理数据。
+
+    合集分享可以一次转存勾选的任意多项（nodeIds），全部校验通过才动手，
+    避免「存了一半再报空间不足」。
+    """
     check_origin(request)
     share = ss.load_share(db, token)
-    node = ss.node_of(db, share, body.node_id)
-    if node.type == "file" and node.blob_sha256 and ss.is_blocked(db, node.blob_sha256):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "该文件已被举报确认，禁止转存")
 
-    # 配额预检：要转存的子树总字节数装得下才动手
-    if node.type == "folder":
-        ids = ns.subtree_ids(db, share.user_id, node.id)
-        to_add = int(
-            db.scalar(
-                select(func.coalesce(func.sum(Node.size), 0)).where(
-                    Node.user_id == share.user_id,
-                    Node.id.in_(ids),
-                    Node.type == "file",
-                )
-            )
-            or 0
-        )
+    raw_ids = body.node_ids or []
+    if not raw_ids:
+        raw_ids = [body.node_id] if body.node_id is not None else [None]
+    seen: set[int] = set()
+    if raw_ids == [None]:
+        # 没指定具体项：整条分享都转（单文件/单文件夹就是它本身，合集则是全部根）
+        targets = [ss.node_of(db, share, i) for i in ss.root_ids(share)]
     else:
-        to_add = int(node.size or 0)
-    if user.used_bytes + to_add > user.quota_bytes:
+        clean = [i for i in raw_ids if not (i in seen or seen.add(i))]
+        targets = [ss.node_of(db, share, i) for i in clean]
+
+    total_add = 0
+    for node in targets:
+        if node.type == "file" and node.blob_sha256 and ss.is_blocked(db, node.blob_sha256):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "该文件已被举报确认，禁止转存")
+        # 配额预检：要转存的子树总字节数装得下才动手
+        if node.type == "folder":
+            ids = ns.subtree_ids(db, share.user_id, node.id)
+            total_add += int(
+                db.scalar(
+                    select(func.coalesce(func.sum(Node.size), 0)).where(
+                        Node.user_id == share.user_id,
+                        Node.id.in_(ids),
+                        Node.type == "file",
+                    )
+                )
+                or 0
+            )
+        else:
+            total_add += int(node.size or 0)
+    if user.used_bytes + total_add > user.quota_bytes:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
-            f"网盘空间不足：还需 {format_bytes(to_add)}，请先清理或扩容",
+            f"网盘空间不足：还需 {format_bytes(total_add)}，请先清理或扩容",
         )
 
-    clone, added = ns.copy_subtree(db, user, node, body.parent_id)
+    clones: list[Node] = []
+    added_total = 0
+    for node in targets:
+        clone, added = ns.copy_subtree(db, user, node, body.parent_id)
+        clones.append(clone)
+        added_total += added
     ns.recalc_usage(db, user)
     log_action(
         db,
         "share_save",
         user.id,
-        {"shareId": share.id, "name": node.name, "size": added},
+        {
+            "shareId": share.id,
+            "name": targets[0].name if len(targets) == 1 else f"{len(targets)} 项",
+            "size": added_total,
+        },
         request,
     )
     db.commit()
-    return {"saved": True, "nodeId": clone.id, "name": clone.name, "size": added}
+    first = clones[0]
+    return {
+        "saved": True,
+        "count": len(clones),
+        "nodeId": first.id,
+        "name": first.name if len(clones) == 1 else f"{len(clones)} 个项目",
+        "size": added_total,
+        "nodeIds": [c.id for c in clones],
+    }

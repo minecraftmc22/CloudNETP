@@ -64,6 +64,8 @@ class UserSetting(Base):
     theme_mode: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=2)  # 0 亮 1 暗 2 跟随
     accent_color: Mapped[str] = mapped_column(String(16), nullable=False, default="#c084fc")
     wallpaper: Mapped[str] = mapped_column(String(64), nullable=False, default="sakura")
+    # 自定义背景图只存文件名；wallpaper=="custom" 时才有意义
+    background_image: Mapped[str | None] = mapped_column(String(64), nullable=True)
     show_mascot: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     show_petals: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     trash_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
@@ -168,7 +170,10 @@ class Share(Base):
 
     id: Mapped[int] = mapped_column(AutoPK, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    # 单节点分享就是这一项；合集分享存第一项（保持旧逻辑可用），全集见 node_ids
     node_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    # 合集分享的根节点 id 数组（JSON）；NULL 表示单节点分享
+    node_ids: Mapped[str | None] = mapped_column(Text, nullable=True)
     token: Mapped[str] = mapped_column(String(43), unique=True, nullable=False, index=True)
     extract_code: Mapped[str | None] = mapped_column(String(255), nullable=True)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

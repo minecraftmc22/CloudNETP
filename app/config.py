@@ -73,7 +73,7 @@ def _compose_database_url() -> str:
 class Settings:
     # ---- 应用 ----
     APP_NAME: str = _get("APP_NAME", "CloudNETP")
-    VERSION: str = "0.3.20"
+    VERSION: str = "0.3.25"
     DEBUG: bool = _get_bool("DEBUG", True)
 
     # ---- 监听与对外地址 ----
@@ -210,6 +210,11 @@ class Settings:
     def avatar_dir(self) -> Path:
         """用户头像：storage/avatars/<user_id>-<随机>.webp"""
         return self.STORAGE_DIR / "avatars"
+
+    @property
+    def background_dir(self) -> Path:
+        """自定义背景图：storage/backgrounds/<user_id>-<随机>.webp"""
+        return self.STORAGE_DIR / "backgrounds"
 
     @property
     def fallback_db_path(self) -> Path:

@@ -584,13 +584,96 @@ def remove_avatar(
     return {"user": user_payload(db, user)}
 
 
+@router.put("/me/background")
+async def upload_background(
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """自定义背景：原始字节上传，服务端等比缩到长边 2560 并转 webp。
+
+    上传成功后自动把 wallpaper 切成 custom，前端再从图片取主色。
+    """
+    check_origin(request)
+
+    declared = request.headers.get("content-length")
+    if declared and declared.isdigit() and int(declared) > ps.BACKGROUND_MAX_BYTES:
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "背景图片不能超过 16 MB")
+
+    raw = await request.body()
+    if not raw:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "没有收到图片数据")
+
+    try:
+        name = ps.save_background(user.id, raw)
+    except ValueError as exc:
+        if str(exc) == "too-large":
+            raise HTTPException(
+                status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "背景图片不能超过 16 MB"
+            ) from None
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "图片读取失败，请换一张试试") from None
+    except Exception:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "无法识别这张图片，请用 png / jpg / webp"
+        ) from None
+
+    row = ensure_settings(db, user.id)
+    old = row.background_image
+    row.background_image = name
+    row.wallpaper = "custom"
+    log_action(db, "background_update", user.id, None, request)
+    db.commit()
+    ps.drop_background(old)  # 落库成功再删旧图，避免中途失败丢背景
+    return {"user": user_payload(db, user)}
+
+
+@router.delete("/me/background")
+def remove_background(
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    check_origin(request)
+    row = ensure_settings(db, user.id)
+    old = row.background_image
+    if old or row.wallpaper == "custom":
+        row.background_image = None
+        if row.wallpaper == "custom":
+            row.wallpaper = "sakura"  # 回到默认壁纸，别留一个没有图的 custom
+        log_action(db, "background_remove", user.id, None, request)
+        db.commit()
+        ps.drop_background(old)
+    return {"user": user_payload(db, user)}
+
+
+@router.get("/background/{name}")
+def get_background(
+    name: str,
+    user: User = Depends(get_current_user),
+):
+    """背景图只有本人能读：文件名前缀是所有者 id。"""
+    if not name.startswith(f"{user.id}-"):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "背景不存在")
+    path = ps.background_path(name)
+    if path is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "背景不存在")
+    return FileResponse(
+        path,
+        media_type=ps.background_media_type(name),
+        headers={"Cache-Control": "private, max-age=31536000, immutable"},
+    )
+
+
 @router.get("/avatar/{name}")
 def get_avatar(
     name: str,
     user: User = Depends(get_current_user),
 ):
-    """只允许读自己的头像：文件名前缀就是所有者 id。"""
-    if not name.startswith(f"{user.id}-"):
+    """只允许读自己的头像：文件名前缀就是所有者 id。
+
+    管理员例外——后台用户列表要显示每个账号的头像。
+    """
+    if not name.startswith(f"{user.id}-") and user.role != 1:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "头像不存在")
     path = ps.avatar_path(name)
     if path is None:

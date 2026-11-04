@@ -9,7 +9,7 @@ import { openMenu } from "../ui/menu.js";
 import { pickFolder } from "../ui/picker.js";
 import { runTask } from "../ui/tasks.js";
 import { canPreview, openViewer } from "../ui/viewer.js";
-import { shareItem } from "../ui/share.js";
+import { shareItem, shareItems } from "../ui/share.js";
 import { uploadFile } from "../uploader.js";
 
 const SORT_LABELS = { name: "名称", size: "大小", updated: "修改时间", created: "创建时间" };
@@ -84,6 +84,9 @@ export function renderFiles(root) {
       <span class="selbar__count">已选 <b data-sel-count>0</b> 项</span>
       <button class="btn btn--subtle" type="button" data-act="sel-download">
         <svg class="icon icon--s"><use href="#i-download"/></svg>下载
+      </button>
+      <button class="btn btn--subtle" type="button" data-act="sel-share">
+        <svg class="icon icon--s"><use href="#i-link"/></svg>分享
       </button>
       <button class="btn btn--subtle" type="button" data-act="sel-move">
         <svg class="icon icon--s"><use href="#i-folder"/></svg>移动
@@ -514,6 +517,11 @@ export function renderFiles(root) {
             icon: "i-download",
             onClick: () => selectedItems().filter((s) => s.type === "file").forEach(downloadItem),
           },
+          {
+            label: `分享 ${state.selected.size} 项`,
+            icon: "i-link",
+            onClick: () => shareItems(selectedItems()),
+          },
           { label: "移动到…", icon: "i-folder", onClick: () => moveItems(selectedItems()) },
           { sep: true },
           { label: `删除 ${state.selected.size} 项`, icon: "i-trash", danger: true, onClick: () => deleteItems(selectedItems()) },
@@ -924,6 +932,7 @@ export function renderFiles(root) {
   root.querySelector('[data-act="sel-download"]').addEventListener("click", () =>
     selectedItems().filter((item) => item.type === "file").forEach(downloadItem)
   );
+  root.querySelector('[data-act="sel-share"]').addEventListener("click", () => shareItems(selectedItems()));
 
   // 搜索（防抖）
   let searchTimer = 0;

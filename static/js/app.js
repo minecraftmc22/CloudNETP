@@ -3,7 +3,14 @@
  */
 import { api, ApiError, formatBytes } from "./api.js";
 import { store } from "./store.js";
-import { applyAppearance, applyCachedAppearance, patchSettingsLocal, resolveTheme, watchSystemTheme } from "./theme.js";
+import {
+  applyAppearance,
+  applyCachedAppearance,
+  dropCachedBackground,
+  patchSettingsLocal,
+  resolveTheme,
+  watchSystemTheme,
+} from "./theme.js";
 import { startPetals, stopPetals } from "./petals.js";
 import { Dialog } from "./ui/dialog.js";
 import { avatarMarkup } from "./ui/avatar.js";
@@ -369,6 +376,7 @@ async function logout() {
     /* 忽略 */
   }
   stopPetals();
+  dropCachedBackground();
   showAuth();
 }
 

@@ -6,7 +6,14 @@ import { store, siteOrigin } from "../store.js";
 import { Toast } from "../ui/toast.js";
 import { Dialog } from "../ui/dialog.js";
 import { avatarMarkup } from "../ui/avatar.js";
-import { ACCENT_PRESETS, WALLPAPERS, patchSettingsLocal } from "../theme.js";
+import {
+  ACCENT_PRESETS,
+  WALLPAPERS,
+  applyAppearance,
+  dominantColor,
+  patchSettingsLocal,
+  rememberBackgroundLuma,
+} from "../theme.js";
 
 const THEME_MODES = [
   { value: 0, label: "亮色" },
@@ -72,10 +79,48 @@ async function squareBlob(file, side = 256) {
   return blob || file;
 }
 
+/* ------------------------------------------------------------------ */
+/* 背景图：超大图先在本地缩到长边 2560 再传（省流量，服务端还会再兜一次） */
+/* ------------------------------------------------------------------ */
+const BG_MAX_SIDE = 2560;
+const BG_INLINE_LIMIT = 4 * 1024 * 1024;
+
+function loadImageUrl(url) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("图片读取失败"));
+    img.src = url;
+  });
+}
+
+async function prepareBackground(file) {
+  const bmp = await loadBitmap(file);
+  const w = bmp.width || bmp.naturalWidth;
+  const h = bmp.height || bmp.naturalHeight;
+  const long = Math.max(w, h);
+  // 体积和尺寸都能接受就发原图，避免二次压缩
+  if (file.size <= BG_INLINE_LIMIT && long <= BG_MAX_SIDE) {
+    return { blob: file, bitmap: bmp };
+  }
+  const scale = Math.min(1, BG_MAX_SIDE / long);
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(w * scale));
+  canvas.height = Math.max(1, Math.round(h * scale));
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(bmp, 0, 0, canvas.width, canvas.height);
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/webp", 0.9));
+  return { blob: blob || file, bitmap: bmp };
+}
+
 export function renderSettings(root) {
   const { user } = store.get();
   const s = user?.settings || {};
   const mode = s.themeMode ?? 2;
+  const accent = (s.accentColor || "#c084fc").toLowerCase();
+  const isPreset = ACCENT_PRESETS.some((c) => c.value.toLowerCase() === accent);
+  // custom 但没图（比如别的设备删掉了）就按默认壁纸显示，别留一片空白
+  const wallpaper = s.wallpaper === "custom" && !s.backgroundImage ? "sakura" : s.wallpaper || "sakura";
   const displayName = (user?.displayName || user?.username || "").trim();
   const maskedPreview = displayName.slice(0, 2) || "—";
 
@@ -105,33 +150,58 @@ export function renderSettings(root) {
           <div class="setting-row">
             <div class="setting-row__main">
               <div class="setting-row__label">主题色</div>
-              <div class="setting-row__desc">用于选中状态、按钮与进度条</div>
+              <div class="setting-row__desc">用于选中状态、按钮与进度条；也可以从背景图里取</div>
             </div>
-            <div class="swatch-row" data-swatches>
-              ${ACCENT_PRESETS.map(
-                (c) =>
-                  `<button class="swatch ${c.value === (s.accentColor || "#c084fc") ? "is-active" : ""}"
-                     type="button" data-color="${c.value}" title="${c.name}"
-                     style="background:${c.value}"></button>`
-              ).join("")}
+            <div class="accent-tools">
+              <div class="swatch-row" data-swatches>
+                ${ACCENT_PRESETS.map(
+                  (c) =>
+                    `<button class="swatch ${c.value === accent ? "is-active" : ""}"
+                       type="button" data-color="${c.value}" title="${c.name}"
+                       style="background:${c.value}"></button>`
+                ).join("")}
+                <label class="swatch swatch--pick ${isPreset ? "" : "is-active"}"
+                       data-swatch-pick title="自定义颜色"
+                       style="${isPreset ? "" : `background:${escapeHtml(accent)}`}">
+                  <input type="color" value="${escapeHtml(accent)}" data-color-pick aria-label="自定义主题色">
+                </label>
+              </div>
+              <button class="btn btn--subtle btn--sm accent-tools__pick" type="button"
+                      data-act="pick-bg" ${s.backgroundImage ? "" : "disabled"}>
+                <svg class="icon icon--s"><use href="#i-image"/></svg>从背景取色
+              </button>
             </div>
           </div>
           <div class="setting-row">
             <div class="setting-row__main">
               <div class="setting-row__label">背景壁纸</div>
-              <div class="setting-row__desc">云母（Mica）底层的取色来源</div>
+              <div class="setting-row__desc">云母（Mica）底层的取色来源；也可以换成自己的图片</div>
             </div>
             <div class="wallpaper-row" data-wallpapers>
               ${WALLPAPERS.map(
                 (w) =>
-                  `<button class="wallpaper-opt wp-${w.id} ${w.id === (s.wallpaper || "sakura") ? "is-active" : ""}"
+                  `<button class="wallpaper-opt wp-${w.id} ${w.id === wallpaper ? "is-active" : ""}"
                      type="button" data-wallpaper="${w.id}">
                      ${w.id === "plain" ? '<svg class="icon icon--s"><use href="#i-close"/></svg>' : ""}
                      <span class="wallpaper-opt__name">${w.name}</span>
                    </button>`
               ).join("")}
+              <button class="wallpaper-opt wp-custom ${wallpaper === "custom" ? "is-active" : ""}"
+                      type="button" data-wallpaper="custom" data-bg-tile title="上传自己的背景图">
+                <span class="wp-custom__thumb" data-bg-thumb
+                      ${s.backgroundImage ? `style="background-image:url('${escapeHtml(s.backgroundImage)}')"` : ""}></span>
+                <svg class="icon icon--s wp-custom__plus" data-bg-plus ${s.backgroundImage ? "hidden" : ""}><use href="#i-plus"/></svg>
+                <span class="wallpaper-opt__name" data-bg-name>${s.backgroundImage ? "自定义" : "上传图片"}</span>
+                <span class="wp-custom__busy" data-bg-busy hidden><span class="spinner"></span></span>
+              </button>
             </div>
           </div>
+          <div class="wallpaper-actions" data-bg-actions ${s.backgroundImage ? "" : "hidden"}>
+            <button class="btn btn--subtle btn--sm" type="button" data-act="bg-replace">换一张</button>
+            <button class="btn btn--subtle btn--sm" type="button" data-act="bg-remove">移除图片</button>
+            <span class="muted" data-bg-note>上传后会从图片里取出现最多的颜色当主题色</span>
+          </div>
+          <input type="file" accept="image/*" hidden data-bg-input>
         </section>
 
         <section class="settings-card">
@@ -409,22 +479,172 @@ export function renderSettings(root) {
     });
   });
 
-  /* --- 主题色 --- */
+  /* --- 主题色：预设 / 自定义取色器 / 从背景取色 --- */
+  const pickInput = root.querySelector("[data-color-pick]");
+  const pickSwatch = root.querySelector("[data-swatch-pick]");
+  const pickFromBg = root.querySelector('[data-act="pick-bg"]');
+
+  function markAccent(color) {
+    const hex = (color || "").toLowerCase();
+    const preset = ACCENT_PRESETS.find((c) => c.value.toLowerCase() === hex);
+    root.querySelectorAll("[data-color]").forEach((btn) => {
+      btn.classList.toggle("is-active", btn.dataset.color.toLowerCase() === hex);
+    });
+    if (pickSwatch) {
+      pickSwatch.classList.toggle("is-active", !preset);
+      pickSwatch.style.background = preset ? "" : hex;
+    }
+    if (pickInput) pickInput.value = hex;
+  }
+
+  function applyAccent(color) {
+    const hex = String(color || "").toLowerCase();
+    if (!/^#[0-9a-f]{6}$/.test(hex)) return;
+    markAccent(hex);
+    persist({ accentColor: hex });
+  }
+
   root.querySelectorAll("[data-color]").forEach((btn) => {
+    btn.addEventListener("click", () => applyAccent(btn.dataset.color));
+  });
+
+  // 取色器拖动时只本地预览，松手（change）才落库，避免一路刷接口
+  pickInput?.addEventListener("input", () => {
+    const hex = pickInput.value.toLowerCase();
+    markAccent(hex);
+    patchSettingsLocal({ accentColor: hex });
+  });
+  pickInput?.addEventListener("change", () => applyAccent(pickInput.value));
+
+  pickFromBg?.addEventListener("click", async () => {
+    const url = store.get().user?.settings?.backgroundImage;
+    if (!url) {
+      Toast.error("先上传一张背景图");
+      return;
+    }
+    pickFromBg.disabled = true;
+    try {
+      const img = await loadImageUrl(url);
+      const color = dominantColor(img);
+      if (!color) {
+        Toast.error("这张图取不出颜色，换一张试试");
+        return;
+      }
+      applyAccent(color);
+      Toast.success(`已取到 ${color}，也可以自己挑一个`);
+    } catch {
+      Toast.error("背景图读取失败，请重新上传");
+    } finally {
+      pickFromBg.disabled = false;
+    }
+  });
+
+  /* --- 壁纸：预设 / 自定义图片 --- */
+  const wpButtons = [...root.querySelectorAll("[data-wallpaper]")];
+  const bgInput = root.querySelector("[data-bg-input]");
+  const bgTile = root.querySelector("[data-bg-tile]");
+  const bgBusy = root.querySelector("[data-bg-busy]");
+  const bgThumb = root.querySelector("[data-bg-thumb]");
+  const bgName = root.querySelector("[data-bg-name]");
+  const bgActions = root.querySelector("[data-bg-actions]");
+
+  function selectWallpaper(id) {
+    wpButtons.forEach((b) => b.classList.toggle("is-active", b.dataset.wallpaper === id));
+    persist({ wallpaper: id });
+  }
+
+  function openBgPicker() {
+    bgInput?.click();
+  }
+
+  wpButtons.forEach((btn) => {
     btn.addEventListener("click", () => {
-      root.querySelectorAll("[data-color]").forEach((b) => b.classList.remove("is-active"));
-      btn.classList.add("is-active");
-      persist({ accentColor: btn.dataset.color });
+      const id = btn.dataset.wallpaper;
+      // 还没图时点「自定义」= 直接选图；有图才是切换壁纸
+      if (id === "custom" && !store.get().user?.settings?.backgroundImage) {
+        openBgPicker();
+        return;
+      }
+      selectWallpaper(id);
     });
   });
 
-  /* --- 壁纸 --- */
-  root.querySelectorAll("[data-wallpaper]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      root.querySelectorAll("[data-wallpaper]").forEach((b) => b.classList.remove("is-active"));
-      btn.classList.add("is-active");
-      persist({ wallpaper: btn.dataset.wallpaper });
+  /** 上传成功后就地刷新这块 UI（不整页重渲染，免得滚动位置跳走） */
+  function refreshBackgroundUi(settings) {
+    const url = settings?.backgroundImage || "";
+    if (bgThumb) bgThumb.style.backgroundImage = url ? `url("${url}")` : "";
+    const plus = root.querySelector("[data-bg-plus]");
+    if (plus) plus.hidden = !!url;
+    if (bgName) bgName.textContent = url ? "自定义" : "上传图片";
+    if (bgActions) bgActions.hidden = !url;
+    if (pickFromBg) pickFromBg.disabled = !url;
+  }
+
+  bgInput?.addEventListener("change", async () => {
+    const file = bgInput.files?.[0];
+    bgInput.value = "";
+    if (!file) return;
+    if (!/^image\//.test(file.type)) {
+      Toast.error("请选择图片文件");
+      return;
+    }
+    if (file.size > 16 * 1024 * 1024) {
+      Toast.error("图片太大了，请选 16 MB 以内的");
+      return;
+    }
+
+    if (bgBusy) bgBusy.hidden = false;
+    if (bgTile) bgTile.classList.add("is-busy");
+    let bitmap = null;
+    try {
+      const prepared = await prepareBackground(file);
+      bitmap = prepared.bitmap;
+      const res = await api.raw("/api/me/background", prepared.blob, "PUT");
+      applyUser(res.user);
+      applyAppearance(res.user.settings);
+      refreshBackgroundUi(res.user.settings);
+      selectWallpaper("custom");
+      // 图片还在手上，顺手把平均亮度算掉，蒙层不用等二次加载再调
+      if (bitmap && res.user.settings?.backgroundImage) {
+        rememberBackgroundLuma(res.user.settings.backgroundImage, bitmap);
+      }
+
+      const color = bitmap ? dominantColor(bitmap) : null;
+      if (color) {
+        applyAccent(color);
+        Toast.success(`背景已更新，主题色取自图片 ${color}`);
+      } else {
+        Toast.success("背景已更新");
+      }
+    } catch (err) {
+      Toast.error(err?.message || "背景上传失败");
+    } finally {
+      bitmap?.close?.();
+      if (bgBusy) bgBusy.hidden = true;
+      if (bgTile) bgTile.classList.remove("is-busy");
+    }
+  });
+
+  root.querySelector('[data-act="bg-replace"]')?.addEventListener("click", openBgPicker);
+
+  root.querySelector('[data-act="bg-remove"]')?.addEventListener("click", async () => {
+    const ok = await Dialog.confirm({
+      title: "移除背景图片",
+      message: "移除后回到默认壁纸，图片文件会从服务器上删掉。",
+      confirmText: "移除",
+      danger: true,
     });
+    if (!ok) return;
+    try {
+      const res = await api.del("/api/me/background");
+      applyUser(res.user);
+      applyAppearance(res.user.settings);
+      refreshBackgroundUi(res.user.settings);
+      selectWallpaper(res.user.settings?.wallpaper || "sakura");
+      Toast.success("背景图片已移除");
+    } catch (err) {
+      Toast.error(err.message);
+    }
   });
 
   /* --- Live2D 模型目录概览（目录里新增模型会自动出现） --- */

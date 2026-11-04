@@ -9,13 +9,14 @@
 
 from __future__ import annotations
 
+import json
 import secrets
 import time
 from collections import defaultdict, deque
 from datetime import timedelta
 
 from fastapi import HTTPException, Request, Response, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from . import node_service as ns
@@ -77,6 +78,24 @@ def cookie_name(token: str) -> str:
 # --------------------------------------------------------------------------- #
 # 创建与展示
 # --------------------------------------------------------------------------- #
+def root_ids(share: Share) -> list[int]:
+    """分享的根节点 id 列表：合集取 node_ids，单节点回退 node_id。"""
+    if share.node_ids:
+        try:
+            data = json.loads(share.node_ids)
+        except (TypeError, ValueError):
+            data = None
+        if isinstance(data, list):
+            ids = [int(x) for x in data if isinstance(x, (int, str)) and str(x).isdigit()]
+            if ids:
+                return ids
+    return [share.node_id]
+
+
+def is_multi(share: Share) -> bool:
+    return len(root_ids(share)) > 1
+
+
 def create_share(
     db: Session,
     user: User,
@@ -85,12 +104,17 @@ def create_share(
     days: int | None = None,
     code: str | None = None,
     max_downloads: int | None = None,
+    nodes: list[Node] | None = None,
 ) -> Share:
-    assert_shareable(db, node)
+    """创建分享：nodes 多于一项时生成「合集分享」，否则就是普通的单节点分享。"""
+    items = nodes or [node]
+    for item in items:
+        assert_shareable(db, item)
     text = normalize_code(code)
     share = Share(
         user_id=user.id,
-        node_id=node.id,
+        node_id=items[0].id,
+        node_ids=json.dumps([i.id for i in items]) if len(items) > 1 else None,
         token=secrets.token_urlsafe(32),
         extract_code=hash_password(text) if text else None,
         expires_at=utcnow() + timedelta(days=days) if days else None,
@@ -103,27 +127,75 @@ def create_share(
     return share
 
 
-def status_of(db: Session, share: Share, node: Node | None = None) -> str:
+def _status_from(share: Share, alive: bool) -> str:
     if share.revoked:
         return "revoked"
     if share.expires_at and share.expires_at <= utcnow():
         return "expired"
     if share.max_downloads is not None and share.download_count >= share.max_downloads:
         return "exhausted"
-    target = node if node is not None else db.get(Node, share.node_id)
-    if not target or target.deleted_at:
-        return "missing"
-    return "active"
+    return "active" if alive else "missing"
 
 
-def share_payload(db: Session, share: Share, node: Node | None = None) -> dict:
-    target = node if node is not None else db.get(Node, share.node_id)
+def status_of(db: Session, share: Share, node: Node | None = None) -> str:
+    ids = root_ids(share)
+    if node is not None and len(ids) == 1:
+        alive = not node.deleted_at
+    else:
+        alive = any(
+            target is not None and not target.deleted_at
+            for target in (db.get(Node, i) for i in ids)
+        )
+    return _status_from(share, alive)
+
+
+def share_payload(
+    db: Session, share: Share, node: Node | None = None, nodes: dict[int, Node] | None = None
+) -> dict:
+    ids = root_ids(share)
+    multi = len(ids) > 1
+    if nodes is None:
+        nodes = {}
+    if node is not None:
+        nodes[ids[0]] = node
+    if multi:
+        for rid in ids:
+            if rid not in nodes:
+                nodes[rid] = db.get(Node, rid)
+    alive_nodes = [n for n in (nodes.get(i) for i in ids) if n is not None and not n.deleted_at]
+
+    if multi:
+        total = sum(int(n.size or 0) for n in alive_nodes if n.type == "file")
+        alive_count = len(alive_nodes)
+        return {
+            "id": share.id,
+            "token": share.token,
+            "url": f"/s/{share.token}",
+            "nodeId": share.node_id,
+            "nodeIds": ids,
+            "itemCount": alive_count,
+            "name": f"{alive_count} 个项目",
+            "type": "multi",
+            "size": total,
+            "icon": "i-folder",
+            "previewKind": "none",
+            "hasCode": bool(share.extract_code),
+            "status": _status_from(share, bool(alive_nodes)),
+            "expiresAt": _iso(share.expires_at),
+            "maxDownloads": share.max_downloads,
+            "downloadCount": share.download_count,
+            "createdAt": _iso(share.created_at),
+        }
+
+    target = nodes.get(ids[0])
     alive = bool(target and not target.deleted_at)
     return {
         "id": share.id,
         "token": share.token,
         "url": f"/s/{share.token}",
         "nodeId": share.node_id,
+        "nodeIds": ids,
+        "itemCount": 1,
         "name": target.name if target else "（已删除）",
         "type": target.type if target else "file",
         "size": target.size if target else 0,
@@ -148,9 +220,11 @@ def list_for_user(db: Session, user_id: int, limit: int = 200) -> list[dict]:
     if not shares:
         return []
     # 一次批量取节点，避免远程库逐条往返（每条 0.5s 会拖到几十秒）
-    ids = {s.node_id for s in shares}
+    ids: set[int] = set()
+    for s in shares:
+        ids.update(root_ids(s))
     nodes = {n.id: n for n in db.scalars(select(Node).where(Node.id.in_(ids))).all()}
-    return [share_payload(db, s, nodes.get(s.node_id)) for s in shares]
+    return [share_payload(db, s, nodes.get(s.node_id), nodes) for s in shares]
 
 
 # --------------------------------------------------------------------------- #
@@ -170,12 +244,13 @@ def load_share(db: Session, token: str) -> Share:
 
 
 def within_share(db: Session, share: Share, node: Node) -> bool:
-    """节点是否落在被分享的子树内（防止越权访问同用户其它文件）。"""
+    """节点是否落在任一被分享的子树内（防止越权访问同用户其它文件）。"""
+    roots = set(root_ids(share))
     current: Node | None = node
     for _ in range(512):
         if current is None:
             return False
-        if current.id == share.node_id:
+        if current.id in roots:
             return True
         if current.parent_id is None:
             return False
@@ -184,15 +259,28 @@ def within_share(db: Session, share: Share, node: Node) -> bool:
 
 
 def node_of(db: Session, share: Share, node_id: int | None = None) -> Node:
-    target_id = share.node_id if node_id is None else node_id
+    roots = root_ids(share)
+    target_id = roots[0] if node_id is None else node_id
     node = db.get(Node, target_id)
     if not node or node.user_id != share.user_id or node.deleted_at:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "文件不存在或已被删除")
-    if node.id != share.node_id and not within_share(db, share, node):
+    if node.id not in roots and not within_share(db, share, node):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "文件不存在或已被删除")
     if node.type == "file" and node.blob_sha256 and is_blocked(db, node.blob_sha256):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "该文件已被举报确认，禁止分享")
     return node
+
+
+def root_node(db: Session, share: Share) -> Node:
+    """分享的代表节点：合集里首项被删/被拉黑时顺延到下一项。"""
+    for rid in root_ids(share):
+        node = db.get(Node, rid)
+        if not node or node.user_id != share.user_id or node.deleted_at:
+            continue
+        if node.type == "file" and node.blob_sha256 and is_blocked(db, node.blob_sha256):
+            continue
+        return node
+    raise HTTPException(status.HTTP_404_NOT_FOUND, "分享的内容已被删除")
 
 
 # --------------------------------------------------------------------------- #
@@ -329,14 +417,9 @@ def check_access(request: Request, share: Share, code: str | None = None) -> boo
 
 
 def public_payload(request: Request, share: Share, node: Node, db: Session) -> dict:
-    return {
+    ids = root_ids(share)
+    base = {
         "token": share.token,
-        "name": node.name,
-        "type": node.type,
-        "size": node.size,
-        "mime": node.mime,
-        "icon": ns.icon_for(node),
-        "previewKind": ns.preview_kind(node),
         "hasCode": bool(share.extract_code),
         "unlocked": _has_access(request, share),
         "expiresAt": _iso(share.expires_at),
@@ -348,3 +431,52 @@ def public_payload(request: Request, share: Share, node: Node, db: Session) -> d
             None if share.max_downloads is None else max(0, share.max_downloads - share.download_count)
         ),
     }
+
+    if len(ids) == 1:
+        base.update(
+            {
+                "name": node.name,
+                "type": node.type,
+                "size": node.size,
+                "mime": node.mime,
+                "icon": ns.icon_for(node),
+                "previewKind": ns.preview_kind(node),
+                "itemCount": 1,
+                "items": None,
+            }
+        )
+        return base
+
+    # 合集分享：一次取全部根节点，按创建时选择的顺序排列
+    nodes = db.scalars(
+        select(Node).where(Node.id.in_(ids), Node.deleted_at.is_(None))
+    ).all()
+    order = {rid: idx for idx, rid in enumerate(ids)}
+    nodes.sort(key=lambda n: order.get(n.id, len(order)))
+    folder_ids = [n.id for n in nodes if n.type == "folder"]
+    counts: dict[int, int] = {}
+    if folder_ids:
+        for pid, cnt in db.execute(
+            select(Node.parent_id, func.count())
+            .where(Node.parent_id.in_(folder_ids), Node.deleted_at.is_(None))
+            .group_by(Node.parent_id)
+        ).all():
+            counts[int(pid)] = int(cnt)
+
+    items = [
+        ns.node_payload(n, counts.get(n.id) if n.type == "folder" else None) for n in nodes
+    ]
+    items = filter_blocked(db, items)
+    base.update(
+        {
+            "name": f"{len(items)} 个项目",
+            "type": "multi",
+            "size": sum(i["size"] for i in items if i["type"] == "file"),
+            "mime": None,
+            "icon": "i-folder",
+            "previewKind": "none",
+            "itemCount": len(items),
+            "items": items,
+        }
+    )
+    return base

@@ -80,8 +80,14 @@ export function renderShares(root) {
     listEl.innerHTML = state.items
       .map((share) => {
         const dead = share.status !== "active";
+        const kindLabel =
+          share.type === "multi"
+            ? `合集 ${share.itemCount} 项`
+            : share.type === "folder"
+              ? "文件夹"
+              : formatBytes(share.size);
         const meta = [
-          share.type === "folder" ? "文件夹" : formatBytes(share.size),
+          kindLabel,
           `创建于 ${formatTime(share.createdAt)}`,
           share.hasCode ? "有提取码" : "免提取码",
           share.maxDownloads ? `已下载 ${share.downloadCount}/${share.maxDownloads}` : `已下载 ${share.downloadCount} 次`,

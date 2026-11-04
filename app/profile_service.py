@@ -127,3 +127,69 @@ def drop_avatar(name: str | None) -> None:
     path = avatar_path(name)
     if path:
         path.unlink(missing_ok=True)
+
+
+# --------------------------------------------------------------------------- #
+# 自定义背景图
+# --------------------------------------------------------------------------- #
+BACKGROUND_NAME_RE = re.compile(r"^([1-9]\d{0,17})-[0-9a-f]{12}\.(webp|png)$")
+BACKGROUND_MAX_BYTES = 16 * 1024 * 1024
+BACKGROUND_SIDE = 2560  # 长边上限：4K 屏铺满也不糊，文件还压得住
+BACKGROUND_QUALITY = 84
+
+
+def background_path(name: str | None) -> Path | None:
+    if not name or not BACKGROUND_NAME_RE.fullmatch(name):
+        return None
+    path = settings.background_dir / name
+    return path if path.is_file() else None
+
+
+def background_media_type(name: str) -> str:
+    return "image/png" if name.endswith(".png") else "image/webp"
+
+
+def _fit_background(raw: bytes) -> tuple[bytes, str]:
+    """等比缩放到长边 2560 并转 webp（不裁切、保留透明通道）。"""
+    with Image.open(io.BytesIO(raw)) as img:
+        img = ImageOps.exif_transpose(img)
+        if img.mode not in ("RGB", "RGBA"):
+            img = img.convert("RGBA" if "transparency" in img.info or "A" in img.mode else "RGB")
+
+        w, h = img.size
+        long_side = max(w, h)
+        if long_side > BACKGROUND_SIDE:
+            scale = BACKGROUND_SIDE / long_side
+            img = img.resize((max(1, round(w * scale)), max(1, round(h * scale))), Image.LANCZOS)
+
+        buf = io.BytesIO()
+        try:
+            img.save(buf, "WEBP", quality=BACKGROUND_QUALITY, method=4)
+            return buf.getvalue(), "webp"
+        except Exception:  # Pillow 没编 webp
+            buf = io.BytesIO()
+            img.convert("RGB").save(buf, "PNG", optimize=True)
+            return buf.getvalue(), "png"
+
+
+def save_background(user_id: int, raw: bytes) -> str:
+    """校验 + 缩放 + 落盘，返回新文件名。调用方负责删除旧文件。"""
+    if not raw:
+        raise ValueError("empty")
+    if len(raw) > BACKGROUND_MAX_BYTES:
+        raise ValueError("too-large")
+
+    data, ext = _fit_background(raw)
+    settings.background_dir.mkdir(parents=True, exist_ok=True)
+    name = f"{user_id}-{secrets.token_hex(6)}.{ext}"
+    target = settings.background_dir / name
+    tmp = target.with_suffix(target.suffix + ".part")
+    tmp.write_bytes(data)
+    tmp.replace(target)
+    return name
+
+
+def drop_background(name: str | None) -> None:
+    path = background_path(name)
+    if path:
+        path.unlink(missing_ok=True)

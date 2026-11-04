@@ -301,6 +301,67 @@ body {
   height: 19px;
 }
 
+.share-listbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 8px 2px;
+  border-top: 1px solid var(--stroke-hair);
+  margin-top: 8px;
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+.share-listbar__all {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+  user-select: none;
+}
+.share-listbar__count {
+  font-variant-numeric: tabular-nums;
+}
+
+/* 勾选框：原生 input 换成方形描边，选中时填主色并画勾 */
+.pickbox {
+  appearance: none;
+  -webkit-appearance: none;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  display: grid;
+  place-items: center;
+  border: 1.5px solid var(--stroke-strong, var(--stroke-hair));
+  border-radius: 5px;
+  background: transparent;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-standard),
+    border-color var(--dur-fast) var(--ease-standard);
+}
+.pickbox::after {
+  content: "";
+  width: 8px;
+  height: 4px;
+  margin-top: -2px;
+  border-left: 2px solid #fff;
+  border-bottom: 2px solid #fff;
+  transform: rotate(-45deg) scale(0);
+  transition: transform var(--dur-fast) var(--ease-fluent);
+}
+.pickbox:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.pickbox:checked::after {
+  transform: rotate(-45deg) scale(1);
+}
+.pickbox:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: 2px;
+}
+
 .share-items {
   display: flex;
   flex-direction: column;
@@ -309,6 +370,11 @@ body {
   overflow: auto;
   padding-top: 6px;
   border-top: 1px solid var(--stroke-hair);
+}
+/* 工具条已经画了分隔线，列表不再重复一条 */
+.share-listbar + .share-items {
+  border-top: none;
+  padding-top: 2px;
 }
 .share-item {
   display: flex;
@@ -320,6 +386,16 @@ body {
 }
 .share-item:hover {
   background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+.share-item.is-picked {
+  background: color-mix(in srgb, var(--accent) 13%, transparent);
+}
+.share-item__pick {
+  flex: none;
+  display: grid;
+  place-items: center;
+  padding: 2px;
+  cursor: pointer;
 }
 .share-item__icon {
   flex: none;
@@ -431,6 +507,7 @@ body {
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
+  flex-wrap: wrap;
 }
 
 /* ---------------- 对话框（页内自绘，不用原生弹窗） ---------------- */

@@ -95,6 +95,7 @@ _COLUMN_PATCHES: dict[str, dict[str, str]] = {
         "trash_enabled": "BOOLEAN NOT NULL DEFAULT 1",
         "share_show_name": "BOOLEAN NOT NULL DEFAULT 0",
         "lyrics_style": "JSON NULL",
+        "background_image": "VARCHAR(64) NULL",
     },
     "users": {
         "display_name": "VARCHAR(32) NULL",
@@ -103,6 +104,10 @@ _COLUMN_PATCHES: dict[str, dict[str, str]] = {
         "dav_ha1": "VARCHAR(32) NULL",
         "email": "VARCHAR(254) NULL",
         "email_verified": "BOOLEAN NOT NULL DEFAULT 0",
+    },
+    "shares": {
+        # 合集分享：根节点 id 的 JSON 数组；NULL = 单节点分享
+        "node_ids": "TEXT NULL",
     },
 }
 

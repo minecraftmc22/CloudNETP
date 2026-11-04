@@ -9,6 +9,12 @@ const esc = (v) =>
   String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 
 let active = null;
+/**
+ * 关闭动画序号：closeDialog 的延时清空只对「自己那一轮」有效。
+ * 不加这个的话，连着开第二个对话框（表单提交 → 立刻弹提示）会被前一个
+ * 的 180ms 定时器清空内容，只剩下一个全屏的透明遮罩挡住所有点击。
+ */
+let closeToken = 0;
 
 function closeDialog(result) {
   if (!active) return;
@@ -21,8 +27,11 @@ function closeDialog(result) {
     dialog.style.opacity = "0";
   }
   el.classList.remove("is-open");
+  const token = ++closeToken;
   window.setTimeout(() => {
+    if (token !== closeToken) return; // 期间又开了新对话框，别动它
     el.innerHTML = "";
+    el.classList.remove("is-open");
     if (restoreFocus && document.contains(restoreFocus)) restoreFocus.focus();
   }, 180);
   resolve(result);
@@ -83,6 +92,8 @@ function open(options) {
     const el = host();
     el.innerHTML = buildMarkup(options);
     el.classList.add("is-open");
+    // 必须在写入新内容之后作废上一个关闭动画的清空定时器
+    closeToken += 1;
 
     const inputs = [...el.querySelectorAll("input, select")];
     const restoreFocus = document.activeElement;
