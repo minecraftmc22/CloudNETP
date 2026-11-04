@@ -40,3 +40,6 @@ scripts/*_tabbar.png
 # Live2D 模型（体积大、各家授权不同，只保留目录说明）
 live2d/model/*
 !live2d/model/README.md
+# CDP娘（所有权归 Minecraftmc22 所有，任何未授权商用属于违法行为）
+!live2d/model/CDP/
+!live2d/model/CDP/**

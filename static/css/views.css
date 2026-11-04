@@ -696,6 +696,9 @@ a.setting-row--link:hover .setting-row__chevron {
   max-width: 100%;
   flex: none;
 }
+.mascot-size-list {
+  width: 220px;
+}
 .opacity-item {
   display: grid;
   grid-template-columns: 58px 1fr 40px;
@@ -775,15 +778,24 @@ a.setting-row--link:hover .setting-row__chevron {
   right: 14px;
   bottom: 6px;
   z-index: 4;
-  width: 158px;
-  pointer-events: none;
+  width: calc(158px * var(--mascot-scale, 1));
+  /* 可拖动：接住指针事件，拖出位置后靠 translate 偏移 */
+  pointer-events: auto;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  translate: var(--mascot-dx, 0px) var(--mascot-dy, 0px);
   transform-origin: bottom right;
   transition: opacity var(--dur-slow) var(--ease-standard),
     transform var(--dur-slow) var(--ease-fluent);
 }
+.mascot.is-dragging {
+  cursor: grabbing;
+}
 .mascot.is-hidden {
   opacity: 0;
   transform: translateY(24px) scale(0.94);
+  pointer-events: none;
 }
 .mascot__stage {
   position: relative;
@@ -799,8 +811,8 @@ a.setting-row--link:hover .setting-row__chevron {
 
 /* 切到 Live2D：模型自带待机动作，去掉云朵的上下浮动与投影 */
 .mascot.is-live {
-  width: 232px;
-  height: 320px;
+  width: calc(232px * var(--mascot-scale, 1));
+  height: calc(320px * var(--mascot-scale, 1));
 }
 .mascot.is-live .mascot__stage {
   height: 100%;

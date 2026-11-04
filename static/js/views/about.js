@@ -66,6 +66,34 @@ const AUTHOR = {
 
 const CHANGELOG = [
   {
+    version: "0.3.31",
+    title: "看板娘可拖动、可调大小",
+    items: [
+      "看板娘可以直接拖着走，位置会记住，刷新后仍在原处；拖到屏幕边缘会保留一小块，不会找不回来",
+      "设置 → 装饰新增「看板娘大小」，60%–180% 实时缩放，画布同步重排不模糊",
+      "单击（不拖动）仍然是戳一戳，会播动作和气泡；拖动过程不会误触",
+      "新增《CDP娘版权声明》：角色与模型所有权归 Minecraftmc22，未经授权禁止商用，关于页可直接打开",
+    ],
+  },
+  {
+    version: "0.3.30",
+    title: "看板娘的眼睛跟着鼠标走",
+    items: [
+      "修复鼠标移动时看板娘视线不跟随的问题：之前传给运行库的是画布像素坐标，被内部归一化后一直夹在边缘",
+      "现在直接驱动注视控制器，眼睛、头部与身体会一起朝鼠标方向转，鼠标在屏幕任何位置都有效",
+      "带平滑过渡，不会瞬移；每 40ms 采样一次，几乎不占性能",
+    ],
+  },
+  {
+    version: "0.3.29",
+    title: "内容面板 0% 现在是真的透明",
+    items: [
+      "修复模块不透明度拉到 0% 仍像一块磨砂板的问题：背景模糊与饱和度现在跟着滑块缩放，0% 完全透出壁纸",
+      "面板边框也随不透明度淡出，不再留下圆角轮廓",
+      "弹窗同步处理：不透明度调到很低时不会再有背景模糊",
+    ],
+  },
+  {
     version: "0.3.28",
     title: "拖入文件夹也能上传了",
     items: [
@@ -380,6 +408,14 @@ export function renderAbout(root) {
               <span class="about-lrow__body">
                 <span class="about-lrow__label">问题反馈</span>
                 <span class="about-lrow__value">提交 Issue 或 Pull Request</span>
+              </span>
+              <svg class="icon icon--s about-lrow__go"><use href="#i-arrow-up-right"/></svg>
+            </a>
+            <a class="about-lrow" href="/live2d/model/CDP/COPYRIGHT.md" target="_blank" rel="noopener">
+              <span class="about-lrow__icon"><svg class="icon"><use href="#i-shield"/></svg></span>
+              <span class="about-lrow__body">
+                <span class="about-lrow__label">CDP娘版权声明</span>
+                <span class="about-lrow__value">所有权归 Minecraftmc22，未经授权禁止商用</span>
               </span>
               <svg class="icon icon--s about-lrow__go"><use href="#i-arrow-up-right"/></svg>
             </a>

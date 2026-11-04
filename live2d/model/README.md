@@ -30,4 +30,5 @@ live2d/model/
 - 模型地址对外是 `/live2d/model/<文件夹名>/<文件名>`，由后端 StaticFiles 直接托管。
 - 有多个模型时，鼠标移到看板娘上会出现「换一个」按钮；选择记在 localStorage 的 `mascot-model`。
 - 目录为空或加载失败时自动退回原来的云朵 SVG，不会白屏。
-- 模型授权请自行确认（官方示例模型为 Live2D 免费素材，商用前看清条款）。
+- 官方示例模型为 Live2D 免费素材，商用前请看清其条款；本仓库自带的 **CDP娘** 模型版权归
+  Minecraftmc22 所有，未经授权禁止商用，详见 [CDP娘版权声明](CDP/COPYRIGHT.md)。

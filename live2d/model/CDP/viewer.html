@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  body { margin: 0; background: #282828; }
+  canvas { display: block; }
+  #status { position: fixed; top: 4px; left: 4px; color: #0f0; font: 12px monospace; z-index: 9; }
+</style>
+<script src="https://cubism.live2d.com/sdk-web/cubismcore/live2dcubismcore.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/pixi.js@6.5.10/dist/browser/pixi.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/pixi-live2d-display@0.4.0/dist/cubism4.min.js"></script>
+</head>
+<body>
+<div id="status">loading...</div>
+<script>
+  const statusEl = document.getElementById('status');
+  const app = new PIXI.Application({ width: 900, height: 900, backgroundAlpha: 0 });
+  document.body.appendChild(app.view);
+
+  window.model = null;
+  window.errors = [];
+  PIXI.live2d.Live2DModel.from('character-v9.model3.json')
+    .then(m => {
+      window.model = m;
+      m.scale.set(0.5);
+      m.x = 450 - 762*0.5;                 // face center x762 -> canvas center
+      m.y = 113;                           // face center y274 -> screen y250
+      app.stage.addChild(m);
+      statusEl.textContent = 'READY';
+    })
+    .catch(e => { window.errors.push(String(e)); statusEl.textContent = 'ERROR ' + e; });
+
+  window.api = (() => {
+    let forced = {};
+    let manual = false;
+    let origMotionUpdate = null;
+    const ensureHooks = () => {
+      const im = window.model.internalModel;
+      if (!origMotionUpdate) origMotionUpdate = im.motionManager.update.bind(im.motionManager);
+      return im;
+    };
+    return {
+      manual(on) {
+        const im = ensureHooks();
+        manual = on;
+        if (on) {
+          im.motionManager.update = () => false;   // no motions, no idle auto-start
+          im.breath = null;                        // no auto breath
+          im.eyeBlink = null;                      // no auto blink
+          im.on('beforeModelUpdate', applyForced);
+        } else {
+          im.motionManager.update = origMotionUpdate;
+          im.breath = null;
+          im.eyeBlink = null;
+          im.off('beforeModelUpdate', applyForced);
+          forced = {};
+        }
+      },
+      setParam(id, v) {
+        const core = window.model.internalModel.coreModel;
+        core.setParameterValueById(id, v);
+        forced[id] = v;
+      },
+      getParam(id) {
+        return window.model.internalModel.coreModel.getParameterValueById(id);
+      },
+      paramIds() {
+        const core = window.model.internalModel.coreModel;
+        try { return core.getParameterIds(); } catch (e) { return []; }
+      },
+      async playMotion(group, index) { await window.model.motion(group, index, 2); },
+      async playExpression(name) { await window.model.expression(name); }
+    };
+    function applyForced() {
+      const core = window.model.internalModel.coreModel;
+      for (const [id, v] of Object.entries(forced)) core.setParameterValueById(id, v);
+    }
+  })();
+</script>
+</body>
+</html>

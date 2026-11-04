@@ -345,9 +345,11 @@
     var(--dialog-surface) calc(var(--op-dialog, var(--dialog-a, 0.82)) * 100%),
     transparent
   );
-  border: 1px solid var(--acrylic-border);
+  border: 1px solid
+    color-mix(in srgb, var(--acrylic-border) calc(var(--op-dialog, 1) * 100%), transparent);
   box-shadow: var(--shadow-3);
-  backdrop-filter: blur(40px) saturate(1.7);
+  backdrop-filter: blur(calc(var(--op-dialog, 1) * 40px))
+    saturate(calc(1 + var(--op-dialog, 1) * 0.7));
   padding: var(--sp-5);
   display: flex;
   flex-direction: column;

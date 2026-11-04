@@ -22,6 +22,8 @@ const LIBS = [
 const API = "/api/live2d/models";
 const POLL_MS = 40000;
 const STORE_KEY = "mascot-model";
+const SIZE_KEY = "mascot-size";
+const POS_KEY = "mascot-pos";
 /** 内容高度占舞台高度的比例（1 = 正好铺满，不裁切） */
 const FILL = 1;
 
@@ -53,8 +55,41 @@ function apiUrl() {
   return API;
 }
 
+/* ---------------- 大小 / 位置（记在 localStorage，按设备保存） ---------------- */
+
+export function getMascotScale() {
+  const value = Number(localStorage.getItem(SIZE_KEY));
+  return Number.isFinite(value) && value >= 60 && value <= 180 ? Math.round(value) : 100;
+}
+
+/** 0.6–1.8 倍；返回实际生效的百分比 */
+export function setMascotScale(percent) {
+  const value = Math.max(60, Math.min(180, Math.round(Number(percent) || 100)));
+  document.documentElement.style.setProperty("--mascot-scale", (value / 100).toFixed(2));
+  try {
+    localStorage.setItem(SIZE_KEY, String(value));
+  } catch {
+    /* 隐私模式忽略 */
+  }
+  window.dispatchEvent(new CustomEvent("mascot:resize", { detail: { percent: value } }));
+  return value;
+}
+
+function readSavedPos() {
+  try {
+    const pos = JSON.parse(localStorage.getItem(POS_KEY) || "null");
+    if (pos && Number.isFinite(pos.dx) && Number.isFinite(pos.dy)) return { dx: pos.dx, dy: pos.dy };
+  } catch {
+    /* 忽略损坏数据 */
+  }
+  return { dx: 0, dy: 0 };
+}
+
 export function initLive2DMascot({ stage, host, bubble, pick, pickLabel, onPoke, onStatus } = {}) {
   if (!stage) return null;
+
+  // 尺寸先落到根元素，CSS 用 --mascot-scale 算宽高；位置靠 --mascot-dx/dy 平移
+  document.documentElement.style.setProperty("--mascot-scale", (getMascotScale() / 100).toFixed(2));
 
   const state = {
     app: null,
@@ -67,6 +102,7 @@ export function initLive2DMascot({ stage, host, bubble, pick, pickLabel, onPoke,
     active: true,
     started: false,
     destroyed: false,
+    offset: readSavedPos(),
   };
 
   const controller = {
@@ -314,30 +350,69 @@ export function initLive2DMascot({ stage, host, bubble, pick, pickLabel, onPoke,
   /* ---------------- 交互 ---------------- */
 
   let lastMove = 0;
+  const clamp1 = (v) => Math.max(-1, Math.min(1, v));
 
   function onPointerMove(event) {
     if (!state.active || !state.model || !state.app) return;
     const now = performance.now();
     if (now - lastMove < 40) return;
     lastMove = now;
-    const rect = state.app.view.getBoundingClientRect();
+
+    // 直接驱动 focusController：它收的是 -1..1 的方向值（内部会平滑过渡），
+    // 用 model.focus() 反而要传 PIXI 世界坐标，换算容易错。
+    const focus = state.model.internalModel?.focusController;
+    const view = state.app.view;
+    if (!focus || !view) return;
+    const rect = view.getBoundingClientRect();
     if (!rect.width) return;
-    const inside =
-      event.clientX > rect.left - rect.width &&
-      event.clientX < rect.right + rect.width * 0.4 &&
-      event.clientY > rect.top - 120 &&
-      event.clientY < rect.bottom + 80;
-    if (!inside) return;
-    const k = state.app.screen.width / rect.width;
-    state.model.focus((event.clientX - rect.left) * k, (event.clientY - rect.top) * k);
+
+    // 以脸部（画布上半部分）为中心，按整个窗口的尺度归一化，鼠标在屏幕任何位置都能牵动视线
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height * 0.28;
+    const nx = clamp1((event.clientX - cx) / (window.innerWidth * 0.5));
+    const ny = clamp1(-(event.clientY - cy) / (window.innerHeight * 0.5));
+    focus.focus(nx, ny);
   }
 
-  function onPointerDown(event) {
+  /* ---------------- 拖动 / 点击 ---------------- */
+
+  function clampOffset(dx, dy) {
+    if (!host) return { dx: 0, dy: 0 };
+    const w = host.offsetWidth || 232;
+    const h = host.offsetHeight || 320;
+    const visible = 48; // 至少留 48px 在屏幕里，免得拖丢了找不回来
+    // 基准位置是 right:14px / bottom:6px
+    const minDx = visible + 14 - window.innerWidth;
+    const maxDx = w - 34;
+    const minDy = visible + 6 - window.innerHeight;
+    const maxDy = h - 42;
+    if (maxDx <= minDx || maxDy <= minDy) return { dx: 0, dy: 0 };
+    return {
+      dx: Math.max(minDx, Math.min(maxDx, dx)),
+      dy: Math.max(minDy, Math.min(maxDy, dy)),
+    };
+  }
+
+  function applyOffset(save = false) {
+    state.offset = clampOffset(state.offset.dx, state.offset.dy);
+    document.documentElement.style.setProperty("--mascot-dx", `${Math.round(state.offset.dx)}px`);
+    document.documentElement.style.setProperty("--mascot-dy", `${Math.round(state.offset.dy)}px`);
+    if (save) {
+      try {
+        localStorage.setItem(POS_KEY, JSON.stringify(state.offset));
+      } catch {
+        /* 隐私模式忽略 */
+      }
+    }
+  }
+
+  function pokeAt(clientX, clientY) {
     if (!state.active || !state.model || !state.app) return;
     const rect = state.app.view.getBoundingClientRect();
+    if (!rect.width) return;
     // 只认身体那一片，避免点边角空白也算“戳她”
-    const x = event.clientX - rect.left;
-    const y = event.clientY - rect.top;
+    const x = clientX - rect.left;
+    const y = clientY - rect.top;
     if (x < rect.width * 0.16 || x > rect.width * 0.84) return;
     if (y < rect.height * 0.12) return;
     try {
@@ -349,6 +424,62 @@ export function initLive2DMascot({ stage, host, bubble, pick, pickLabel, onPoke,
     }
     say(onPoke);
   }
+
+  let drag = null;
+
+  function onHostDown(event) {
+    if (!host || host.classList.contains("is-hidden")) return;
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    if (event.target.closest("[data-mascot-pick]")) return;
+    drag = {
+      sx: event.clientX,
+      sy: event.clientY,
+      dx: state.offset.dx,
+      dy: state.offset.dy,
+      moved: false,
+      id: event.pointerId,
+    };
+    try {
+      host.setPointerCapture(event.pointerId);
+    } catch {
+      /* 某些内核不支持捕获，退化成普通拖动 */
+    }
+    host.classList.add("is-dragging");
+    event.preventDefault();
+  }
+
+  function onHostMove(event) {
+    if (!drag || event.pointerId !== drag.id) return;
+    const mx = event.clientX - drag.sx;
+    const my = event.clientY - drag.sy;
+    if (!drag.moved && Math.abs(mx) + Math.abs(my) > 6) drag.moved = true;
+    if (!drag.moved) return;
+    state.offset = { dx: drag.dx + mx, dy: drag.dy + my };
+    applyOffset();
+    event.preventDefault();
+  }
+
+  function endDrag(event, canceled) {
+    if (!drag || event.pointerId !== drag.id) return;
+    const current = drag;
+    drag = null;
+    try {
+      host?.releasePointerCapture(current.id);
+    } catch {
+      /* 忽略 */
+    }
+    host?.classList.remove("is-dragging");
+    if (current.moved) {
+      applyOffset(true);
+      return;
+    }
+    if (!canceled) pokeAt(event.clientX, event.clientY);
+  }
+
+  const onHostUp = (event) => endDrag(event, false);
+  const onHostCancel = (event) => endDrag(event, true);
+
+  applyOffset();
 
   function say(fn) {
     if (typeof fn === "function") fn();
@@ -379,7 +510,10 @@ export function initLive2DMascot({ stage, host, bubble, pick, pickLabel, onPoke,
     refresh();
   }
 
-  const onResize = () => fit();
+  const onResize = () => {
+    applyOffset();
+    fit();
+  };
 
   pick?.addEventListener("click", () => {
     next();
@@ -397,10 +531,18 @@ export function initLive2DMascot({ stage, host, bubble, pick, pickLabel, onPoke,
     state.started = true;
     state.active = !host?.classList.contains("is-hidden");
     document.addEventListener("pointermove", onPointerMove, { passive: true });
-    document.addEventListener("pointerdown", onPointerDown, { passive: true });
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("focus", onVisibility);
     window.addEventListener("resize", onResize);
+    // 拖动 / 点击戳一戳都挂在看板娘自己身上（现在它接指针事件了）
+    host?.addEventListener("pointerdown", onHostDown);
+    host?.addEventListener("pointermove", onHostMove);
+    host?.addEventListener("pointerup", onHostUp);
+    host?.addEventListener("pointercancel", onHostCancel);
+    // 指针捕获被系统收走时也要收尾，避免卡在拖动状态
+    host?.addEventListener("lostpointercapture", (event) => endDrag(event, true));
+    // 设置页改大小后重新贴合画布
+    window.addEventListener("mascot:resize", onResize);
     window.setTimeout(() => {
       refresh();
       startPolling();

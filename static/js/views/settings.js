@@ -14,6 +14,7 @@ import {
   patchSettingsLocal,
   rememberBackgroundLuma,
 } from "../theme.js";
+import { getMascotScale, setMascotScale } from "../ui/live2d.js";
 
 const THEME_MODES = [
   { value: 0, label: "亮色" },
@@ -135,6 +136,7 @@ export function renderSettings(root) {
   const displayName = (user?.displayName || user?.username || "").trim();
   const maskedPreview = displayName.slice(0, 2) || "—";
   const savedOpacity = s.surfaceOpacity || {};
+  const mascotScale = getMascotScale();
   const opacityRows = [
     ["nav", "侧栏"],
     ["titlebar", "标题栏"],
@@ -270,6 +272,21 @@ export function renderSettings(root) {
               <input type="checkbox" data-toggle="showMascot" ${s.showMascot === false ? "" : "checked"}>
               <span class="switch__track"><span class="switch__knob"></span></span>
             </label>
+          </div>
+          <div class="setting-row">
+            <div class="setting-row__main">
+              <div class="setting-row__label">看板娘大小</div>
+              <div class="setting-row__desc">拖动滑块缩放；看板娘本身也可以直接拖到任意位置，大小与位置按设备记住</div>
+            </div>
+            <div class="opacity-list mascot-size-list">
+              <label class="opacity-item">
+                <span class="opacity-item__name">缩放</span>
+                <input type="range" min="60" max="180" step="5" value="${mascotScale}" data-mascot-size
+                       style="--fill:${Math.round(((mascotScale - 60) / 120) * 100)}%"
+                       aria-label="看板娘大小">
+                <span class="opacity-item__val" data-mascot-size-val>${mascotScale}%</span>
+              </label>
+            </div>
           </div>
         </section>
 
@@ -722,6 +739,22 @@ export function renderSettings(root) {
       paintOpacity(input);
     });
     persist({ surfaceOpacity: {} });
+  });
+
+  /* --- 看板娘大小 --- */
+  const mascotSize = root.querySelector("[data-mascot-size]");
+  const mascotSizeVal = root.querySelector("[data-mascot-size-val]");
+
+  function paintMascotSize() {
+    if (!mascotSize) return;
+    const value = Number(mascotSize.value);
+    mascotSize.style.setProperty("--fill", `${Math.round(((value - 60) / 120) * 100)}%`);
+    if (mascotSizeVal) mascotSizeVal.textContent = `${value}%`;
+  }
+
+  mascotSize?.addEventListener("input", () => {
+    paintMascotSize();
+    setMascotScale(mascotSize.value);
   });
 
   /* --- Live2D 模型目录概览（目录里新增模型会自动出现） --- */

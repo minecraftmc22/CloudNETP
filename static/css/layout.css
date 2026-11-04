@@ -419,9 +419,12 @@
     var(--panel-surface) calc(var(--op-panel, var(--panel-a, 0.62)) * 100%),
     transparent
   );
-  border: 1px solid var(--acrylic-border);
+  border: 1px solid
+    color-mix(in srgb, var(--acrylic-border) calc(var(--op-panel, 1) * 100%), transparent);
   box-shadow: var(--shadow-1);
-  backdrop-filter: blur(28px) saturate(1.45);
+  /* 模糊也跟着不透明度走：拉到 0% 就是真的全透明，而不是一块磨砂板 */
+  backdrop-filter: blur(calc(var(--op-panel, 1) * 28px))
+    saturate(calc(1 + var(--op-panel, 1) * 0.45));
   overflow: hidden;
   display: flex;
   flex-direction: column;
