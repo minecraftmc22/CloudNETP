@@ -75,6 +75,8 @@ class UserSetting(Base):
     share_show_name: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     # 歌词播放器样式（JSON：fontSize/hotColor/showTrans），空对象=全部默认
     lyrics_style: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    # 各模块背景不透明度（JSON：nav/titlebar/panel/dialog，0-100，缺省=主题默认）
+    surface_opacity: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
 
 
 class AudioPref(Base):

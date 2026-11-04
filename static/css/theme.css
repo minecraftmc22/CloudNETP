@@ -45,6 +45,10 @@
   --nav-w: 264px;
   --nav-w-collapsed: 48px;
   --titlebar-h: 48px;
+
+  /* 模块背景默认浓度；用户在设置里拖滑块后由 JS 写 --op-* 覆盖 */
+  --nav-a: 0.42;
+  --title-a: 0.46;
 }
 
 /* ------------------------------------------------------------
@@ -60,6 +64,12 @@
   --layer-1: rgba(255, 255, 255, 0.62);
   --layer-2: rgba(255, 255, 255, 0.44);
   --layer-3: rgba(255, 255, 255, 0.3);
+
+  /* 内容面板 / 弹窗的底色与默认浓度（滑块乘进 alpha） */
+  --panel-surface: #ffffff;
+  --dialog-surface: #ffffff;
+  --panel-a: 0.62;
+  --dialog-a: 0.82;
 
   --acrylic: rgba(255, 255, 255, 0.58);
   --acrylic-strong: rgba(255, 255, 255, 0.82);
@@ -104,6 +114,11 @@
   --layer-1: rgba(40, 29, 62, 0.66);
   --layer-2: rgba(48, 35, 72, 0.46);
   --layer-3: rgba(56, 41, 84, 0.3);
+
+  --panel-surface: #281d3e;
+  --dialog-surface: #2e2146;
+  --panel-a: 0.66;
+  --dialog-a: 0.86;
 
   --acrylic: rgba(38, 27, 58, 0.6);
   --acrylic-strong: rgba(46, 33, 70, 0.86);
@@ -328,6 +343,7 @@ h1, h2, h3, h4, p {
   --layer-2: rgba(30, 21, 48, 0.46);
   --acrylic: rgba(22, 16, 38, 0.62);
   --acrylic-strong: rgba(28, 19, 46, 0.86);
+  --panel-a: 0.58;
 }
 /* 图片本身已经很花，光斑压到很淡，只留一点点取色氛围 */
 :root[data-wallpaper="custom"] .backdrop__blob {
@@ -337,39 +353,11 @@ h1, h2, h3, h4, p {
   opacity: 0.16;
 }
 
-/* 导航与标题栏本来是透明的，照片一亮字就糊。
-   给它们垫一层随主题和图片亮度走的渐变遮罩，图片在中间区域照常透出来。 */
-:root[data-wallpaper="custom"] .nav {
-  background: linear-gradient(
-    90deg,
-    rgb(255 255 255 / calc(var(--bg-veil, 0.44) * 1.4)) 0%,
-    rgb(255 255 255 / calc(var(--bg-veil, 0.44) * 0.82)) 62%,
-    rgb(255 255 255 / 0) 100%
-  );
-}
-:root[data-wallpaper="custom"] .titlebar {
-  background: linear-gradient(
-    180deg,
-    rgb(255 255 255 / calc(var(--bg-veil, 0.44) * 1.45)) 0%,
-    rgb(255 255 255 / calc(var(--bg-veil, 0.44) * 0.64)) 72%,
-    rgb(255 255 255 / 0) 100%
-  );
-}
-:root[data-theme="dark"][data-wallpaper="custom"] .nav {
-  background: linear-gradient(
-    90deg,
-    rgb(4 3 8 / calc(var(--bg-scrim, 0.40) * 1.5)) 0%,
-    rgb(4 3 8 / calc(var(--bg-scrim, 0.40) * 0.8)) 62%,
-    rgb(4 3 8 / 0) 100%
-  );
-}
-:root[data-theme="dark"][data-wallpaper="custom"] .titlebar {
-  background: linear-gradient(
-    180deg,
-    rgb(4 3 8 / calc(var(--bg-scrim, 0.40) * 1.55)) 0%,
-    rgb(4 3 8 / calc(var(--bg-scrim, 0.40) * 0.65)) 72%,
-    rgb(4 3 8 / 0) 100%
-  );
+/* 照片一亮，导航和标题栏的文字就糊；默认把这两块的底色加浓一点，
+   用户仍可在设置里单独拖低（--op-nav / --op-title）。 */
+:root[data-wallpaper="custom"] {
+  --nav-a: 0.58;
+  --title-a: 0.6;
 }
 
 /* 细颗粒，压住渐变的塑料感 */

@@ -515,6 +515,7 @@
   .setting-row > .swatch-row,
   .setting-row > .accent-tools,
   .setting-row > .wallpaper-row,
+  .setting-row > .opacity-list,
   .setting-row > .dav-addr,
   .setting-row > .row {
     flex: 1 1 100%;

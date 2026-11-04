@@ -683,6 +683,91 @@ a.setting-row--link:hover .setting-row__chevron {
 }
 
 /* ------------------------------------------------------------
+   模块不透明度
+   ------------------------------------------------------------ */
+.setting-row--opacity {
+  align-items: flex-start;
+}
+.opacity-list {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  width: 320px;
+  max-width: 100%;
+  flex: none;
+}
+.opacity-item {
+  display: grid;
+  grid-template-columns: 58px 1fr 40px;
+  align-items: center;
+  gap: 10px;
+  font-size: 12.5px;
+  color: var(--text-2);
+  cursor: pointer;
+}
+.opacity-item__name {
+  white-space: nowrap;
+}
+.opacity-item__val {
+  text-align: right;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+.opacity-item input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  margin: 0;
+  border-radius: var(--radius-pill);
+  background: linear-gradient(
+    90deg,
+    var(--accent) var(--fill, 50%),
+    var(--fill-hover) var(--fill, 50%)
+  );
+  outline: none;
+  cursor: pointer;
+}
+.opacity-item input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--bg-a);
+  box-shadow: var(--shadow-1);
+  transition: transform var(--dur-fast) var(--ease-standard);
+}
+.opacity-item input[type="range"]::-webkit-slider-thumb:hover {
+  transform: scale(1.12);
+}
+.opacity-item input[type="range"]::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--bg-a);
+  box-shadow: var(--shadow-1);
+  cursor: pointer;
+}
+.opacity-item input[type="range"]:focus-visible {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.opacity-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 3px;
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+.opacity-foot .btn {
+  flex: none;
+}
+
+/* ------------------------------------------------------------
    看板娘
    ------------------------------------------------------------ */
 .mascot {

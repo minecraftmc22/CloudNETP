@@ -340,7 +340,11 @@
   position: relative;
   width: min(440px, calc(100vw - 32px));
   border-radius: var(--radius-l);
-  background: var(--acrylic-strong);
+  background: color-mix(
+    in srgb,
+    var(--dialog-surface) calc(var(--op-dialog, var(--dialog-a, 0.82)) * 100%),
+    transparent
+  );
   border: 1px solid var(--acrylic-border);
   box-shadow: var(--shadow-3);
   backdrop-filter: blur(40px) saturate(1.7);

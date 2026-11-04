@@ -616,3 +616,112 @@ body {
   font-size: 12px;
   color: var(--text-3);
 }
+
+/* ------------------------------------------------------------
+   文件预览弹层（列表里双击文件打开）
+   ------------------------------------------------------------ */
+.share-preview-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 28px 18px;
+}
+.share-preview-modal[hidden] {
+  display: none;
+}
+.share-preview-modal__backdrop {
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--bg-a) 30%, rgba(10, 7, 18, 0.62));
+  backdrop-filter: blur(8px);
+  animation: share-fade var(--dur-base) var(--ease-standard);
+}
+.share-preview-modal__panel {
+  position: relative;
+  width: min(960px, 100%);
+  max-height: min(88vh, 940px);
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--radius-xl);
+  background: color-mix(in srgb, var(--panel-surface, #fff) 94%, transparent);
+  border: 1px solid var(--acrylic-border);
+  box-shadow: var(--shadow-3);
+  backdrop-filter: blur(40px) saturate(1.6);
+  overflow: hidden;
+  animation: share-pop var(--dur-slow) var(--ease-fluent);
+}
+.share-preview-modal__head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--stroke-hair);
+  flex: none;
+}
+.share-preview-modal__icon {
+  width: 38px;
+  height: 38px;
+  border-radius: var(--radius-m);
+  display: grid;
+  place-items: center;
+  flex: none;
+  background: color-mix(in srgb, var(--tone, var(--accent)) 14%, transparent);
+  color: var(--tone, var(--accent));
+}
+.share-preview-modal__title {
+  flex: 1;
+  min-width: 0;
+}
+.share-preview-modal__title h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.share-preview-modal__meta {
+  margin: 2px 0 0;
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+.share-preview-modal__body {
+  padding: 16px;
+  overflow: auto;
+}
+.share-preview-modal__body .share-preview {
+  margin-top: 0;
+}
+body.is-preview-open {
+  overflow: hidden;
+}
+@keyframes share-fade {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes share-pop {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.985);
+  }
+}
+
+@media (max-width: 640px) {
+  .share-preview-modal {
+    padding: 0;
+  }
+  .share-preview-modal__panel {
+    width: 100%;
+    height: 100vh;
+    height: 100dvh;
+    max-height: none;
+    border-radius: 0;
+    border: 0;
+  }
+  .share-preview-modal__body {
+    padding: 12px;
+  }
+}

@@ -704,6 +704,7 @@ def update_settings(
         "nav_collapsed",
         "share_show_name",
         "lyrics_style",
+        "surface_opacity",
     }
     for field, value in payload.model_dump(exclude_none=True).items():
         if field in allowed:
@@ -713,6 +714,13 @@ def update_settings(
                     k: value[k]
                     for k in ("fontSize", "hotColor", "showTrans")
                     if k in value
+                }
+            elif field == "surface_opacity":
+                # 只收四个模块键，值夹到 0-100 的整数
+                value = {
+                    k: max(0, min(100, int(round(v))))
+                    for k in ("nav", "titlebar", "panel", "dialog")
+                    if isinstance((v := value.get(k)), (int, float)) and not isinstance(v, bool)
                 }
             setattr(row, field, value)
     db.commit()

@@ -286,8 +286,9 @@ function renderGate() {
 }
 
 /* ---------------- 文件预览 ---------------- */
-function previewMarkup(share) {
-  const src = apiUrl("/preview");
+function previewMarkup(share, nodeId = null) {
+  const params = nodeId ? { nodeId } : {};
+  const src = apiUrl("/preview", params);
   switch (share.previewKind) {
     case "image":
       return `<div class="share-preview share-preview--image">
@@ -333,6 +334,44 @@ function previewMarkup(share) {
   }
 }
 
+/** 文本 / Markdown / Office 需要额外拉数据，单文件页与列表预览弹层共用 */
+function hydratePreview(container, share, nodeId = null) {
+  const params = nodeId ? { nodeId } : {};
+
+  if (share.previewKind === "text") {
+    const pre = container.querySelector("[data-text]");
+    if (!pre) return;
+    request("/text", { params })
+      .then((data) => {
+        pre.textContent = data.content || "";
+        if (data.truncated) pre.insertAdjacentHTML("afterend", `<p class="share-tip">仅显示前 1 MB 内容</p>`);
+      })
+      .catch((err) => {
+        pre.textContent = `无法预览文本：${err.message}`;
+      });
+  }
+
+  if (share.previewKind === "markdown") {
+    const article = container.querySelector("[data-md]");
+    if (!article) return;
+    request("/text", { params })
+      .then((data) => {
+        article.innerHTML = renderMarkdown(data.content || "");
+      })
+      .catch((err) => {
+        article.textContent = `无法预览 Markdown：${err.message}`;
+      });
+  }
+
+  if (OFFICE_KINDS.has(share.previewKind)) {
+    const host = container.querySelector("[data-office]");
+    if (!host) return;
+    mountOffice(host, share, share.previewKind, apiUrl("/preview", params)).catch((err) => {
+      host.innerHTML = `<p class="share-tip">文档解析失败：${esc(err.message)}，可以下载后查看。</p>`;
+    });
+  }
+}
+
 function renderFile(share) {
   const downloadUrl = apiUrl("/download");
   root.innerHTML = `
@@ -368,36 +407,65 @@ function renderFile(share) {
 
   root.querySelector("[data-save-drive]").addEventListener("click", () => saveToMyDrive());
   root.querySelector("[data-report]").addEventListener("click", openReport);
+  hydratePreview(root, share);
+}
 
-  if (share.previewKind === "text") {
-    const pre = root.querySelector("[data-text]");
-    request("/text")
-      .then((data) => {
-        pre.textContent = data.content || "";
-        if (data.truncated) pre.insertAdjacentHTML("afterend", `<p class="share-tip">仅显示前 1 MB 内容</p>`);
-      })
-      .catch((err) => {
-        pre.textContent = `无法预览文本：${err.message}`;
-      });
-  }
+/* ---------------- 列表内预览弹层（双击文件打开） ---------------- */
+let previewModal = null;
 
-  if (share.previewKind === "markdown") {
-    const article = root.querySelector("[data-md]");
-    request("/text")
-      .then((data) => {
-        article.innerHTML = renderMarkdown(data.content || "");
-      })
-      .catch((err) => {
-        article.textContent = `无法预览 Markdown：${err.message}`;
-      });
-  }
+function ensurePreviewModal() {
+  if (previewModal) return previewModal;
+  previewModal = document.createElement("div");
+  previewModal.className = "share-preview-modal";
+  previewModal.hidden = true;
+  previewModal.innerHTML = `
+    <div class="share-preview-modal__backdrop" data-close></div>
+    <div class="share-preview-modal__panel" role="dialog" aria-modal="true" aria-label="文件预览">
+      <header class="share-preview-modal__head">
+        <span class="share-preview-modal__icon" data-modal-icon data-kind="file">${icon("i-file")}</span>
+        <div class="share-preview-modal__title">
+          <h2 data-modal-name></h2>
+          <p class="share-preview-modal__meta" data-modal-meta></p>
+        </div>
+        <a class="icon-btn" data-modal-download download title="下载">${icon("i-download")}</a>
+        <button class="icon-btn" type="button" data-close title="关闭预览">${icon("i-close")}</button>
+      </header>
+      <div class="share-preview-modal__body" data-modal-body></div>
+    </div>`;
+  document.body.appendChild(previewModal);
+  previewModal.addEventListener("click", (event) => {
+    if (event.target.closest("[data-close]")) closePreview();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && previewModal && !previewModal.hidden) closePreview();
+  });
+  return previewModal;
+}
 
-  if (OFFICE_KINDS.has(share.previewKind)) {
-    const host = root.querySelector("[data-office]");
-    mountOffice(host, share, share.previewKind, apiUrl("/preview")).catch((err) => {
-      host.innerHTML = `<p class="share-tip">文档解析失败：${esc(err.message)}，可以下载后查看。</p>`;
-    });
-  }
+function closePreview() {
+  if (!previewModal) return;
+  previewModal.hidden = true;
+  document.body.classList.remove("is-preview-open");
+  previewModal.querySelector("[data-modal-body]").innerHTML = ""; // 顺带停掉音视频
+}
+
+function openPreview(item) {
+  if (!item || item.type === "folder") return;
+  const el = ensurePreviewModal();
+  const iconEl = el.querySelector("[data-modal-icon]");
+  iconEl.dataset.kind = (item.icon || "i-file").slice(2);
+  iconEl.innerHTML = icon(item.icon || "i-file");
+  el.querySelector("[data-modal-name]").textContent = item.name;
+  el.querySelector("[data-modal-meta]").textContent = formatBytes(item.size);
+  el.querySelector("[data-modal-download]").href = apiUrl("/download", { nodeId: item.id });
+
+  const body = el.querySelector("[data-modal-body]");
+  body.innerHTML =
+    previewMarkup(item, item.id) ||
+    `<div class="share-nopreview">这类文件暂不支持在线预览，请下载后查看。</div>`;
+  el.hidden = false;
+  document.body.classList.add("is-preview-open");
+  hydratePreview(body, item, item.id);
 }
 
 /* ---------------- 列表（合集与文件夹布局一致） ---------------- */
@@ -416,9 +484,7 @@ function itemRowHtml(item) {
         ${
           isFolder
             ? ""
-            : `<a class="icon-btn" href="${apiUrl("/preview", { nodeId: item.id })}" target="_blank" rel="noopener" title="在新标签页预览">
-                 ${icon("i-arrow-up-right")}
-               </a>`
+            : `<button class="icon-btn" type="button" data-preview title="预览">${icon("i-eye")}</button>`
         }
         ${
           isFolder
@@ -471,6 +537,18 @@ function bindList({ items, onEnter }) {
     });
     row.querySelector("[data-enter]")?.addEventListener("click", () => {
       onEnter?.(items.find((i) => i.id === id));
+    });
+    row.querySelector("[data-preview]")?.addEventListener("click", (event) => {
+      event.stopPropagation();
+      openPreview(items.find((i) => i.id === id));
+    });
+    // 双击行：文件直接预览，文件夹进入下一级（与资源管理器一致）
+    row.addEventListener("dblclick", (event) => {
+      if (event.target.closest("a, button, input, label")) return;
+      const item = items.find((i) => i.id === id);
+      if (!item) return;
+      if (item.type === "folder") onEnter?.(item);
+      else openPreview(item);
     });
   });
 

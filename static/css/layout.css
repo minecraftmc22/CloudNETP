@@ -24,6 +24,11 @@
   padding: 0 var(--sp-3) 0 var(--sp-2);
   -webkit-app-region: drag;
   user-select: none;
+  background: color-mix(
+    in srgb,
+    var(--bg-a) calc(var(--op-titlebar, var(--title-a, 0.46)) * 100%),
+    transparent
+  );
 }
 
 .titlebar__brand {
@@ -212,6 +217,11 @@
   padding: var(--sp-2) var(--sp-2) var(--sp-3);
   min-width: 0;
   overflow: hidden;
+  background: color-mix(
+    in srgb,
+    var(--bg-a) calc(var(--op-nav, var(--nav-a, 0.42)) * 100%),
+    transparent
+  );
 }
 
 .nav__group {
@@ -404,7 +414,11 @@
   position: relative;
   margin: 0 var(--sp-3) var(--sp-3) 0;
   border-radius: var(--radius-l);
-  background: var(--layer-1);
+  background: color-mix(
+    in srgb,
+    var(--panel-surface) calc(var(--op-panel, var(--panel-a, 0.62)) * 100%),
+    transparent
+  );
   border: 1px solid var(--acrylic-border);
   box-shadow: var(--shadow-1);
   backdrop-filter: blur(28px) saturate(1.45);

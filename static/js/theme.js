@@ -23,6 +23,22 @@ const MEDIA = window.matchMedia("(prefers-color-scheme: dark)");
 const CACHE_KEY = "cn:appearance";
 const LUMA_KEY = "cn:bgLuma";
 
+/** 可单独调不透明度的模块（键名与 user_settings.surface_opacity 一致） */
+export const SURFACE_KEYS = ["nav", "titlebar", "panel", "dialog"];
+
+/** 把 { nav: 0-100, ... } 写进 --op-*；缺省则交回 CSS 里的主题默认值 */
+function applySurfaceOpacity(map) {
+  const root = document.documentElement;
+  for (const key of SURFACE_KEYS) {
+    const raw = map?.[key];
+    if (typeof raw === "number" && Number.isFinite(raw)) {
+      root.style.setProperty(`--op-${key}`, (clamp(raw, 0, 100) / 100).toFixed(3));
+    } else {
+      root.style.removeProperty(`--op-${key}`);
+    }
+  }
+}
+
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
 /* ------------------------------------------------------------------ */
@@ -125,6 +141,7 @@ export function applyAppearance(settings = {}) {
   root.dataset.wallpaper = wallpaper;
   root.dataset.petals = settings.showPetals === false ? "off" : "on";
   root.style.setProperty("--accent-user", settings.accentColor || "#c084fc");
+  applySurfaceOpacity(settings.surfaceOpacity);
 
   if (custom) {
     root.style.setProperty("--bg-image", `url("${settings.backgroundImage}")`);

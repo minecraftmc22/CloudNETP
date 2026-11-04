@@ -89,6 +89,8 @@ class SettingsIn(CamelModel):
     share_show_name: bool | None = None
     # 歌词播放器样式（fontSize/hotColor/showTrans），整体覆盖
     lyrics_style: dict | None = None
+    # 各模块背景不透明度（nav/titlebar/panel/dialog → 0-100），整体覆盖
+    surface_opacity: dict | None = None
 
 
 class ProfileIn(CamelModel):

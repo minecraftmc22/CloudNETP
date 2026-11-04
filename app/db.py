@@ -96,6 +96,7 @@ _COLUMN_PATCHES: dict[str, dict[str, str]] = {
         "share_show_name": "BOOLEAN NOT NULL DEFAULT 0",
         "lyrics_style": "JSON NULL",
         "background_image": "VARCHAR(64) NULL",
+        "surface_opacity": "JSON NULL",
     },
     "users": {
         "display_name": "VARCHAR(32) NULL",

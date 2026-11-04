@@ -38,6 +38,17 @@ function trashDesc(s) {
   return `开启中：删除的文件先进入回收站，${days} 天后自动清理`;
 }
 
+/* 各模块背景的默认浓度：直接读主题 CSS 变量，换主题/壁纸后默认值自然跟着走 */
+const SURFACE_FALLBACK = { nav: 42, titlebar: 46, panel: 62, dialog: 82 };
+const SURFACE_VARS = { nav: "--nav-a", titlebar: "--title-a", panel: "--panel-a", dialog: "--dialog-a" };
+const clampPercent = (v) => Math.max(0, Math.min(100, Math.round(Number(v) || 0)));
+function surfaceDefault(key) {
+  const raw = parseFloat(
+    getComputedStyle(document.documentElement).getPropertyValue(SURFACE_VARS[key] || "")
+  );
+  return Number.isFinite(raw) ? Math.round(raw * 100) : SURFACE_FALLBACK[key] ?? 50;
+}
+
 /* ------------------------------------------------------------------ */
 /* 头像：本地裁成正方形再上传（省流量，也避免服务端收到巨图）           */
 /* ------------------------------------------------------------------ */
@@ -123,6 +134,16 @@ export function renderSettings(root) {
   const wallpaper = s.wallpaper === "custom" && !s.backgroundImage ? "sakura" : s.wallpaper || "sakura";
   const displayName = (user?.displayName || user?.username || "").trim();
   const maskedPreview = displayName.slice(0, 2) || "—";
+  const savedOpacity = s.surfaceOpacity || {};
+  const opacityRows = [
+    ["nav", "侧栏"],
+    ["titlebar", "标题栏"],
+    ["panel", "内容面板"],
+    ["dialog", "弹窗"],
+  ].map(([key, name]) => {
+    const saved = Number(savedOpacity[key]);
+    return { key, name, value: Number.isFinite(saved) ? clampPercent(saved) : surfaceDefault(key) };
+  });
 
   root.innerHTML = `
     <div class="view-head">
@@ -202,6 +223,29 @@ export function renderSettings(root) {
             <span class="muted" data-bg-note>上传后会从图片里取出现最多的颜色当主题色</span>
           </div>
           <input type="file" accept="image/*" hidden data-bg-input>
+          <div class="setting-row setting-row--opacity">
+            <div class="setting-row__main">
+              <div class="setting-row__label">模块不透明度</div>
+              <div class="setting-row__desc">分别控制各块背景的实心程度，0% 完全透明、100% 完全不透明</div>
+            </div>
+            <div class="opacity-list" data-opacity-list>
+              ${opacityRows
+                .map(
+                  (r) => `<label class="opacity-item">
+                    <span class="opacity-item__name">${r.name}</span>
+                    <input type="range" min="0" max="100" step="1" value="${r.value}"
+                           data-opacity="${r.key}" style="--fill:${r.value}%"
+                           aria-label="${r.name}不透明度">
+                    <span class="opacity-item__val" data-opacity-val="${r.key}">${r.value}%</span>
+                  </label>`
+                )
+                .join("")}
+              <div class="opacity-foot">
+                <span class="muted">调低后壁纸会透出来，文字对比度也会下降</span>
+                <button class="btn btn--subtle btn--sm" type="button" data-act="opacity-reset">恢复默认</button>
+              </div>
+            </div>
+          </div>
         </section>
 
         <section class="settings-card">
@@ -645,6 +689,39 @@ export function renderSettings(root) {
     } catch (err) {
       Toast.error(err.message);
     }
+  });
+
+  /* --- 模块不透明度 --- */
+  const opInputs = [...root.querySelectorAll("[data-opacity]")];
+  const currentOpacity = () => ({ ...(store.get().user?.settings?.surfaceOpacity || {}) });
+
+  function paintOpacity(input) {
+    const value = clampPercent(input.value);
+    input.style.setProperty("--fill", `${value}%`);
+    const out = root.querySelector(`[data-opacity-val="${input.dataset.opacity}"]`);
+    if (out) out.textContent = `${value}%`;
+  }
+
+  opInputs.forEach((input) => {
+    paintOpacity(input);
+    // 拖动只走本地预览，松手才落库，避免一路刷接口
+    input.addEventListener("input", () => {
+      paintOpacity(input);
+      patchSettingsLocal({
+        surfaceOpacity: { ...currentOpacity(), [input.dataset.opacity]: clampPercent(input.value) },
+      });
+    });
+    input.addEventListener("change", () => {
+      persist({ surfaceOpacity: currentOpacity() });
+    });
+  });
+
+  root.querySelector('[data-act="opacity-reset"]')?.addEventListener("click", () => {
+    opInputs.forEach((input) => {
+      input.value = surfaceDefault(input.dataset.opacity);
+      paintOpacity(input);
+    });
+    persist({ surfaceOpacity: {} });
   });
 
   /* --- Live2D 模型目录概览（目录里新增模型会自动出现） --- */

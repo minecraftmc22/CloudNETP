@@ -102,7 +102,7 @@ export function renderFiles(root) {
     <div class="drop-mask" data-drop>
       <div class="drop-mask__inner">
         <svg class="icon"><use href="#i-upload"/></svg>
-        <span>松手即上传到当前目录</span>
+        <span>松手即上传到当前目录，文件夹会保留原有目录结构</span>
       </div>
     </div>
   `;
@@ -583,9 +583,19 @@ export function renderFiles(root) {
   /* 上传                                                                */
   /* ------------------------------------------------------------------ */
   /** 上传队列：文件级并发 2，单个文件内部再按分片并发 3。 */
-  function uploadFiles(fileList) {
+  function uploadFiles(fileList, targetParent = state.parentId) {
     const files = [...fileList].filter((file) => file.size > 0);
     if (!files.length) {
+      Toast.warn("空文件不会被上传");
+      return;
+    }
+    enqueueUploads(files.map((file) => ({ file, parentId: targetParent })));
+  }
+
+  /** entries: [{ file, parentId }]，文件夹拖入会先建好目录再逐个入队 */
+  function enqueueUploads(entries) {
+    const items = entries.filter((entry) => entry.file && entry.file.size > 0);
+    if (!items.length) {
       Toast.warn("空文件不会被上传");
       return;
     }
@@ -595,10 +605,10 @@ export function renderFiles(root) {
       searchEl.value = "";
     }
 
-    const targetParent = state.parentId;
-    const jobs = files.map((file) => ({
+    const jobs = items.map(({ file, parentId }) => ({
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       file,
+      parentId,
       loaded: 0,
       phase: "pending",
       ratio: 0,
@@ -628,7 +638,7 @@ export function renderFiles(root) {
         cursor += 1;
         if (index >= jobs.length) return;
         const job = jobs[index];
-        await runJob(job, targetParent);
+        await runJob(job);
         finished += 1;
         if (finished >= total) {
           await finishBatch(jobs);
@@ -640,7 +650,7 @@ export function renderFiles(root) {
     for (let i = 0; i < Math.min(UPLOAD_CONCURRENCY, jobs.length); i += 1) worker();
   }
 
-  async function runJob(job, parentId) {
+  async function runJob(job) {
     if (job.status === "canceled") return;
     job.error = "";
     job.controller = new AbortController();
@@ -651,7 +661,7 @@ export function renderFiles(root) {
     try {
       const result = await uploadFile({
         file: job.file,
-        parentId,
+        parentId: job.parentId,
         signal: job.controller.signal,
         onPhase: (phase, ratio) => {
           job.phase = phase;
@@ -703,6 +713,183 @@ export function renderFiles(root) {
       renderUploadPanel();
       guardUnload();
     }, 2600);
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* 拖入文件 / 文件夹                                                    */
+  /* ------------------------------------------------------------------ */
+  const DROP_MAX_FILES = 2000;
+  const DROP_MAX_DEPTH = 12;
+  const DROP_IGNORED = /^(\.DS_Store|Thumbs\.db|desktop\.ini)$/i;
+
+  const entryFile = (entry) => new Promise((resolve, reject) => entry.file(resolve, reject));
+  const readDirBatch = (reader) =>
+    new Promise((resolve, reject) => reader.readEntries(resolve, reject));
+
+  /** 把 DataTransfer 展开成 [{file, relPath}] 和目录路径列表（空目录也保留） */
+  async function collectDropped(dataTransfer) {
+    const items = [...(dataTransfer.items || [])];
+    const roots = items
+      .map((item) => (item.kind === "file" && item.webkitGetAsEntry ? item.webkitGetAsEntry() : null))
+      .filter(Boolean);
+    const files = [];
+    const dirs = [];
+
+    if (!roots.length) {
+      return {
+        files: [...(dataTransfer.files || [])].map((file) => ({ file, relPath: "" })),
+        dirs,
+        truncated: false,
+      };
+    }
+
+    let truncated = false;
+
+    const pushFile = async (entry, prefix) => {
+      if (DROP_IGNORED.test(entry.name)) return;
+      try {
+        files.push({ file: await entryFile(entry), relPath: prefix + entry.name });
+      } catch {
+        /* 单个文件读不出来就跳过，不影响其它文件 */
+      }
+    };
+
+    const walk = async (dir, prefix, depth) => {
+      if (depth > DROP_MAX_DEPTH) {
+        truncated = true;
+        return;
+      }
+      dirs.push(prefix.replace(/\/$/, ""));
+      const reader = dir.createReader();
+      for (;;) {
+        let batch = [];
+        try {
+          batch = await readDirBatch(reader);
+        } catch {
+          break;
+        }
+        if (!batch.length) break;
+        for (const child of batch) {
+          if (files.length >= DROP_MAX_FILES) {
+            truncated = true;
+            return;
+          }
+          if (child.isFile) await pushFile(child, prefix);
+          else if (child.isDirectory) await walk(child, `${prefix}${child.name}/`, depth + 1);
+        }
+      }
+    };
+
+    for (const entry of roots) {
+      if (entry.isFile) await pushFile(entry, "");
+      else if (entry.isDirectory) await walk(entry, `${entry.name}/`, 0);
+    }
+    return { files, dirs, truncated };
+  }
+
+  /** 按相对路径逐级建目录；同名文件夹直接复用，拖第二次不会出现「项目 (1)」 */
+  async function ensureDropTree(dirPaths, rootParent) {
+    const dirIds = new Map(); // "a/b" -> folderId
+    const childCache = new Map(); // parentId -> Map(name -> id)
+
+    if (!state.searchMode) {
+      const seeded = new Map();
+      for (const item of state.items) if (item.type === "folder") seeded.set(item.name, item.id);
+      childCache.set(rootParent, seeded);
+    }
+
+    async function childrenOf(parentId) {
+      if (!childCache.has(parentId)) {
+        const params = new URLSearchParams({ sort: "name", order: "asc" });
+        if (parentId !== null && parentId !== undefined) params.set("parentId", String(parentId));
+        const data = await api.get(`/api/nodes?${params.toString()}`);
+        const map = new Map();
+        for (const item of data.items || []) if (item.type === "folder") map.set(item.name, item.id);
+        childCache.set(parentId, map);
+      }
+      return childCache.get(parentId);
+    }
+
+    async function ensure(path) {
+      if (dirIds.has(path)) return dirIds.get(path);
+      let parentId = rootParent;
+      let prefix = "";
+      for (const part of path.split("/").filter(Boolean)) {
+        prefix = prefix ? `${prefix}/${part}` : part;
+        if (dirIds.has(prefix)) {
+          parentId = dirIds.get(prefix);
+          continue;
+        }
+        const kids = await childrenOf(parentId);
+        let id = kids.get(part);
+        if (!id) {
+          const res = await api.post("/api/nodes/folder", { parentId, name: part });
+          id = res.node.id;
+          kids.set(part, id);
+        }
+        dirIds.set(prefix, id);
+        parentId = id;
+      }
+      return parentId;
+    }
+
+    const ordered = [...new Set(dirPaths.filter(Boolean))].sort(
+      (a, b) => a.split("/").length - b.split("/").length
+    );
+    for (const path of ordered) await ensure(path);
+    return ensure;
+  }
+
+  /** 拖拽入口：平铺文件直接传，带目录的先建结构再按目标目录上传 */
+  async function uploadDropped(dataTransfer) {
+    let collected;
+    try {
+      collected = await collectDropped(dataTransfer);
+    } catch {
+      collected = {
+        files: [...(dataTransfer.files || [])].map((file) => ({ file, relPath: "" })),
+        dirs: [],
+        truncated: false,
+      };
+    }
+
+    const files = collected.files.filter((item) => item.file && item.file.size > 0);
+    if (!files.length && !collected.dirs.length) {
+      Toast.warn("没有可上传的文件（空文件会被跳过）");
+      return;
+    }
+    if (collected.truncated) {
+      Toast.warn(`一次最多处理 ${DROP_MAX_FILES} 个文件，超出的部分已忽略`);
+    }
+
+    const rootParent = state.parentId;
+    const nested = files.some((item) => item.relPath.includes("/")) || collected.dirs.length > 0;
+    if (!nested) {
+      enqueueUploads(files.map((item) => ({ file: item.file, parentId: rootParent })));
+      return;
+    }
+
+    if (collected.dirs.length) Toast.info(`正在创建 ${collected.dirs.length} 个文件夹…`);
+    let ensure;
+    try {
+      ensure = await ensureDropTree(collected.dirs, rootParent);
+    } catch (err) {
+      Toast.error(`文件夹创建失败：${err.message || "请稍后重试"}`);
+      return;
+    }
+
+    const prepared = [];
+    for (const item of files) {
+      const slash = item.relPath.lastIndexOf("/");
+      const dir = slash > 0 ? item.relPath.slice(0, slash) : "";
+      prepared.push({ file: item.file, parentId: dir ? await ensure(dir) : rootParent });
+    }
+    if (!prepared.length) {
+      Toast.success(`已创建 ${collected.dirs.length} 个文件夹（空文件未上传）`);
+      await load({ keepScroll: true });
+      return;
+    }
+    enqueueUploads(prepared);
   }
 
   /* ------------------------------------------------------------------ */
@@ -992,7 +1179,7 @@ export function renderFiles(root) {
     event.preventDefault();
     dragDepth = 0;
     dropMask.classList.remove("is-on");
-    uploadFiles(event.dataTransfer.files);
+    uploadDropped(event.dataTransfer);
   });
 
   // 键盘

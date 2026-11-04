@@ -59,6 +59,7 @@ def user_payload(db: Session, user: User) -> dict[str, Any]:
             "navCollapsed": bool(s.nav_collapsed),
             "shareShowName": bool(s.share_show_name),
             "lyricsStyle": s.lyrics_style or {},
+            "surfaceOpacity": s.surface_opacity or {},
         },
     }
 
