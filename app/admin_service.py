@@ -333,6 +333,8 @@ def settings_payload(db: Session) -> dict:
         "contactQq": values.get("contact_qq", ""),
         "autoUpdateCheck": str(values.get("auto_update_check", "0")).strip()
         in {"1", "true", "yes", "on"},
+        "autoUpdate": str(values.get("auto_update", "0")).strip()
+        in {"1", "true", "yes", "on"},
         "runtime": {
             "version": settings.VERSION,
             "database": "mysql" if settings.DATABASE_URL.startswith("mysql") else "sqlite",

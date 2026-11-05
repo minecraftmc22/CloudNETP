@@ -204,6 +204,8 @@ class AdminSettingsIn(CamelModel):
     contact_qq: str | None = Field(default=None, max_length=32)
     # 自动检查 GitHub 新版本（只提示，不执行更新）
     auto_update_check: bool | None = None
+    # 发现新版本后自动拉取并重启
+    auto_update: bool | None = None
 
 
 class AdminLogPurgeIn(CamelModel):
@@ -219,6 +221,10 @@ class FeedbackIn(CamelModel):
 
 class FeedbackStatusIn(CamelModel):
     status: Literal[0, 1]
+
+
+class UpdateApplyIn(CamelModel):
+    restart: bool = True
 
 
 class AdminGcIn(CamelModel):

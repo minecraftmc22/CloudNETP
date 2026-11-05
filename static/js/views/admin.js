@@ -10,7 +10,7 @@ import { Dialog } from "../ui/dialog.js";
 import { openMenu } from "../ui/menu.js";
 import { copyText } from "../ui/share.js";
 import { Toast } from "../ui/toast.js";
-import { checkForUpdates, updateResultHtml } from "../ui/update.js";
+import { checkForUpdates, updateResultHtml, applyResultHtml } from "../ui/update.js";
 
 const TABS = [
   { id: "overview", label: "概览", icon: "i-chart" },
@@ -1327,7 +1327,7 @@ export function renderAdmin(root) {
         <div class="setting-row">
           <div class="setting-row__main">
             <div class="setting-row__label">自动检查更新</div>
-            <div class="setting-row__desc">管理员登录后台时每天最多检查一次 GitHub main 分支；只提示，不会自动改代码或重启服务</div>
+            <div class="setting-row__desc">管理员登录后台时每天最多检查一次 GitHub main 分支；只提示，不改代码</div>
           </div>
           <label class="switch">
             <input type="checkbox" data-key="autoUpdateCheck" ${settings.autoUpdateCheck ? "checked" : ""}>
@@ -1336,10 +1336,21 @@ export function renderAdmin(root) {
         </div>
         <div class="setting-row">
           <div class="setting-row__main">
-            <div class="setting-row__label">立即检查</div>
-            <div class="setting-row__desc">读取远端 main 的版本号与最新提交；私有仓库需要在 .env 配置 UPDATE_TOKEN（Contents: Read）</div>
+            <div class="setting-row__label">自动更新</div>
+            <div class="setting-row__desc">后台每 6 小时检查一次，发现新版本自动拉取并重启服务；仅在 main 分支且工作区干净时执行</div>
+          </div>
+          <label class="switch">
+            <input type="checkbox" data-key="autoUpdate" ${settings.autoUpdate ? "checked" : ""}>
+            <span class="switch__track"><span class="switch__knob"></span></span>
+          </label>
+        </div>
+        <div class="setting-row">
+          <div class="setting-row__main">
+            <div class="setting-row__label">手动更新</div>
+            <div class="setting-row__desc">立即执行 git fetch + fast-forward 并重启；有未提交改动会拒绝。私有仓库需要 UPDATE_TOKEN 或可用的 git 凭据</div>
           </div>
           <button class="btn" type="button" data-act="check-update">检查更新</button>
+          <button class="btn" type="button" data-act="apply-update">立即更新</button>
         </div>
         <p class="admin-hint" data-update-result hidden></p>
         <div class="admin-card__foot">
@@ -1399,6 +1410,42 @@ export function renderAdmin(root) {
           )}</span>`;
         }
       } finally {
+        updateBtn.disabled = false;
+      }
+    });
+
+    const applyBtn = panel.querySelector('[data-act="apply-update"]');
+    applyBtn?.addEventListener("click", async () => {
+      const ok = await Dialog.confirm({
+        title: "立即更新",
+        message:
+          "将从 GitHub 拉取 main 分支并重启服务，期间会短暂断线。<br>" +
+          "要求当前在 <b>main</b> 分支且工作区没有未提交改动；重启后页面会自动重连。",
+        confirmText: "开始更新",
+        danger: true,
+      });
+      if (!ok) return;
+      applyBtn.disabled = true;
+      updateBtn.disabled = true;
+      if (updateResult) {
+        updateResult.hidden = false;
+        updateResult.innerHTML = `<span class="update-state">正在拉取并合并…</span>`;
+      }
+      try {
+        const data = await api.post("/api/admin/update/apply", { restart: true });
+        if (updateResult) updateResult.innerHTML = applyResultHtml(data);
+        if (data.ok && data.updated) {
+          Toast.info("更新完成，服务正在重启…");
+          window.setTimeout(() => location.reload(), 9000);
+        }
+      } catch (err) {
+        if (updateResult) {
+          updateResult.innerHTML = `<span class="update-state is-error">更新失败：${escapeHtml(
+            err.message || "网络不可达"
+          )}</span>`;
+        }
+      } finally {
+        applyBtn.disabled = false;
         updateBtn.disabled = false;
       }
     });

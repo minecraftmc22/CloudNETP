@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -53,6 +54,10 @@ def main(force_reload: bool = False) -> int:
         print("  警告      SECRET_KEY 未配置，重启后所有会话失效", flush=True)
 
     reload = force_reload or settings.RELOAD
+    # 让子进程知道当前是 uvicorn 热重载模式：自动更新后靠 WatchFiles 重启，
+    # 不要再额外拉起 restart_helper，否则会抢同一个端口。
+    if reload:
+        os.environ["CLOUDNETP_RELOAD"] = "1"
     uvicorn.run(
         "app.main:app",
         host=settings.HOST,

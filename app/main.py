@@ -70,6 +70,10 @@ async def lifespan(app: FastAPI):
     if settings.SECRET_KEY_IS_EPHEMERAL:
         logger.warning("SECRET_KEY 未配置，使用临时密钥：重启后所有会话失效，请在 .env 中设置。")
     _startup_maintenance()
+    # 自动更新看门狗：默认关闭，管理员在后台开启后每 6 小时检查一次
+    from . import update_service
+
+    update_service.start_auto_watcher()
     logger.info(
         "监听配置 %s://%s:%s（.env）| 若与 uvicorn 打印的地址不一致，说明启动方式没走 run.py / main.py",
         settings.scheme,

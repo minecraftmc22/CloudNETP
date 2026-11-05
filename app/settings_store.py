@@ -20,6 +20,8 @@ DEFAULTS: dict[str, str] = {
     "contact_qq": "",
     # 管理员开关：登录后自动检查 GitHub main 有没有新版本（只提示，不自动更新）
     "auto_update_check": "0",
+    # 管理员开关：后台每 6 小时检查一次，发现新版本自动拉取并重启
+    "auto_update": "0",
 }
 
 

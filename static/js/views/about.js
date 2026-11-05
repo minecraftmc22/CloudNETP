@@ -67,6 +67,16 @@ const AUTHOR = {
 
 const CHANGELOG = [
   {
+    version: "0.3.35",
+    title: "自动更新与手动更新",
+    items: [
+      "后台「版本更新」新增自动更新开关：每 6 小时检查一次，发现新版本自动拉取并重启（默认关闭）",
+      "新增「立即更新」：确认后执行 git fetch + fast-forward 合并，依赖有变化才 pip install，然后重启服务",
+      "安全限制：只支持 main 分支、工作区必须干净；不会覆盖本地提交，失败会保留原代码并提示原因",
+      "开发热重载模式交给 uvicorn 自动重启；生产模式用独立 helper 等端口释放后拉起 run.py",
+    ],
+  },
+  {
     version: "0.3.34",
     title: "意见反馈页",
     items: [
