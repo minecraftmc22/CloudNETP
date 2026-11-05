@@ -10,6 +10,7 @@ import { Dialog } from "../ui/dialog.js";
 import { openMenu } from "../ui/menu.js";
 import { copyText } from "../ui/share.js";
 import { Toast } from "../ui/toast.js";
+import { checkForUpdates, updateResultHtml } from "../ui/update.js";
 
 const TABS = [
   { id: "overview", label: "概览", icon: "i-chart" },
@@ -1168,6 +1169,31 @@ export function renderAdmin(root) {
         </div>
       </section>
 
+      <section class="settings-card" data-card="update">
+        <div class="settings-card__head"><svg class="icon icon--s"><use href="#i-refresh"/></svg>版本更新</div>
+        <div class="setting-row">
+          <div class="setting-row__main">
+            <div class="setting-row__label">自动检查更新</div>
+            <div class="setting-row__desc">管理员登录后台时每天最多检查一次 GitHub main 分支；只提示，不会自动改代码或重启服务</div>
+          </div>
+          <label class="switch">
+            <input type="checkbox" data-key="autoUpdateCheck" ${settings.autoUpdateCheck ? "checked" : ""}>
+            <span class="switch__track"><span class="switch__knob"></span></span>
+          </label>
+        </div>
+        <div class="setting-row">
+          <div class="setting-row__main">
+            <div class="setting-row__label">立即检查</div>
+            <div class="setting-row__desc">读取远端 main 的版本号与最新提交；私有仓库需要在 .env 配置 UPDATE_TOKEN（Contents: Read）</div>
+          </div>
+          <button class="btn" type="button" data-act="check-update">检查更新</button>
+        </div>
+        <p class="admin-hint" data-update-result hidden></p>
+        <div class="admin-card__foot">
+          <button class="btn btn--accent" type="button" data-save="update">保存更新设置</button>
+        </div>
+      </section>
+
       <section class="settings-card">
         <div class="settings-card__head"><svg class="icon icon--s"><use href="#i-database"/></svg>维护</div>
         <div class="setting-row">
@@ -1202,6 +1228,28 @@ export function renderAdmin(root) {
     panel.querySelector('[data-act="purge-logs"]')?.addEventListener("click", purgeLogs);
     panel.querySelector('[data-act="blob-gc"]')?.addEventListener("click", blobGc);
 
+    const updateBtn = panel.querySelector('[data-act="check-update"]');
+    const updateResult = panel.querySelector("[data-update-result]");
+    updateBtn?.addEventListener("click", async () => {
+      updateBtn.disabled = true;
+      if (updateResult) {
+        updateResult.hidden = false;
+        updateResult.innerHTML = `<span class="update-state">正在检查 GitHub…</span>`;
+      }
+      try {
+        const data = await checkForUpdates(true);
+        if (updateResult) updateResult.innerHTML = updateResultHtml(data);
+      } catch (err) {
+        if (updateResult) {
+          updateResult.innerHTML = `<span class="update-state is-error">检查失败：${escapeHtml(
+            err.message || "网络不可达"
+          )}</span>`;
+        }
+      } finally {
+        updateBtn.disabled = false;
+      }
+    });
+
     async function saveCard(btn) {
       const card = btn.closest("[data-card]");
       let payload;
@@ -1222,6 +1270,7 @@ export function renderAdmin(root) {
         if (payload.siteName !== undefined || payload.siteAnnouncement !== undefined || payload.allowRegister !== undefined) {
           await refreshMeta();
         }
+        if (payload.autoUpdateCheck !== undefined) await refreshMeta();
         void res;
       } catch (err) {
         Toast.error(err.message);

@@ -331,6 +331,8 @@ def settings_payload(db: Session) -> dict:
         # 找回密码兜底联系方式
         "contactEmail": values.get("contact_email", ""),
         "contactQq": values.get("contact_qq", ""),
+        "autoUpdateCheck": str(values.get("auto_update_check", "0")).strip()
+        in {"1", "true", "yes", "on"},
         "runtime": {
             "version": settings.VERSION,
             "database": "mysql" if settings.DATABASE_URL.startswith("mysql") else "sqlite",

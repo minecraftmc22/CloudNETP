@@ -202,6 +202,8 @@ class AdminSettingsIn(CamelModel):
     # 找回密码兜底联系方式（留空则页面不展示）
     contact_email: str | None = Field(default=None, max_length=254)
     contact_qq: str | None = Field(default=None, max_length=32)
+    # 自动检查 GitHub 新版本（只提示，不执行更新）
+    auto_update_check: bool | None = None
 
 
 class AdminLogPurgeIn(CamelModel):

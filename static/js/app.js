@@ -18,6 +18,7 @@ import { Toast } from "./ui/toast.js";
 import { openMenu } from "./ui/menu.js";
 import { installState, promptInstall, registerPwa } from "./pwa.js";
 import { initLive2DMascot } from "./ui/live2d.js";
+import { checkForUpdates } from "./ui/update.js";
 import { renderAuth } from "./views/auth.js";
 import { renderAdmin } from "./views/admin.js";
 import { renderAbout } from "./views/about.js";
@@ -141,6 +142,48 @@ function enterApp(user) {
 
   setupMascot(user);
   updateThemeIcon();
+  void autoCheckUpdates(user);
+}
+
+/**
+ * 满足条件时在后台查一次新版本（管理员 + 系统设置开启），每天最多一次。
+ * 只提示，不会改代码或重启；失败完全静默，不打扰使用。
+ */
+async function autoCheckUpdates(user) {
+  if (user?.role !== 1 || !store.get().meta?.autoUpdateCheck) return;
+  const now = Date.now();
+  try {
+    const last = Number(localStorage.getItem("cn:update-check-at")) || 0;
+    if (now - last < 24 * 60 * 60 * 1000) return;
+  } catch {
+    return;
+  }
+  try {
+    const data = await checkForUpdates(false);
+    if (!data?.ok) return;
+    // 只有检查成功才记时间；网络失败下次登录还能再试
+    try {
+      localStorage.setItem("cn:update-check-at", String(now));
+    } catch {
+      /* 忽略 */
+    }
+    if (!data.hasUpdate || !data.latest) return;
+    let seen = "";
+    try {
+      seen = localStorage.getItem("cn:update-seen") || "";
+    } catch {
+      /* 忽略 */
+    }
+    if (seen === data.latest) return;
+    try {
+      localStorage.setItem("cn:update-seen", data.latest);
+    } catch {
+      /* 忽略 */
+    }
+    Toast.info(`发现新版本 v${data.latest}，可在「关于」页查看更新信息`);
+  } catch {
+    /* 网络不可达就静默跳过 */
+  }
 }
 
 /* ------------------------------------------------------------------ */

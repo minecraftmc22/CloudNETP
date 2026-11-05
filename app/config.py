@@ -73,7 +73,7 @@ def _compose_database_url() -> str:
 class Settings:
     # ---- 应用 ----
     APP_NAME: str = _get("APP_NAME", "CloudNETP")
-    VERSION: str = "0.3.31"
+    VERSION: str = "0.3.32"
     DEBUG: bool = _get_bool("DEBUG", True)
 
     # ---- 监听与对外地址 ----
@@ -96,6 +96,14 @@ class Settings:
     PREVIEW_CHROMECAST: bool = _get_bool("PREVIEW_CHROMECAST", False)
     # VAST 贴片广告地址，留空即不挂广告插件
     PREVIEW_VAST_TAG: str = _get("PREVIEW_VAST_TAG")
+
+    # ---- 更新检查 ----
+    # 只读 GitHub main 分支的版本号，不会改代码；仓库格式 owner/repo
+    UPDATE_REPO: str = _get("UPDATE_REPO", "minecraftmc22/CloudNETP")
+    # 国内直连 GitHub 常被重置，可填本地代理，例如 http://127.0.0.1:7897
+    UPDATE_PROXY: str = _get("UPDATE_PROXY").strip()
+    # 私有仓库需要只读令牌（fine-grained PAT 勾选 Contents: Read 即可）
+    UPDATE_TOKEN: str = _get("UPDATE_TOKEN").strip()
 
     # ---- 安全 ----
     SECRET_KEY: str = _get("SECRET_KEY") or secrets.token_hex(32)

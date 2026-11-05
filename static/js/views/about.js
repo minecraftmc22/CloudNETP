@@ -5,6 +5,7 @@ import { escapeHtml } from "../api.js";
 import { store, siteOrigin } from "../store.js";
 import { Toast } from "../ui/toast.js";
 import { copyText } from "../ui/share.js";
+import { checkForUpdates, updateResultHtml } from "../ui/update.js";
 
 const FEATURES = [
   {
@@ -65,6 +66,16 @@ const AUTHOR = {
 };
 
 const CHANGELOG = [
+  {
+    version: "0.3.32",
+    title: "检查更新与自动提示",
+    items: [
+      "关于页新增「检查更新」：读取 GitHub main 的版本号与最新提交，有新版本时给出提交链接",
+      "管理后台「系统设置 → 版本更新」可开启自动检查：管理员每天最多查一次，登录时提示新版本",
+      "只读检查，不会自动拉代码或重启服务；结果缓存 10 分钟，手动刷新最快 30 秒一次",
+      "私有仓库需在 .env 配置只读 UPDATE_TOKEN（Contents: Read）；国内网络可配 UPDATE_PROXY",
+    ],
+  },
   {
     version: "0.3.31",
     title: "看板娘可拖动、可调大小",
@@ -341,8 +352,12 @@ export function renderAbout(root) {
               <span class="about-dot">·</span>
               <span class="about-hero__who">当前登录 <b>${escapeHtml(user?.displayName || user?.username || "—")}</b></span>
             </div>
+            <p class="about-update" data-update-status hidden></p>
           </div>
           <div class="about-hero__side">
+            <button class="btn" type="button" data-act="check-update">
+              <svg class="icon icon--s"><use href="#i-refresh"/></svg>检查更新
+            </button>
             <button class="btn" type="button" data-act="copy">
               <svg class="icon icon--s"><use href="#i-link"/></svg>复制地址
             </button>
@@ -464,6 +479,28 @@ export function renderAbout(root) {
   root.querySelector('[data-act="copy"]')?.addEventListener("click", async () => {
     if (await copyText(`${origin}/`)) Toast.success("地址已复制");
     else Toast.error("复制失败，请手动选中地址");
+  });
+
+  const checkBtn = root.querySelector('[data-act="check-update"]');
+  const updateStatus = root.querySelector("[data-update-status]");
+  checkBtn?.addEventListener("click", async () => {
+    checkBtn.disabled = true;
+    if (updateStatus) {
+      updateStatus.hidden = false;
+      updateStatus.innerHTML = `<span class="update-state">正在检查 GitHub…</span>`;
+    }
+    try {
+      const data = await checkForUpdates(true);
+      if (updateStatus) updateStatus.innerHTML = updateResultHtml(data);
+    } catch (err) {
+      if (updateStatus) {
+        updateStatus.innerHTML = `<span class="update-state is-error">检查失败：${escapeHtml(
+          err.message || "网络不可达"
+        )}</span>`;
+      }
+    } finally {
+      checkBtn.disabled = false;
+    }
   });
 
   const more = root.querySelector('[data-act="more"]');

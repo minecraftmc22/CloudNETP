@@ -18,6 +18,8 @@ DEFAULTS: dict[str, str] = {
     # 管理员联系方式：找回密码走不通时，页面会引导用户直接联系这个邮箱/QQ
     "contact_email": "",
     "contact_qq": "",
+    # 管理员开关：登录后自动检查 GitHub main 有没有新版本（只提示，不自动更新）
+    "auto_update_check": "0",
 }
 
 

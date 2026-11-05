@@ -126,6 +126,8 @@ def meta(db: Session = Depends(get_db)) -> dict:
         "mailReady": settings.mail_ready,
         "contactEmail": settings_store.get_value(db, "contact_email"),
         "contactQq": settings_store.get_value(db, "contact_qq"),
+        # 管理员开启后，前端登录时自动查一次新版本（只提示）
+        "autoUpdateCheck": settings_store.get_flag(db, "auto_update_check"),
         "preview": {
             "chromecast": settings.PREVIEW_CHROMECAST,
             "vastTag": settings.PREVIEW_VAST_TAG,

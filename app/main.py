@@ -191,6 +191,7 @@ from .routers import dav as dav_router  # noqa: E402
 from .routers import live2d as live2d_router  # noqa: E402
 from .routers import nodes as nodes_router  # noqa: E402
 from .routers import shares as shares_router  # noqa: E402
+from .routers import update as update_router  # noqa: E402
 from .routers import uploads as uploads_router  # noqa: E402
 
 app.include_router(auth_router.router)
@@ -200,6 +201,7 @@ app.include_router(uploads_router.router)
 app.include_router(admin_router.router)
 app.include_router(dav_router.router)
 app.include_router(live2d_router.router)
+app.include_router(update_router.router)
 
 
 @app.get("/s/{token}", include_in_schema=False)
