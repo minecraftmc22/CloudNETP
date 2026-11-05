@@ -34,7 +34,19 @@ _TEMP_ALPHABET = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
 
 def _temp_password(length: int = 12) -> str:
-    return "".join(secrets.choice(_TEMP_ALPHABET) for _ in range(length))
+    """生成临时密码，并保证它本身就满足 password_problem 的规则。
+
+    随机拼 12 位几乎不可能缺数字或小写，但「几乎」不等于「一定」：
+    真抽到全大写时，用户拿临时密码去改密码会被自己的规则拦住。
+    """
+    chars = [secrets.choice(_TEMP_ALPHABET) for _ in range(length)]
+    if not any(ch.isdigit() for ch in chars):
+        chars[0] = secrets.choice("23456789")
+    if not any(ch.islower() for ch in chars):
+        chars[1 if length > 1 else 0] = secrets.choice("abcdefghjkmnpqrstuvwxyz")
+    rng = secrets.SystemRandom()
+    rng.shuffle(chars)
+    return "".join(chars)
 
 
 def _load_user(db: Session, user_id: int) -> User:

@@ -2,6 +2,7 @@
  * 设置视图：外观 / 装饰 / 账号
  */
 import { api, escapeHtml, formatBytes } from "../api.js";
+import { passwordProblem } from "../password.js";
 import { store, siteOrigin } from "../store.js";
 import { Toast } from "../ui/toast.js";
 import { Dialog } from "../ui/dialog.js";
@@ -965,13 +966,19 @@ export function renderSettings(root) {
       confirmText: "保存",
       fields: [
         { name: "oldPassword", label: "当前密码", type: "password", placeholder: "当前密码" },
-        { name: "newPassword", label: "新密码", type: "password", placeholder: "至少 8 位" },
+        {
+          name: "newPassword",
+          label: "新密码",
+          type: "password",
+          placeholder: "至少 8 位，含数字与小写字母",
+          validate: (v) => passwordProblem(v),
+        },
         {
           name: "confirmPassword",
           label: "确认新密码",
           type: "password",
           placeholder: "再输入一次",
-          validate: (v) => (v.length < 8 ? "至少 8 位" : null),
+          validate: (v) => (v ? null : "请再输入一次新密码"),
         },
       ],
     });

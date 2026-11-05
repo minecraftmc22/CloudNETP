@@ -7,6 +7,7 @@
  * - 用户名是否可用、密码强度只是即时反馈，最终以提交时的服务端校验为准
  */
 import { api, ApiError } from "../api.js";
+import { PASSWORD_MAX, passwordProblem, strengthOf } from "../password.js";
 
 const TEMPLATE = `
   <div class="auth-stage">
@@ -66,7 +67,7 @@ const TEMPLATE = `
           <span class="field__label">密码</span>
           <span class="textbox">
             <svg class="icon"><use href="#i-shield"/></svg>
-            <input name="password" type="password" autocomplete="current-password" placeholder="至少 8 位">
+            <input name="password" type="password" autocomplete="current-password" maxlength="${PASSWORD_MAX}" placeholder="至少 8 位，含数字与小写字母">
           </span>
         </label>
 
@@ -140,7 +141,31 @@ const TEMPLATE = `
           <span class="field__label">新密码</span>
           <span class="textbox">
             <svg class="icon"><use href="#i-shield"/></svg>
-            <input name="fnew" type="password" autocomplete="new-password" placeholder="至少 8 位，含数字与小写字母">
+            <input name="fnew" type="password" autocomplete="new-password" maxlength="${PASSWORD_MAX}" placeholder="至少 8 位，含数字与小写字母">
+          </span>
+        </label>
+
+        <div class="pwd" data-fstrength hidden>
+          <div class="pwd__bar">
+            <span class="pwd__cell" data-fcell="0"></span>
+            <span class="pwd__cell" data-fcell="1"></span>
+            <span class="pwd__cell" data-fcell="2"></span>
+            <span class="pwd__cell" data-fcell="3"></span>
+          </div>
+          <span class="pwd__label" data-fstrength-label>密码强度</span>
+          <ul class="pwd__rules">
+            <li data-frule="len"><svg class="icon icon--s"><use href="#i-check"/></svg>至少 8 位</li>
+            <li data-frule="digit"><svg class="icon icon--s"><use href="#i-check"/></svg>包含数字</li>
+            <li data-frule="lower"><svg class="icon icon--s"><use href="#i-check"/></svg>包含小写字母</li>
+            <li data-frule="ascii"><svg class="icon icon--s"><use href="#i-check"/></svg>仅英文/数字/符号</li>
+          </ul>
+        </div>
+
+        <label class="field" data-f-fconfirm hidden>
+          <span class="field__label">确认新密码</span>
+          <span class="textbox">
+            <svg class="icon"><use href="#i-check"/></svg>
+            <input name="fconfirm" type="password" autocomplete="new-password" maxlength="${PASSWORD_MAX}" placeholder="再输入一次">
           </span>
         </label>
 
@@ -159,30 +184,6 @@ const TEMPLATE = `
     </div>
   </div>
 `;
-
-/** 密码强度：长度 + 字符种类，只做提示，不参与最终判定 */
-function strengthOf(password) {
-  const rules = {
-    len: password.length >= 8,
-    digit: /\d/.test(password),
-    lower: /[a-z]/.test(password),
-    uppercase: /[A-Z]/.test(password),
-    symbol: /[^A-Za-z0-9]/.test(password),
-    ascii: password.length > 0 && /^[\x21-\x7e]+$/.test(password),
-  };
-  let score = 0;
-  if (rules.len) score += 1;
-  if (password.length >= 12) score += 1;
-  if (rules.lower && rules.uppercase) score += 1;
-  else if (rules.lower) score += 0.5;
-  if (rules.digit) score += 1;
-  if (rules.symbol) score += 1;
-  if (!rules.ascii) score = 0;
-
-  const level = password ? Math.max(1, Math.min(4, Math.round((score / 5) * 4))) : 0;
-  const label = ["", "弱", "一般", "较强", "很强"][level];
-  return { level, label, rules };
-}
 
 export function renderAuth(root, { meta = {}, onSuccess }) {
   root.innerHTML = TEMPLATE;
@@ -212,6 +213,8 @@ export function renderAuth(root, { meta = {}, onSuccess }) {
   const forgotSub = el("[data-fsub]");
   const forgotEmailField = el("[data-f-femail]");
   const forgotNewField = el("[data-f-fnew]");
+  const forgotStrength = el("[data-fstrength]");
+  const forgotConfirmField = el("[data-f-fconfirm]");
   const forgotHelp = el("[data-fhelp]");
   const forgotSubmit = el("[data-fsubmit]");
 
@@ -310,22 +313,49 @@ export function renderAuth(root, { meta = {}, onSuccess }) {
   }
 
   /* ---------- 密码强度 ---------- */
+  // 注册与重置共用同一套渲染：结构相同，只有外壳的 data 前缀不同
+  function paintStrength(box, value) {
+    if (!box) return;
+    const { level, label, rules } = strengthOf(value);
+    box.dataset.level = String(level);
+    const labelEl = box.querySelector(".pwd__label");
+    if (labelEl) labelEl.textContent = value ? `密码强度：${label}` : "密码强度";
+    box.querySelectorAll(".pwd__cell").forEach((cell, index) => {
+      cell.classList.toggle("is-on", index < level);
+    });
+    box.querySelectorAll(".pwd__rules li").forEach((li) => {
+      const key = li.dataset.rule || li.dataset.frule;
+      li.classList.toggle("is-ok", Boolean(rules[key]));
+    });
+  }
+
   function updateStrength() {
-    const { level, label, rules } = strengthOf(passwordInput.value);
-    strengthBox.dataset.level = String(level);
-    el("[data-strength-label]").textContent = passwordInput.value
-      ? `密码强度：${label}`
-      : "密码强度";
-    strengthBox.querySelectorAll("[data-cell]").forEach((cell) => {
-      cell.classList.toggle("is-on", Number(cell.dataset.cell) < level);
-    });
-    strengthBox.querySelectorAll("[data-rule]").forEach((li) => {
-      li.classList.toggle("is-ok", Boolean(rules[li.dataset.rule]));
-    });
+    paintStrength(strengthBox, passwordInput.value);
+  }
+
+  function updateForgotStrength() {
+    paintStrength(forgotStrength, forgotForm.querySelector('[name="fnew"]').value);
   }
 
   passwordInput.addEventListener("input", () => {
     if (mode === "register") updateStrength();
+  });
+
+  // 重置密码第 3 步：输入新密码时实时给强度与规则勾选，并清掉上一次的报错
+  function clearForgotMsg() {
+    if (!fmsg.textContent) return;
+    fmsg.textContent = "";
+    fmsg.classList.remove("is-ok");
+  }
+
+  forgotForm.querySelector('[name="fnew"]').addEventListener("input", () => {
+    if (forgotStep !== 3) return;
+    updateForgotStrength();
+    clearForgotMsg();
+  });
+
+  forgotForm.querySelector('[name="fconfirm"]').addEventListener("input", () => {
+    if (forgotStep === 3) clearForgotMsg();
   });
 
   /* ---------- 用户名可用性 ---------- */
@@ -380,13 +410,8 @@ export function renderAuth(root, { meta = {}, onSuccess }) {
       if (usernameOk === false && accountHint.dataset.state === "bad") {
         return showError(accountHint.textContent || "这个用户名不能用");
       }
-      if (password.length < 8) return showError("密码至少 8 位");
-      if (!/\d/.test(password) || !/[a-z]/.test(password)) {
-        return showError("密码需要同时包含数字和小写字母");
-      }
-      if (!/^[\x21-\x7e]+$/.test(password)) {
-        return showError("密码只能用英文、数字和符号，不支持中文或 emoji");
-      }
+      const pwdIssue = passwordProblem(password);
+      if (pwdIssue) return showError(pwdIssue);
       if (password !== confirm) return showError("两次输入的密码不一致");
       if (!captcha) return showError("请输入图形验证码");
     }
@@ -457,7 +482,10 @@ export function renderAuth(root, { meta = {}, onSuccess }) {
 
   function setForgotStep(step) {
     forgotStep = step;
-    forgotNewField.hidden = step !== 3;
+    const onNew = step === 3;
+    forgotNewField.hidden = !onNew;
+    forgotStrength.hidden = !onNew;
+    forgotConfirmField.hidden = !onNew;
     forgotEmailField.hidden = step !== 2;
     const labels = ["下一步", "验证并继续", "重置密码"];
     forgotSubmit.querySelector("span").textContent = labels[step - 1];
@@ -475,6 +503,12 @@ export function renderAuth(root, { meta = {}, onSuccess }) {
     fmsg.classList.remove("is-ok");
     forgotHelp.hidden = true;
     forgotForm.querySelector('[name="faccount"]').value = accountInput.value.trim();
+    // 重置密码的三个输入不留上一次的残留
+    ["femail", "fnew", "fconfirm"].forEach((name) => {
+      const input = forgotForm.querySelector(`[name="${name}"]`);
+      if (input) input.value = "";
+    });
+    paintStrength(forgotStrength, "");
     setForgotStep(1);
     forgotForm.querySelector('[name="faccount"]').focus();
   }
@@ -486,6 +520,11 @@ export function renderAuth(root, { meta = {}, onSuccess }) {
     links.hidden = false;
     setMode(mode);
     resetToken = "";
+    ["femail", "fnew", "fconfirm"].forEach((name) => {
+      const input = forgotForm.querySelector(`[name="${name}"]`);
+      if (input) input.value = "";
+    });
+    paintStrength(forgotStrength, "");
     setForgotStep(1);
   }
 
@@ -504,6 +543,7 @@ export function renderAuth(root, { meta = {}, onSuccess }) {
     const account = forgotForm.querySelector('[name="faccount"]').value.trim();
     const email = forgotForm.querySelector('[name="femail"]').value.trim();
     const newPassword = forgotForm.querySelector('[name="fnew"]').value;
+    const confirmNew = forgotForm.querySelector('[name="fconfirm"]').value;
 
     forgotSubmit.dataset.busy = "1";
     forgotSubmit.disabled = true;
@@ -553,10 +593,10 @@ export function renderAuth(root, { meta = {}, onSuccess }) {
         forgotHelp.hidden = true;
         forgotForm.querySelector('[name="fnew"]').focus();
       } else {
-        if (newPassword.length < 8) throw new ApiError("密码至少 8 位", 0);
-        if (!/\d/.test(newPassword) || !/[a-z]/.test(newPassword)) {
-          throw new ApiError("密码需要同时包含数字和小写字母", 0);
-        }
+        // 重置密码与注册用同一套规则；前端先挡一次，后端仍会再校验
+        const pwdIssue = passwordProblem(newPassword);
+        if (pwdIssue) throw new ApiError(pwdIssue, 0);
+        if (newPassword !== confirmNew) throw new ApiError("两次输入的新密码不一致", 0);
         const data = await api.post("/api/auth/reset", { token: resetToken, password: newPassword });
         backToLogin();
         showOk(`@${data.username} 的密码已重置，请用新密码登录。`);
@@ -566,6 +606,12 @@ export function renderAuth(root, { meta = {}, onSuccess }) {
       showError(err instanceof ApiError ? err.message : "操作失败，请稍后再试", fmsg);
     } finally {
       forgotSubmit.innerHTML = original;
+      // 步骤可能在 try 里已经推进，original 是上一步的快照：
+      // 这里按当前步骤重新写一遍文案，否则会退回「验证并继续」甚至「下一步」
+      const labelEl = forgotSubmit.querySelector("span");
+      if (labelEl) {
+        labelEl.textContent = ["下一步", "验证并继续", "重置密码"][forgotStep - 1];
+      }
       forgotSubmit.disabled = false;
       forgotSubmit.dataset.busy = "0";
     }
