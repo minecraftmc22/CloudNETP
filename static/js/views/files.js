@@ -508,6 +508,24 @@ export function renderFiles(root) {
     }
   }
 
+  /** 空白处右键：新建文件夹 / 上传 / 刷新 */
+  function openBlankMenu(x, y) {
+    const where = state.searchMode
+      ? "搜索结果"
+      : state.breadcrumb[state.breadcrumb.length - 1]?.name || "我的文件";
+    openMenu({
+      x,
+      y,
+      header: { name: where, meta: state.searchMode ? "新建会放到根目录" : "当前目录" },
+      items: [
+        { label: "新建文件夹", icon: "i-folder", onClick: createFolder },
+        { sep: true },
+        { label: "上传文件", icon: "i-upload", onClick: () => fileInput.click() },
+        { label: "刷新", icon: "i-refresh", onClick: () => load({ keepScroll: true }) },
+      ],
+    });
+  }
+
   function openItemMenu(x, y, item) {
     const multi = state.selected.size > 1;
     const items = multi
@@ -1153,6 +1171,13 @@ export function renderFiles(root) {
       state.selected.clear();
       updateSelectionStyles();
     }
+  });
+
+  // 空白处右键：新建文件夹等（点在文件/按钮上时交给各自的菜单）
+  bodyEl.addEventListener("contextmenu", (event) => {
+    if (event.target.closest("[data-id], [data-more], button, a, input, label")) return;
+    event.preventDefault();
+    openBlankMenu(event.clientX, event.clientY);
   });
 
   // 拖拽上传
