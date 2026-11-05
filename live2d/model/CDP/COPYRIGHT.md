@@ -13,7 +13,7 @@ CDP娘的角色形象、名称、Live2D 模型及其全部组成文件（包括�
 ## 二、允许的使用
 
 1. 个人学习、研究、欣赏等**非商业**用途；
-2. 在注明「角色：CDP娘 · 作者：Minecraftmc22 · 来源：https://gtnetwork.top」的前提下，
+2. 在注明「角色：CDP娘 · 作者：Minecraftmc22 · 来源：[https://minecraftmc22.top](https://minecraftmc22.top)」的前提下，
    转载角色截图或素材用于介绍、评测；
 3. 部署本开源项目时保留看板娘，用于非商业的个人站点。
 
@@ -37,7 +37,7 @@ CDP娘的角色形象、名称、Live2D 模型及其全部组成文件（包括�
 如需商业授权，请通过以下方式联系：
 
 - GitHub：<https://github.com/minecraftmc22>
-- 站点：<https://gtnetwork.top>
+- 站点：<https://minecraftmc22.top>
 
 ---
 
