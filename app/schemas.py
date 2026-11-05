@@ -210,5 +210,16 @@ class AdminLogPurgeIn(CamelModel):
     days: int = Field(ge=1, le=3650)
 
 
+class FeedbackIn(CamelModel):
+    kind: Literal["suggestion", "bug", "other"] = "suggestion"
+    title: str = Field(default="", max_length=120)
+    content: str = Field(min_length=1, max_length=2000)
+    contact: str = Field(default="", max_length=200)
+
+
+class FeedbackStatusIn(CamelModel):
+    status: Literal[0, 1]
+
+
 class AdminGcIn(CamelModel):
     apply: bool = False

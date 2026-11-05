@@ -24,6 +24,7 @@ import { renderAdmin } from "./views/admin.js";
 import { renderAbout } from "./views/about.js";
 import { renderFiles } from "./views/files.js";
 import { renderSettings } from "./views/settings.js";
+import { renderFeedback } from "./views/feedback.js";
 import { renderShares } from "./views/shares.js";
 import { renderTrash } from "./views/trash.js";
 
@@ -34,6 +35,7 @@ const NAV_ITEMS = [
   { route: "trash", label: "回收站", icon: "i-trash" },
   { group: "系统" },
   { route: "settings", label: "设置", icon: "i-settings" },
+  { route: "feedback", label: "意见反馈", icon: "i-mail" },
   { route: "about", label: "关于", icon: "i-info" },
   { route: "admin", label: "管理后台", icon: "i-shield", adminOnly: true },
 ];
@@ -43,6 +45,7 @@ const TITLES = {
   shares: "我的分享",
   trash: "回收站",
   settings: "设置",
+  feedback: "意见反馈",
   about: "关于",
   admin: "管理后台",
 };
@@ -307,6 +310,7 @@ function route() {
   else if (name === "shares") renderShares(root, { user });
   else if (name === "trash") renderTrash(root, { user });
   else if (name === "settings") renderSettings(root);
+  else if (name === "feedback") renderFeedback(root);
   else if (name === "about") renderAbout(root);
   else if (name === "admin") renderAdmin(root);
   else renderPlaceholder(root, PLACEHOLDERS.admin);

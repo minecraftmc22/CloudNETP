@@ -16,6 +16,7 @@ const TABS = [
   { id: "overview", label: "概览", icon: "i-chart" },
   { id: "users", label: "用户", icon: "i-user" },
   { id: "reports", label: "举报审核", icon: "i-alert" },
+  { id: "feedback", label: "意见反馈", icon: "i-mail" },
   { id: "logs", label: "审计日志", icon: "i-clock" },
   { id: "settings", label: "系统设置", icon: "i-settings" },
 ];
@@ -80,6 +81,7 @@ export function renderAdmin(root) {
     actions: null,
     users: { page: 1, query: "", filter: "all", total: 0 },
     reports: { page: 1, filter: "pending", total: 0 },
+    feedback: { page: 1, filter: "pending", total: 0 },
     logs: { page: 1, query: "", action: "", userId: null, username: "", total: 0 },
   };
 
@@ -131,9 +133,11 @@ export function renderAdmin(root) {
     try {
       data = await api.get("/api/admin/overview");
     } catch (err) {
-      panel.innerHTML = errorBlock(err.message);
+      if (state.tab === "overview") panel.innerHTML = errorBlock(err.message);
       return;
     }
+    // 用户可能在请求返回前就切走了，别把新标签页覆盖掉
+    if (state.tab !== "overview") return;
     const { users: u, nodes: n, shares: s, storage: st, system } = data;
     const quotaPct = percent(u.usedBytes, u.quotaBytes || 1);
     const diskPct = percent(st.diskUsed, st.diskTotal || 1);
@@ -905,6 +909,155 @@ export function renderAdmin(root) {
     return state.actions;
   }
 
+  /* ---------------------------------------------------------------- */
+  /* 意见反馈                                                          */
+  /* ---------------------------------------------------------------- */
+  const FEEDBACK_FILTERS = [
+    { id: "pending", label: "待处理" },
+    { id: "resolved", label: "已处理" },
+    { id: "all", label: "全部" },
+  ];
+
+  async function showFeedback() {
+    panel.innerHTML = `
+      <div class="admin-toolbar">
+        <div class="admin-chips">
+          ${FEEDBACK_FILTERS.map(
+            (f) =>
+              `<button class="admin-chip ${state.feedback.filter === f.id ? "is-active" : ""}" type="button" data-filter="${f.id}">${f.label}</button>`
+          ).join("")}
+        </div>
+        <div class="grow"></div>
+        <span class="admin-count" data-count></span>
+      </div>
+      <div data-list>${loading()}</div>
+      <div class="admin-pager" data-pager></div>`;
+
+    const listEl = panel.querySelector("[data-list]");
+    const countEl = panel.querySelector("[data-count]");
+    const pagerEl = panel.querySelector("[data-pager]");
+
+    panel.querySelectorAll("[data-filter]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        state.feedback.filter = btn.dataset.filter;
+        state.feedback.page = 1;
+        panel.querySelectorAll("[data-filter]").forEach((b) => b.classList.toggle("is-active", b === btn));
+        loadFeedback();
+      });
+    });
+
+    async function loadFeedback() {
+      listEl.innerHTML = loading();
+      const params = new URLSearchParams({
+        status: state.feedback.filter,
+        page: String(state.feedback.page),
+        pageSize: String(PAGE_SIZE),
+      });
+      let data;
+      try {
+        data = await api.get(`/api/admin/feedback?${params}`);
+      } catch (err) {
+        if (state.tab === "feedback") {
+          listEl.innerHTML = errorBlock(err.message);
+          pagerEl.innerHTML = "";
+        }
+        return;
+      }
+      if (state.tab !== "feedback") return;
+      countEl.textContent = `${data.total} 条反馈`;
+      setSub(`${data.total} 条反馈 · ${
+        FEEDBACK_FILTERS.find((f) => f.id === state.feedback.filter)?.label || "全部"
+      }`);
+
+      if (!data.items.length) {
+        listEl.innerHTML = `
+          <div class="empty">
+            <div class="empty__art"><svg class="icon"><use href="#i-mail"/></svg></div>
+            <div class="empty__title">暂无反馈</div>
+            <div class="empty__desc">用户从「意见反馈」页提交后会出现在这里。</div>
+          </div>`;
+        pagerEl.innerHTML = "";
+        return;
+      }
+
+      listEl.innerHTML = `<div class="feedback-list admin-feedback">${data.items
+        .map(
+          (item) => `
+          <article class="fb-item" data-fb="${item.id}">
+            <div class="fb-item__top">
+              <span class="fb-tag fb-tag--${escapeHtml(item.kind)}">${escapeHtml(item.kindLabel)}</span>
+              <span class="fb-status ${item.status ? "is-done" : "is-pending"}">${escapeHtml(item.statusLabel)}</span>
+              <span class="fb-item__user">${escapeHtml(item.displayName || item.username || "未知用户")}${
+                item.displayName && item.displayName !== item.username
+                  ? ` <span class="muted">@${escapeHtml(item.username)}</span>`
+                  : ""
+              }</span>
+              <span class="fb-item__time">${escapeHtml(formatTime(item.createdAt))}</span>
+            </div>
+            ${item.title ? `<div class="fb-item__title">${escapeHtml(item.title)}</div>` : ""}
+            <p class="fb-item__content">${escapeHtml(item.content)}</p>
+            ${item.contact ? `<div class="fb-item__meta">联系方式：${escapeHtml(item.contact)}</div>` : ""}
+            <div class="fb-item__actions">
+              ${
+                item.status
+                  ? `<button class="btn btn--subtle btn--sm" type="button" data-reopen>重新打开</button>`
+                  : `<button class="btn btn--accent btn--sm" type="button" data-resolve>标记已处理</button>`
+              }
+              <button class="btn btn--subtle btn--sm" type="button" data-delete>删除</button>
+            </div>
+          </article>`
+        )
+        .join("")}</div>`;
+
+      listEl.querySelectorAll("[data-fb]").forEach((card) => {
+        const id = Number(card.dataset.fb);
+        const item = data.items.find((entry) => entry.id === id);
+        if (!item) return;
+
+        card.querySelector("[data-resolve]")?.addEventListener("click", () => updateFeedback(item, 1));
+        card.querySelector("[data-reopen]")?.addEventListener("click", () => updateFeedback(item, 0));
+        card.querySelector("[data-delete]")?.addEventListener("click", async () => {
+          const ok = await Dialog.confirm({
+            title: "删除这条反馈",
+            message: `来自 <b>${escapeHtml(item.displayName || item.username || "用户")}</b> 的反馈将被永久删除，不可恢复。`,
+            confirmText: "删除",
+            danger: true,
+          });
+          if (!ok) return;
+          try {
+            await api.del(`/api/admin/feedback/${item.id}`);
+            Toast.success("反馈已删除");
+            loadFeedback();
+          } catch (err) {
+            Toast.error(err.message);
+          }
+        });
+      });
+
+      pagerEl.innerHTML = pagerHtml(state.feedback.page, data.total, PAGE_SIZE);
+      pagerEl.querySelectorAll("[data-page]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const page = Number(btn.dataset.page);
+          if (!page || page === state.feedback.page) return;
+          state.feedback.page = page;
+          loadFeedback();
+        });
+      });
+    }
+
+    async function updateFeedback(item, status) {
+      try {
+        await api.patch(`/api/admin/feedback/${item.id}`, { status });
+        Toast.success(status ? "已标记为已处理" : "已重新打开");
+        loadFeedback();
+      } catch (err) {
+        Toast.error(err.message);
+      }
+    }
+
+    loadFeedback();
+  }
+
   async function showLogs() {
     const actions = await ensureActions();
     panel.innerHTML = `
@@ -1382,6 +1535,7 @@ export function renderAdmin(root) {
     if (name === "overview") showOverview();
     else if (name === "users") showUsers();
     else if (name === "reports") showReports();
+    else if (name === "feedback") showFeedback();
     else if (name === "logs") showLogs();
     else showSettings();
   }

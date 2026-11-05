@@ -222,6 +222,26 @@ class BlockedBlob(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
 
 
+class Feedback(Base):
+    """用户意见反馈：建议 / 问题 / 其他，管理员在后台标记处理。"""
+
+    __tablename__ = "feedback"
+
+    id: Mapped[int] = mapped_column(AutoPK, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False, default="suggestion")
+    title: Mapped[str] = mapped_column(String(120), nullable=False, default="")
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    contact: Mapped[str] = mapped_column(String(200), nullable=False, default="")
+    # 0 待处理，1 已处理
+    status: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=0, index=True)
+    handled_by: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    handled_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
+
+    __table_args__ = (Index("idx_feedback_status", "status", "created_at"),)
+
+
 class AuditLog(Base):
     __tablename__ = "audit_logs"
 
