@@ -190,6 +190,7 @@ settings.live2d_model_dir.mkdir(parents=True, exist_ok=True)
 app.mount("/live2d", StaticFiles(directory=settings.LIVE2D_DIR), name="live2d")
 
 from .routers import admin as admin_router  # noqa: E402
+from .routers import ai as ai_router  # noqa: E402
 from .routers import auth as auth_router  # noqa: E402
 from .routers import dav as dav_router  # noqa: E402
 from .routers import feedback as feedback_router  # noqa: E402
@@ -208,6 +209,7 @@ app.include_router(dav_router.router)
 app.include_router(live2d_router.router)
 app.include_router(feedback_router.router)
 app.include_router(update_router.router)
+app.include_router(ai_router.router)
 
 
 @app.get("/s/{token}", include_in_schema=False)

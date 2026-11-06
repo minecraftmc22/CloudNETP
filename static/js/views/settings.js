@@ -16,6 +16,8 @@ import {
   rememberBackgroundLuma,
 } from "../theme.js";
 import { getMascotScale, setMascotScale } from "../ui/live2d.js";
+import { isMascotLocked, setMascotLocked } from "../ui/mascot-actions.js";
+import { mountAiSettings } from "../ui/ai-config.js";
 
 const THEME_MODES = [
   { value: 0, label: "亮色" },
@@ -158,94 +160,96 @@ export function renderSettings(root) {
 
         <section class="settings-card">
           <div class="settings-card__head"><svg class="icon icon--s"><use href="#i-palette"/></svg>外观</div>
-          <div class="setting-row">
-            <div class="setting-row__main">
-              <div class="setting-row__label">主题模式</div>
-              <div class="setting-row__desc">跟随系统时会随 Windows 深色模式自动切换</div>
-            </div>
-            <div class="segmented segmented--wide" data-theme-seg>
-              <div class="segmented__thumb" data-thumb></div>
-              ${THEME_MODES.map(
-                (m) =>
-                  `<button class="segmented__btn ${m.value === mode ? "is-active" : ""}" type="button" data-mode="${m.value}">${m.label}</button>`
-              ).join("")}
-            </div>
-          </div>
-          <div class="setting-row">
-            <div class="setting-row__main">
-              <div class="setting-row__label">主题色</div>
-              <div class="setting-row__desc">用于选中状态、按钮与进度条；也可以从背景图里取</div>
-            </div>
-            <div class="accent-tools">
-              <div class="swatch-row" data-swatches>
-                ${ACCENT_PRESETS.map(
-                  (c) =>
-                    `<button class="swatch ${c.value === accent ? "is-active" : ""}"
-                       type="button" data-color="${c.value}" title="${c.name}"
-                       style="background:${c.value}"></button>`
-                ).join("")}
-                <label class="swatch swatch--pick ${isPreset ? "" : "is-active"}"
-                       data-swatch-pick title="自定义颜色"
-                       style="${isPreset ? "" : `background:${escapeHtml(accent)}`}">
-                  <input type="color" value="${escapeHtml(accent)}" data-color-pick aria-label="自定义主题色">
-                </label>
+          <div class="settings-card__body">
+            <div class="setting-row">
+              <div class="setting-row__main">
+                <div class="setting-row__label">主题模式</div>
+                <div class="setting-row__desc">跟随系统时会随 Windows 深色模式自动切换</div>
               </div>
-              <button class="btn btn--subtle btn--sm accent-tools__pick" type="button"
-                      data-act="pick-bg" ${s.backgroundImage ? "" : "disabled"}>
-                <svg class="icon icon--s"><use href="#i-image"/></svg>从背景取色
-              </button>
+              <div class="segmented segmented--wide" data-theme-seg>
+                <div class="segmented__thumb" data-thumb></div>
+                ${THEME_MODES.map(
+                  (m) =>
+                    `<button class="segmented__btn ${m.value === mode ? "is-active" : ""}" type="button" data-mode="${m.value}">${m.label}</button>`
+                ).join("")}
+              </div>
             </div>
-          </div>
-          <div class="setting-row">
-            <div class="setting-row__main">
-              <div class="setting-row__label">背景壁纸</div>
-              <div class="setting-row__desc">云母（Mica）底层的取色来源；也可以换成自己的图片</div>
+            <div class="setting-row">
+              <div class="setting-row__main">
+                <div class="setting-row__label">主题色</div>
+                <div class="setting-row__desc">用于选中状态、按钮与进度条；也可以从背景图里取</div>
+              </div>
+              <div class="accent-tools">
+                <div class="swatch-row" data-swatches>
+                  ${ACCENT_PRESETS.map(
+                    (c) =>
+                      `<button class="swatch ${c.value === accent ? "is-active" : ""}"
+                         type="button" data-color="${c.value}" title="${c.name}"
+                         style="background:${c.value}"></button>`
+                  ).join("")}
+                  <label class="swatch swatch--pick ${isPreset ? "" : "is-active"}"
+                         data-swatch-pick title="自定义颜色"
+                         style="${isPreset ? "" : `background:${escapeHtml(accent)}`}">
+                    <input type="color" value="${escapeHtml(accent)}" data-color-pick aria-label="自定义主题色">
+                  </label>
+                </div>
+                <button class="btn btn--subtle btn--sm accent-tools__pick" type="button"
+                        data-act="pick-bg" ${s.backgroundImage ? "" : "disabled"}>
+                  <svg class="icon icon--s"><use href="#i-image"/></svg>从背景取色
+                </button>
+              </div>
             </div>
-            <div class="wallpaper-row" data-wallpapers>
-              ${WALLPAPERS.map(
-                (w) =>
-                  `<button class="wallpaper-opt wp-${w.id} ${w.id === wallpaper ? "is-active" : ""}"
-                     type="button" data-wallpaper="${w.id}">
-                     ${w.id === "plain" ? '<svg class="icon icon--s"><use href="#i-close"/></svg>' : ""}
-                     <span class="wallpaper-opt__name">${w.name}</span>
-                   </button>`
-              ).join("")}
-              <button class="wallpaper-opt wp-custom ${wallpaper === "custom" ? "is-active" : ""}"
-                      type="button" data-wallpaper="custom" data-bg-tile title="上传自己的背景图">
-                <span class="wp-custom__thumb" data-bg-thumb
-                      ${s.backgroundImage ? `style="background-image:url('${escapeHtml(s.backgroundImage)}')"` : ""}></span>
-                <svg class="icon icon--s wp-custom__plus" data-bg-plus ${s.backgroundImage ? "hidden" : ""}><use href="#i-plus"/></svg>
-                <span class="wallpaper-opt__name" data-bg-name>${s.backgroundImage ? "自定义" : "上传图片"}</span>
-                <span class="wp-custom__busy" data-bg-busy hidden><span class="spinner"></span></span>
-              </button>
+            <div class="setting-row">
+              <div class="setting-row__main">
+                <div class="setting-row__label">背景壁纸</div>
+                <div class="setting-row__desc">云母（Mica）底层的取色来源；也可以换成自己的图片</div>
+              </div>
+              <div class="wallpaper-row" data-wallpapers>
+                ${WALLPAPERS.map(
+                  (w) =>
+                    `<button class="wallpaper-opt wp-${w.id} ${w.id === wallpaper ? "is-active" : ""}"
+                       type="button" data-wallpaper="${w.id}">
+                       ${w.id === "plain" ? '<svg class="icon icon--s"><use href="#i-close"/></svg>' : ""}
+                       <span class="wallpaper-opt__name">${w.name}</span>
+                     </button>`
+                ).join("")}
+                <button class="wallpaper-opt wp-custom ${wallpaper === "custom" ? "is-active" : ""}"
+                        type="button" data-wallpaper="custom" data-bg-tile title="上传自己的背景图">
+                  <span class="wp-custom__thumb" data-bg-thumb
+                        ${s.backgroundImage ? `style="background-image:url('${escapeHtml(s.backgroundImage)}')"` : ""}></span>
+                  <svg class="icon icon--s wp-custom__plus" data-bg-plus ${s.backgroundImage ? "hidden" : ""}><use href="#i-plus"/></svg>
+                  <span class="wallpaper-opt__name" data-bg-name>${s.backgroundImage ? "自定义" : "上传图片"}</span>
+                  <span class="wp-custom__busy" data-bg-busy hidden><span class="spinner"></span></span>
+                </button>
+              </div>
             </div>
-          </div>
-          <div class="wallpaper-actions" data-bg-actions ${s.backgroundImage ? "" : "hidden"}>
-            <button class="btn btn--subtle btn--sm" type="button" data-act="bg-replace">换一张</button>
-            <button class="btn btn--subtle btn--sm" type="button" data-act="bg-remove">移除图片</button>
-            <span class="muted" data-bg-note>上传后会从图片里取出现最多的颜色当主题色</span>
-          </div>
-          <input type="file" accept="image/*" hidden data-bg-input>
-          <div class="setting-row setting-row--opacity">
-            <div class="setting-row__main">
-              <div class="setting-row__label">模块不透明度</div>
-              <div class="setting-row__desc">分别控制各块背景的实心程度，0% 完全透明、100% 完全不透明</div>
+            <div class="wallpaper-actions" data-bg-actions ${s.backgroundImage ? "" : "hidden"}>
+              <button class="btn btn--subtle btn--sm" type="button" data-act="bg-replace">换一张</button>
+              <button class="btn btn--subtle btn--sm" type="button" data-act="bg-remove">移除图片</button>
+              <span class="muted" data-bg-note>上传后会从图片里取出现最多的颜色当主题色</span>
             </div>
-            <div class="opacity-list" data-opacity-list>
-              ${opacityRows
-                .map(
-                  (r) => `<label class="opacity-item">
-                    <span class="opacity-item__name">${r.name}</span>
-                    <input type="range" min="0" max="100" step="1" value="${r.value}"
-                           data-opacity="${r.key}" style="--fill:${r.value}%"
-                           aria-label="${r.name}不透明度">
-                    <span class="opacity-item__val" data-opacity-val="${r.key}">${r.value}%</span>
-                  </label>`
-                )
-                .join("")}
-              <div class="opacity-foot">
-                <span class="muted">调低后壁纸会透出来，文字对比度也会下降</span>
-                <button class="btn btn--subtle btn--sm" type="button" data-act="opacity-reset">恢复默认</button>
+            <input type="file" accept="image/*" hidden data-bg-input>
+            <div class="setting-row setting-row--opacity">
+              <div class="setting-row__main">
+                <div class="setting-row__label">模块不透明度</div>
+                <div class="setting-row__desc">分别控制各块背景的实心程度，0% 完全透明、100% 完全不透明</div>
+              </div>
+              <div class="opacity-list" data-opacity-list>
+                ${opacityRows
+                  .map(
+                    (r) => `<label class="opacity-item">
+                      <span class="opacity-item__name">${r.name}</span>
+                      <input type="range" min="0" max="100" step="1" value="${r.value}"
+                             data-opacity="${r.key}" style="--fill:${r.value}%"
+                             aria-label="${r.name}不透明度">
+                      <span class="opacity-item__val" data-opacity-val="${r.key}">${r.value}%</span>
+                    </label>`
+                  )
+                  .join("")}
+                <div class="opacity-foot">
+                  <span class="muted">调低后壁纸会透出来，文字对比度也会下降</span>
+                  <button class="btn btn--subtle btn--sm" type="button" data-act="opacity-reset">恢复默认</button>
+                </div>
               </div>
             </div>
           </div>
@@ -253,163 +257,194 @@ export function renderSettings(root) {
 
         <section class="settings-card">
           <div class="settings-card__head"><svg class="icon icon--s"><use href="#i-star"/></svg>装饰</div>
-          <div class="setting-row">
-            <div class="setting-row__main">
-              <div class="setting-row__label">花瓣飘落</div>
-              <div class="setting-row__desc">极淡的樱瓣粒子，系统开启「减少动态效果」时自动停用</div>
-            </div>
-            <label class="switch">
-              <input type="checkbox" data-toggle="showPetals" ${s.showPetals === false ? "" : "checked"}>
-              <span class="switch__track"><span class="switch__knob"></span></span>
-            </label>
-          </div>
-          <div class="setting-row">
-            <div class="setting-row__main">
-              <div class="setting-row__label">看板娘（Live2D）</div>
-              <div class="setting-row__desc">右下角的 Live2D 模型；把模型文件夹放进服务器的
-                <code>live2d/model/</code> 就会自动出现，不用改代码<span data-live2d-hint></span></div>
-            </div>
-            <label class="switch">
-              <input type="checkbox" data-toggle="showMascot" ${s.showMascot === false ? "" : "checked"}>
-              <span class="switch__track"><span class="switch__knob"></span></span>
-            </label>
-          </div>
-          <div class="setting-row">
-            <div class="setting-row__main">
-              <div class="setting-row__label">看板娘大小</div>
-              <div class="setting-row__desc">拖动滑块缩放；看板娘本身也可以直接拖到任意位置，大小与位置按设备记住</div>
-            </div>
-            <div class="opacity-list mascot-size-list">
-              <label class="opacity-item">
-                <span class="opacity-item__name">缩放</span>
-                <input type="range" min="60" max="180" step="5" value="${mascotScale}" data-mascot-size
-                       style="--fill:${Math.round(((mascotScale - 60) / 120) * 100)}%"
-                       aria-label="看板娘大小">
-                <span class="opacity-item__val" data-mascot-size-val>${mascotScale}%</span>
+          <div class="settings-card__body">
+            <div class="setting-row">
+              <div class="setting-row__main">
+                <div class="setting-row__label">花瓣飘落</div>
+                <div class="setting-row__desc">极淡的樱瓣粒子，系统开启「减少动态效果」时自动停用</div>
+              </div>
+              <label class="switch">
+                <input type="checkbox" data-toggle="showPetals" ${s.showPetals === false ? "" : "checked"}>
+                <span class="switch__track"><span class="switch__knob"></span></span>
               </label>
             </div>
+            <div class="setting-row">
+              <div class="setting-row__main">
+                <div class="setting-row__label">看板娘（Live2D）</div>
+                <div class="setting-row__desc">右下角的 Live2D 模型；把模型文件夹放进服务器的
+                  <code>live2d/model/</code> 就会自动出现，不用改代码<span data-live2d-hint></span></div>
+              </div>
+              <label class="switch">
+                <input type="checkbox" data-toggle="showMascot" ${s.showMascot === false ? "" : "checked"}>
+                <span class="switch__track"><span class="switch__knob"></span></span>
+              </label>
+            </div>
+            <div class="setting-row">
+              <div class="setting-row__main">
+                <div class="setting-row__label">看板娘大小</div>
+                <div class="setting-row__desc">拖动滑块缩放；看板娘本身也可以直接拖到任意位置，大小与位置按设备记住</div>
+              </div>
+              <div class="opacity-list mascot-size-list">
+                <label class="opacity-item">
+                  <span class="opacity-item__name">缩放</span>
+                  <input type="range" min="60" max="180" step="5" value="${mascotScale}" data-mascot-size
+                         style="--fill:${Math.round(((mascotScale - 60) / 120) * 100)}%"
+                         aria-label="看板娘大小">
+                  <span class="opacity-item__val" data-mascot-size-val>${mascotScale}%</span>
+                </label>
+              </div>
+            </div>
+            <div class="setting-row">
+              <div class="setting-row__main">
+                <div class="setting-row__label">锁定看板娘（鼠标穿透）</div>
+                <div class="setting-row__desc">锁定后鼠标直接穿过她，不会挡住下面的文件；也解锁在这里</div>
+              </div>
+              <label class="switch">
+                <input type="checkbox" data-mascot-lock ${isMascotLocked() ? "checked" : ""}>
+                <span class="switch__track"><span class="switch__knob"></span></span>
+              </label>
+            </div>
+          </div>
+        </section>
+
+        <section class="settings-card" data-ai-card>
+          <div class="settings-card__head"><svg class="icon icon--s"><use href="#i-chat"/></svg>看板娘 · 对话设置</div>
+          <div class="settings-card__note">
+            给她接上大模型，右下角就能聊两句。密钥只存在你自己的账号里（服务端加密保存，接口只回掩码）；
+            填好地址和密钥后点「测试连接」会自动拉取模型列表
+          </div>
+          <div class="settings-card__body" data-ai-body>
+            <div class="settings-card__note settings-loading"><span class="spinner"></span> 正在读取配置…</div>
           </div>
         </section>
 
         <section class="settings-card">
           <div class="settings-card__head"><svg class="icon icon--s"><use href="#i-trash"/></svg>文件</div>
-          <div class="setting-row">
-            <div class="setting-row__main">
-              <div class="setting-row__label">回收站</div>
-              <div class="setting-row__desc" data-trash-desc>${trashDesc(s)}</div>
+          <div class="settings-card__body">
+            <div class="setting-row">
+              <div class="setting-row__main">
+                <div class="setting-row__label">回收站</div>
+                <div class="setting-row__desc" data-trash-desc>${trashDesc(s)}</div>
+              </div>
+              <label class="switch">
+                <input type="checkbox" data-toggle="trashEnabled" ${s.trashEnabled === false ? "" : "checked"}>
+                <span class="switch__track"><span class="switch__knob"></span></span>
+              </label>
             </div>
-            <label class="switch">
-              <input type="checkbox" data-toggle="trashEnabled" ${s.trashEnabled === false ? "" : "checked"}>
-              <span class="switch__track"><span class="switch__knob"></span></span>
-            </label>
           </div>
         </section>
 
         <section class="settings-card">
           <div class="settings-card__head"><svg class="icon icon--s"><use href="#i-database"/></svg>WebDAV</div>
-          <div class="setting-row">
-            <div class="setting-row__main">
-              <div class="setting-row__label">挂载地址</div>
-              <div class="setting-row__desc">资源管理器「映射网络驱动器」、Finder「连接服务器」都填这个地址</div>
+          <div class="settings-card__body">
+            <div class="setting-row">
+              <div class="setting-row__main">
+                <div class="setting-row__label">挂载地址</div>
+                <div class="setting-row__desc">资源管理器「映射网络驱动器」、Finder「连接服务器」都填这个地址</div>
+              </div>
+              <div class="dav-addr">
+                <code data-dav-url>—</code>
+                <button class="btn btn--subtle" type="button" data-act="dav-copy">复制</button>
+              </div>
             </div>
-            <div class="dav-addr">
-              <code data-dav-url>—</code>
-              <button class="btn btn--subtle" type="button" data-act="dav-copy">复制</button>
+            <div class="setting-row">
+              <div class="setting-row__main">
+                <div class="setting-row__label">登录凭据<span
+                  class="chip chip--accent chip--action" role="button" tabindex="0" data-act="dav-activate"
+                  ${user?.davReady ? "hidden" : ""}>待激活</span></div>
+                <div class="setting-row__desc">用户名 <b data-dav-user>—</b> · 密码就是当前账号的登录密码<span
+                  data-dav-hint ${user?.davReady ? "hidden" : ""}><br>点右侧「待激活」输入一次密码即可启用，不用重新登录</span></div>
+              </div>
+              <button class="btn" type="button" data-act="dav-help">连接方法</button>
             </div>
-          </div>
-          <div class="setting-row">
-            <div class="setting-row__main">
-              <div class="setting-row__label">登录凭据<span
-                class="chip chip--accent chip--action" role="button" tabindex="0" data-act="dav-activate"
-                ${user?.davReady ? "hidden" : ""}>待激活</span></div>
-              <div class="setting-row__desc">用户名 <b data-dav-user>—</b> · 密码就是当前账号的登录密码<span
-                data-dav-hint ${user?.davReady ? "hidden" : ""}><br>点右侧「待激活」输入一次密码即可启用，不用重新登录</span></div>
-            </div>
-            <button class="btn" type="button" data-act="dav-help">连接方法</button>
           </div>
         </section>
 
         <section class="settings-card">
           <div class="settings-card__head"><svg class="icon icon--s"><use href="#i-share"/></svg>分享</div>
-          <div class="setting-row">
-            <div class="setting-row__main">
-              <div class="setting-row__label">分享页显示完整昵称</div>
-              <div class="setting-row__desc">
-                关闭时别人只能看到昵称前两位（当前显示为「${escapeHtml(maskedPreview)}」），头像也不会外露
+          <div class="settings-card__body">
+            <div class="setting-row">
+              <div class="setting-row__main">
+                <div class="setting-row__label">分享页显示完整昵称</div>
+                <div class="setting-row__desc">
+                  关闭时别人只能看到昵称前两位（当前显示为「${escapeHtml(maskedPreview)}」），头像也不会外露
+                </div>
               </div>
+              <label class="switch">
+                <input type="checkbox" data-toggle="shareShowName" ${s.shareShowName ? "checked" : ""}>
+                <span class="switch__track"><span class="switch__knob"></span></span>
+              </label>
             </div>
-            <label class="switch">
-              <input type="checkbox" data-toggle="shareShowName" ${s.shareShowName ? "checked" : ""}>
-              <span class="switch__track"><span class="switch__knob"></span></span>
-            </label>
           </div>
         </section>
 
         <section class="settings-card">
           <div class="settings-card__head"><svg class="icon icon--s"><use href="#i-user"/></svg>账号</div>
+          <div class="settings-card__body">
 
-          <div class="profile">
-            <button class="profile__avatar" type="button" data-act="avatar" title="更换头像">
-              <span class="profile__avatar-inner" data-avatar>${avatarMarkup(user)}</span>
-              <span class="profile__avatar-mask">
-                <svg class="icon icon--s"><use href="#i-image"/></svg>
-                <span>更换</span>
-              </span>
-              <span class="profile__spinner" data-avatar-busy hidden><span class="spinner"></span></span>
-            </button>
-            <div class="profile__fields">
-              <label class="field">
-                <span class="field__label">昵称</span>
-                <span class="textbox">
-                  <input type="text" data-field="displayName" maxlength="32" autocomplete="nickname"
-                         value="${escapeHtml(user?.displayName || user?.username || "")}">
+            <div class="profile">
+              <button class="profile__avatar" type="button" data-act="avatar" title="更换头像">
+                <span class="profile__avatar-inner" data-avatar>${avatarMarkup(user)}</span>
+                <span class="profile__avatar-mask">
+                  <svg class="icon icon--s"><use href="#i-image"/></svg>
+                  <span>更换</span>
                 </span>
-              </label>
-              <label class="field">
-                <span class="field__label">简介</span>
-                <span class="textbox">
-                  <input type="text" data-field="bio" maxlength="200" autocomplete="off"
-                         placeholder="一句话介绍自己（最多 200 字）" value="${escapeHtml(user?.bio || "")}">
-                </span>
-              </label>
-              <div class="profile__foot">
-                <span class="muted">登录名 <b>${escapeHtml(user?.username || "—")}</b> 不可修改 ·
-                  已用 ${formatBytes(user?.usedBytes || 0)} / ${formatBytes(user?.quotaBytes || 0)}</span>
-                <span style="flex:1"></span>
-                <button class="btn btn--subtle" type="button" data-act="avatar-clear"
-                        ${user?.avatarUrl ? "" : "hidden"}>移除头像</button>
-                <button class="btn btn--accent" type="button" data-act="profile-save">保存资料</button>
+                <span class="profile__spinner" data-avatar-busy hidden><span class="spinner"></span></span>
+              </button>
+              <div class="profile__fields">
+                <label class="field">
+                  <span class="field__label">昵称</span>
+                  <span class="textbox">
+                    <input type="text" data-field="displayName" maxlength="32" autocomplete="nickname"
+                           value="${escapeHtml(user?.displayName || user?.username || "")}">
+                  </span>
+                </label>
+                <label class="field">
+                  <span class="field__label">简介</span>
+                  <span class="textbox">
+                    <input type="text" data-field="bio" maxlength="200" autocomplete="off"
+                           placeholder="一句话介绍自己（最多 200 字）" value="${escapeHtml(user?.bio || "")}">
+                  </span>
+                </label>
+                <div class="profile__foot">
+                  <span class="muted">登录名 <b>${escapeHtml(user?.username || "—")}</b> 不可修改 ·
+                    已用 ${formatBytes(user?.usedBytes || 0)} / ${formatBytes(user?.quotaBytes || 0)}</span>
+                  <span style="flex:1"></span>
+                  <button class="btn btn--subtle" type="button" data-act="avatar-clear"
+                          ${user?.avatarUrl ? "" : "hidden"}>移除头像</button>
+                  <button class="btn btn--accent" type="button" data-act="profile-save">保存资料</button>
+                </div>
               </div>
+              <input type="file" accept="image/*" hidden data-avatar-input>
             </div>
-            <input type="file" accept="image/*" hidden data-avatar-input>
-          </div>
 
-          <div class="setting-row">
-            <div class="setting-row__main">
-              <div class="setting-row__label">邮箱</div>
-              <div class="setting-row__desc" data-email-desc>${
-                user?.email
-                  ? `${escapeHtml(user.email)}${user.emailVerified ? "" : "（未验证）"} · 可用于登录和找回密码`
-                  : "还没有绑定 · 忘记密码时只能联系管理员"
-              }</div>
+            <div class="setting-row">
+              <div class="setting-row__main">
+                <div class="setting-row__label">邮箱</div>
+                <div class="setting-row__desc" data-email-desc>${
+                  user?.email
+                    ? `${escapeHtml(user.email)}${user.emailVerified ? "" : "（未验证）"} · 可用于登录和找回密码`
+                    : "还没有绑定 · 忘记密码时只能联系管理员"
+                }</div>
+              </div>
+              <button class="btn" type="button" data-act="email">${user?.email ? "换绑" : "绑定邮箱"}</button>
             </div>
-            <button class="btn" type="button" data-act="email">${user?.email ? "换绑" : "绑定邮箱"}</button>
+            <div class="setting-row">
+              <div class="setting-row__main">
+                <div class="setting-row__label">登录密码</div>
+                <div class="setting-row__desc">修改后其它设备上的登录状态会立即失效</div>
+              </div>
+              <button class="btn" type="button" data-act="password">修改密码</button>
+            </div>
+            <a class="setting-row setting-row--link" href="#/about">
+              <div class="setting-row__main">
+                <div class="setting-row__label">关于</div>
+                <div class="setting-row__desc" data-version>CloudNETP</div>
+              </div>
+              <span class="chip">${user?.role === 1 ? "管理员" : "普通用户"}</span>
+              <svg class="icon icon--s setting-row__chevron"><use href="#i-chevron"/></svg>
+            </a>
           </div>
-          <div class="setting-row">
-            <div class="setting-row__main">
-              <div class="setting-row__label">登录密码</div>
-              <div class="setting-row__desc">修改后其它设备上的登录状态会立即失效</div>
-            </div>
-            <button class="btn" type="button" data-act="password">修改密码</button>
-          </div>
-          <a class="setting-row setting-row--link" href="#/about">
-            <div class="setting-row__main">
-              <div class="setting-row__label">关于</div>
-              <div class="setting-row__desc" data-version>CloudNETP</div>
-            </div>
-            <span class="chip">${user?.role === 1 ? "管理员" : "普通用户"}</span>
-            <svg class="icon icon--s setting-row__chevron"><use href="#i-chevron"/></svg>
-          </a>
         </section>
 
       </div>
@@ -757,6 +792,22 @@ export function renderSettings(root) {
     paintMascotSize();
     setMascotScale(mascotSize.value);
   });
+
+  /* --- 看板娘锁定（鼠标穿透）：和悬停条上的「锁定」共用一份状态 --- */
+  const lockSwitch = root.querySelector("[data-mascot-lock]");
+  lockSwitch?.addEventListener("change", () => setMascotLocked(lockSwitch.checked));
+  const onMascotLock = (event) => {
+    if (!root.isConnected) {
+      window.removeEventListener("mascot:lock", onMascotLock);
+      return;
+    }
+    if (lockSwitch) lockSwitch.checked = Boolean(event.detail?.locked);
+  };
+  window.addEventListener("mascot:lock", onMascotLock);
+
+  /* --- 看板娘 · 对话设置（异步读配置） --- */
+  const aiCard = root.querySelector("[data-ai-card]");
+  if (aiCard) mountAiSettings(aiCard);
 
   /* --- Live2D 模型目录概览（目录里新增模型会自动出现） --- */
   (async () => {

@@ -77,6 +77,9 @@ class UserSetting(Base):
     lyrics_style: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     # 各模块背景不透明度（JSON：nav/titlebar/panel/dialog，0-100，缺省=主题默认）
     surface_opacity: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    # 看板娘 AI 对话配置（JSON：provider/baseUrl/model/tools/vision/thinking/protocol/
+    # maxInput/maxOutput，以及加密后的 key）；空对象 = 还没配置
+    ai_config: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
 
 
 class AudioPref(Base):

@@ -22,6 +22,8 @@ DEFAULTS: dict[str, str] = {
     "auto_update_check": "0",
     # 管理员开关：后台每 6 小时检查一次，发现新版本自动拉取并重启
     "auto_update": "0",
+    # 看板娘 AI 对话的系统提示词（管理员在 设置 → 看板娘 → AI 设置 里改）
+    "ai_system_prompt": "",
 }
 
 

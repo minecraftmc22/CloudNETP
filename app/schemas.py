@@ -108,6 +108,50 @@ class TrashSwitchIn(CamelModel):
 
 
 # --------------------------------------------------------------------------- #
+# 看板娘 AI 对话
+# --------------------------------------------------------------------------- #
+class AiConfigIn(CamelModel):
+    """AI 接口配置。key 缺省 = 不改；空串 = 清空；"__keep__" 也按不改处理。"""
+
+    provider: Literal["", "openai", "deepseek", "custom"] | None = None
+    base_url: str | None = Field(default=None, max_length=300)
+    model: str | None = Field(default=None, max_length=120)
+    key: str | None = Field(default=None, max_length=400)
+    tools: bool | None = None
+    vision: bool | None = None
+    thinking: bool | None = None
+    # auto = 按地址自动判断；openai / anthropic 为手动指定（给非标准地址用）
+    protocol: Literal["auto", "openai", "anthropic"] | None = None
+    max_input: int | None = Field(default=None, ge=0, le=2_000_000)
+    max_output: int | None = Field(default=None, ge=0, le=2_000_000)
+
+
+class AiProbeIn(CamelModel):
+    """测试连接：允许先不保存，用页面上填的地址/密钥试一次。"""
+
+    base_url: str = Field(default="", max_length=300)
+    key: str = Field(default="", max_length=400)
+    protocol: Literal["auto", "openai", "anthropic"] = "auto"
+
+
+class AiMessageIn(CamelModel):
+    role: Literal["user", "assistant"] = "user"
+    content: str = Field(default="", max_length=20000)
+    # 图片输入：前端压好尺寸的 data URL（data:image/webp;base64,...）
+    images: list[str] = Field(default_factory=list)
+
+
+class AiChatIn(CamelModel):
+    messages: list[AiMessageIn] = Field(default_factory=list, max_length=60)
+    # 管理员维护的系统提示词只读预览用不到，这里留给将来扩展
+    stream: bool = True
+
+
+class AiPromptIn(CamelModel):
+    prompt: str = Field(default="", max_length=8000)
+
+
+# --------------------------------------------------------------------------- #
 # 文件与目录
 # --------------------------------------------------------------------------- #
 class FolderIn(CamelModel):

@@ -97,6 +97,8 @@ _COLUMN_PATCHES: dict[str, dict[str, str]] = {
         "lyrics_style": "JSON NULL",
         "background_image": "VARCHAR(64) NULL",
         "surface_opacity": "JSON NULL",
+        # 看板娘 AI 配置（老库补列后为 NULL，读取处统一按空对象处理）
+        "ai_config": "JSON NULL",
     },
     "users": {
         "display_name": "VARCHAR(32) NULL",

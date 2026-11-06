@@ -43,6 +43,9 @@ export function renderFeedback(root) {
     <div class="view-head">
       <div class="view-title"><svg class="icon"><use href="#i-mail"/></svg>意见反馈</div>
       <span class="view-sub">问题、建议或想要的功能，都可以写在这里</span>
+      <a class="btn btn--subtle btn--sm fb-back" href="#/about">
+        <svg class="icon icon--s" style="transform:rotate(180deg)"><use href="#i-chevron"/></svg>关于
+      </a>
     </div>
     <div class="view-body">
       <div class="feedback">

@@ -67,8 +67,8 @@
 @media (max-width: 640px) {
   :root {
     --titlebar-h: 44px;
-    /* 底部标签栏总高度（含上下内边距，不含安全区） */
-    --mobile-nav-h: 62px;
+    /* 底部标签栏总高度（含上下内边距，不含安全区）——只放图标，所以比带文字时矮一截 */
+    --mobile-nav-h: 52px;
   }
 
   html {
@@ -140,9 +140,9 @@
   .nav {
     flex: none;
     flex-direction: row;
-    align-items: stretch;
-    gap: 0;
-    padding: 6px 4px calc(6px + env(safe-area-inset-bottom, 0px));
+    align-items: center;
+    gap: 2px;
+    padding: 4px 8px calc(4px + env(safe-area-inset-bottom, 0px));
     background: var(--acrylic);
     border-top: 1px solid var(--stroke-hair);
     backdrop-filter: blur(24px) saturate(1.6);
@@ -158,26 +158,26 @@
     flex: 1 1 0;
     flex-direction: column;
     justify-content: center;
-    gap: 3px;
-    height: calc(var(--mobile-nav-h) - 12px);
+    gap: 0;
+    height: calc(var(--mobile-nav-h) - 8px);
     padding: 0;
-    border-radius: var(--radius-m);
+    border-radius: 8px;
     overflow: visible;
   }
   .app-body[data-nav] .nav-item .icon {
-    width: 21px;
-    height: 21px;
+    width: 22px;
+    height: 22px;
   }
+  /* 只留图标：文字对屏幕阅读器可见，视觉上藏起来 */
   .app-body[data-nav] .nav-item__label {
-    opacity: 1;
-    width: auto;
-    height: auto;
-    margin: 0;
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
     padding: 0;
-    overflow: visible;
-    pointer-events: auto;
-    font-size: 10.5px;
-    line-height: 1.1;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
   .app-body[data-nav] .nav-item .nav-item__badge {
     position: absolute;
@@ -189,19 +189,12 @@
     height: 16px;
     padding: 0 4px;
   }
-  /* 选中指示：左侧竖条 → 顶部横条 */
+  /* 选中态只靠圆角底色 + 图标变主题色，不再额外画一条指示线 */
   .app-body[data-nav] .nav-item::before {
-    left: 50%;
-    top: 4px;
-    width: 0;
-    height: 3px;
-    transform: translateX(-50%);
-    transition: width var(--dur-base) var(--ease-fluent);
+    content: none;
   }
-  .app-body[data-nav] .nav-item.is-active::before {
-    width: 18px;
-    height: 3px;
-    box-shadow: 0 0 8px color-mix(in srgb, var(--accent) 60%, transparent);
+  .app-body[data-nav] .nav-item.is-active {
+    background: color-mix(in srgb, var(--accent) 13%, transparent);
   }
   /* 折叠态的悬浮提示，手机用不到 */
   .app-body[data-nav] .nav-item::after {
@@ -504,6 +497,14 @@
   .setting-row__main {
     flex: 1 1 140px;
   }
+  /* 竖向设置行（AI 对话配置）：主标题块别再被 140px 的 flex-basis 撑高 */
+  .setting-row--stack {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .setting-row--stack > .setting-row__main {
+    flex: 0 0 auto;
+  }
   .setting-row__label {
     font-size: 12.5px;
   }
@@ -794,5 +795,44 @@
   }
   .about-log::before {
     left: 19px;
+  }
+}
+
+/* ------------------------------------------------------------
+   WinUI 设置卡在手机上收窄（标题仍贴在卡外）
+   ------------------------------------------------------------ */
+@media (max-width: 640px) {
+  .settings {
+    gap: 18px;
+  }
+  .settings .settings-card__head {
+    padding: 0 2px 6px;
+  }
+  .settings .settings-card__note {
+    padding: 0 2px 8px;
+  }
+  .settings .settings-card__body {
+    border-radius: 6px;
+  }
+  .settings .setting-row {
+    min-height: 56px;
+    padding: 10px 14px;
+    gap: 10px;
+  }
+  .settings .profile {
+    padding: 12px 14px 14px;
+  }
+  .settings .wallpaper-actions {
+    padding: 0 14px 12px;
+  }
+  .settings .settings-loading {
+    padding: 12px 14px;
+  }
+}
+
+/* 手机上底部标签栏本来就有「关于」，反馈页的返回按钮就收起来，别挤标题 */
+@media (max-width: 640px) {
+  .view-head .fb-back {
+    display: none;
   }
 }

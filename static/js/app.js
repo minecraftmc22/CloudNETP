@@ -18,6 +18,8 @@ import { Toast } from "./ui/toast.js";
 import { openMenu } from "./ui/menu.js";
 import { installState, promptInstall, registerPwa } from "./pwa.js";
 import { initLive2DMascot } from "./ui/live2d.js";
+import { applyMascotLock, bindMascotActions } from "./ui/mascot-actions.js";
+import { toggleMascotChat } from "./ui/mascot-chat.js";
 import { checkForUpdates } from "./ui/update.js";
 import { renderAuth } from "./views/auth.js";
 import { renderAdmin } from "./views/admin.js";
@@ -35,7 +37,6 @@ const NAV_ITEMS = [
   { route: "trash", label: "回收站", icon: "i-trash" },
   { group: "系统" },
   { route: "settings", label: "设置", icon: "i-settings" },
-  { route: "feedback", label: "意见反馈", icon: "i-mail" },
   { route: "about", label: "关于", icon: "i-info" },
   { route: "admin", label: "管理后台", icon: "i-shield", adminOnly: true },
 ];
@@ -220,7 +221,8 @@ function renderNav() {
       if (item.adminOnly && user?.role !== 1) return "";
       return `
         <a class="nav-item ${current === item.route ? "is-active" : ""}"
-           href="#/${item.route}" data-route="${item.route}" data-tip="${item.label}">
+           href="#/${item.route}" data-route="${item.route}" data-tip="${item.label}"
+           aria-label="${item.label}" ${current === item.route ? 'aria-current="page"' : ""}>
           <svg class="icon"><use href="#${item.icon}"/></svg>
           <span class="nav-item__label">${item.label}</span>
         </a>`;
@@ -483,6 +485,7 @@ function setupMascot(user) {
   const mascot = el("mascot");
   const enabled = user.settings?.showMascot !== false;
   mascot.classList.toggle("is-hidden", !enabled);
+  applyMascotLock();
 
   if (!mascotLive) {
     mascotLive = initLive2DMascot({
@@ -493,11 +496,30 @@ function setupMascot(user) {
       onPoke: () => saySomething(),
     });
   }
+
+  bindMascotActions({
+    onChat: () => toggleMascotChat(),
+    onClose: () => hideMascot(),
+  });
+
   mascotLive?.setActive(enabled);
   if (!enabled) return;
 
   window.clearTimeout(mascotTimer);
   mascotTimer = window.setTimeout(saySomething, 1400);
+}
+
+/** 看板娘操作条上的「关闭」：收起并记进用户设置，下次登录也不再冒出来 */
+function hideMascot() {
+  el("mascot")?.classList.add("is-hidden");
+  const user = store.get().user;
+  if (user) {
+    patchSettingsLocal({ showMascot: false });
+    api.patch("/api/me/settings", { showMascot: false }).catch(() => {
+      Toast.warn("已经收起来了，但同步到服务器失败");
+    });
+  }
+  Toast.info("看板娘已收起，可在「设置 → 装饰」里重新打开");
 }
 
 /* ------------------------------------------------------------------ */

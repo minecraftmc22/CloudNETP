@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="version" content="0.3.36">
+  <meta name="version" content="0.3.38">
   <meta name="theme-color" content="#150f21">
   <title>CloudNETP · 樱色云盘</title>
   <link rel="icon" href="/assets/favicon.ico" sizes="any">
@@ -78,6 +78,9 @@
   <symbol id="i-key" viewBox="0 0 24 24"><circle cx="8.4" cy="8.4" r="4.2"/><path d="m11.4 11.4 7.2 7.2"/><path d="m15.4 15.4 2.1-2.1"/></symbol>
   <symbol id="i-mail" viewBox="0 0 24 24"><rect x="3" y="5.5" width="18" height="13" rx="2.6"/><path d="m4.2 7.6 7.8 5.4 7.8-5.4"/></symbol>
   <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4.8" y="10.4" width="14.4" height="9.8" rx="2.6"/><path d="M8.4 10.4V7.8a3.6 3.6 0 0 1 7.2 0v2.6"/></symbol>
+  <symbol id="i-unlock" viewBox="0 0 24 24"><rect x="4.8" y="10.4" width="14.4" height="9.8" rx="2.6"/><path d="M8.4 10.4V7.8a3.6 3.6 0 0 1 6.9-1.4"/></symbol>
+  <symbol id="i-chat" viewBox="0 0 24 24"><path d="M20.2 12.3c0 3.7-3.7 6.6-8.2 6.6-1 0-2-.15-2.9-.42L4.8 20l1.2-3.3c-1.3-1.2-2-2.7-2-4.4 0-3.7 3.7-6.6 8.2-6.6s8 2.9 8 6.6Z"/><path d="M8.6 12.2h.01M12 12.2h.01M15.4 12.2h.01"/></symbol>
+  <symbol id="i-send" viewBox="0 0 24 24"><path d="M20 4 10.6 13.4"/><path d="M20 4l-6.2 16-3.2-6.6L4 10.2 20 4Z"/></symbol>
 </svg>
 
 <!-- ============ Mica 背景 ============ -->
@@ -138,7 +141,7 @@
 </div>
 
 <!-- ============ 看板娘（Live2D，模型来自 /live2d/model；没有模型时退回云朵） ============ -->
-<div id="mascot" class="mascot" aria-hidden="true">
+<div id="mascot" class="mascot" role="complementary" aria-label="看板娘">
   <div class="mascot__bubble" id="mascot-bubble">今天也一起整理文件吧～</div>
   <div class="mascot__stage" id="mascot-stage">
   <svg class="mascot__cloud" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -180,6 +183,18 @@
     <svg class="icon icon--s"><use href="#i-refresh"/></svg>
     <span id="mascot-pick-label">换一个</span>
   </button>
+  <!-- 悬停才出现的操作条：锁定（鼠标穿透）/ 对话 / 关闭 -->
+  <div class="mascot__actions" id="mascot-actions">
+    <button class="mascot__act" type="button" data-mascot-act="lock" title="锁定后鼠标可以穿过看板娘，点到底下的文件">
+      <svg class="icon icon--s"><use href="#i-lock"/></svg><span data-label>锁定</span>
+    </button>
+    <button class="mascot__act" type="button" data-mascot-act="chat" title="和 CDP娘 聊两句">
+      <svg class="icon icon--s"><use href="#i-chat"/></svg><span data-label>对话</span>
+    </button>
+    <button class="mascot__act" type="button" data-mascot-act="close" title="暂时收起看板娘（可在设置里打开）">
+      <svg class="icon icon--s"><use href="#i-close"/></svg><span data-label>关闭</span>
+    </button>
+  </div>
 </div>
 
 <div id="dialog-host" class="dialog-host" role="presentation"></div>

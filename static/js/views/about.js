@@ -67,6 +67,27 @@ const AUTHOR = {
 
 const CHANGELOG = [
   {
+    version: "0.3.38",
+    title: "设置换成 WinUI 3 观感，手机底栏瘦身",
+    items: [
+      "设置页改成 Win11 的分组样式：分组标题放在卡片外，卡身 8px 圆角、64px 行高、发丝分隔线，输入框与按钮统一 4px 圆角",
+      "手机底部标签栏只留图标，高度从 62px 收到 52px，选中项用顶部小横条提示，文字留给读屏",
+      "「意见反馈」从侧栏移到关于页，侧栏更清爽；关于页补了「提交 Issue」入口",
+      "看板娘正式定名 CDP娘，对话面板、系统提示词与各处文案同步",
+    ],
+  },
+  {
+    version: "0.3.37",
+    title: "看板娘会聊天了",
+    items: [
+      "悬停看板娘出现「锁定 / 对话 / 关闭」：锁定后鼠标穿透，关闭会记进用户设置",
+      "对话面板走 SSE 流式输出，思考过程单独折叠，工具调用显示成可展开的小胶囊",
+      "设置 → 看板娘 → 对话设置：自填 OpenAI 兼容 / Anthropic 接口，密钥加密落库、接口只回掩码",
+      "填完密钥自动探测模型列表，可选输入/输出上限（32K–256K）、图片输入与思考模式",
+      "系统提示词由管理员在设置里维护，全站生效",
+    ],
+  },
+  {
     version: "0.3.36",
     title: "重置密码也要过强度校验",
     items: [
@@ -449,6 +470,14 @@ export function renderAbout(root) {
             </span>
           </div>
           <div class="about-links">
+            <a class="about-lrow" href="#/feedback">
+              <span class="about-lrow__icon"><svg class="icon"><use href="#i-mail"/></svg></span>
+              <span class="about-lrow__body">
+                <span class="about-lrow__label">意见反馈</span>
+                <span class="about-lrow__value">遇到问题或有想法，站内提一条给管理员</span>
+              </span>
+              <svg class="icon icon--s about-lrow__go"><use href="#i-chevron"/></svg>
+            </a>
             <a class="about-lrow" href="${AUTHOR.repo}" target="_blank" rel="noopener">
               <span class="about-lrow__icon"><svg class="icon"><use href="#i-github"/></svg></span>
               <span class="about-lrow__body">
@@ -460,8 +489,8 @@ export function renderAbout(root) {
             <a class="about-lrow" href="${AUTHOR.issues}" target="_blank" rel="noopener">
               <span class="about-lrow__icon"><svg class="icon"><use href="#i-info"/></svg></span>
               <span class="about-lrow__body">
-                <span class="about-lrow__label">问题反馈</span>
-                <span class="about-lrow__value">提交 Issue 或 Pull Request</span>
+                <span class="about-lrow__label">提交 Issue</span>
+                <span class="about-lrow__value">Bug 或改进建议也可以直接发到仓库</span>
               </span>
               <svg class="icon icon--s about-lrow__go"><use href="#i-arrow-up-right"/></svg>
             </a>
