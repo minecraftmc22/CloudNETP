@@ -11,7 +11,7 @@ import { escapeHtml } from "../api.js";
 import { renderMarkdown } from "./markdown.js";
 import { Toast } from "./toast.js";
 
-const GREETING = "嘀嘀——系统就绪！我是云奈（Yuna），你的专属数据管家～ 管理员，今天有什么数据需要我帮你守护呀？";
+const GREETING = "嘀嘀——系统就绪！我是CDP娘，你的专属数据管家～ 管理员，今天有什么数据需要我帮你守护呀？";
 const SUGGESTIONS = ["我最近上传了什么？", "容量还剩多少？", "帮我看看文件夹乱不乱"];
 const HISTORY_LIMIT = 20;
 const MAX_IMAGES = 3;
@@ -50,12 +50,12 @@ function ensurePanel() {
   const panel = document.createElement("section");
   panel.className = "mchat";
   panel.id = "mascot-chat";
-  panel.setAttribute("aria-label", "和 云奈 对话");
+  panel.setAttribute("aria-label", "和 CDP娘 对话");
   panel.innerHTML = `
     <header class="mchat__head">
       <span class="mchat__avatar"><img src="/assets/brand-avatar.png" alt=""></span>
       <div class="mchat__who">
-        <b>云奈</b>
+        <b>CDP娘</b>
         <span data-mchat-model>未配置</span>
       </div>
       <button class="icon-btn mchat__icon" type="button" data-mchat-new title="新对话" aria-label="新对话">
@@ -73,7 +73,7 @@ function ensurePanel() {
     <form class="mchat__compose" data-mchat-form>
       <div class="mchat__attach" data-mchat-attach hidden></div>
       <textarea class="mchat__input" data-mchat-input rows="1" maxlength="4000"
-                placeholder="和 云奈 说点什么…"></textarea>
+                placeholder="和 CDP娘 说点什么…"></textarea>
       <div class="mchat__foot">
         <button class="mchat__mini" type="button" data-mchat-image title="发送图片">
           <svg class="icon icon--s"><use href="#i-image"/></svg>
@@ -141,7 +141,53 @@ function ensurePanel() {
     if (event.key === "Escape" && state.open) closeMascotChat();
   });
 
+  // 看板娘被拖动 / 窗口变化时，聊天框跟着她走
+  window.addEventListener("mascot:move", followMascot);
+  window.addEventListener("mascot:resize", followMascot);
+  window.addEventListener("resize", followMascot);
+
   return panel;
+}
+
+/**
+ * 把聊天框贴到看板娘旁边：默认在她左边、底边对齐；
+ * 左边放不下就翻到右边，再放不下就贴屏幕边（始终留在视口里）。
+ */
+function followMascot() {
+  const panel = state.panel;
+  const mascot = document.getElementById("mascot");
+  if (!panel || !mascot || !state.open) return;
+
+  // 手机上聊天框是整屏抽屉，位置交给 CSS
+  if (window.innerWidth <= 768) {
+    panel.style.left = "";
+    panel.style.top = "";
+    panel.style.right = "";
+    panel.style.bottom = "";
+    return;
+  }
+
+  const rect = mascot.getBoundingClientRect();
+  const width = panel.offsetWidth || 374;
+  const height = panel.offsetHeight || 520;
+  const gap = 14;
+  const margin = 12;
+  const topLimit = 64;
+
+  let left = rect.left - width - gap;
+  if (left < margin) {
+    const rightSide = rect.right + gap;
+    left = rightSide + width + margin <= window.innerWidth ? rightSide : window.innerWidth - width - margin;
+  }
+  left = Math.max(margin, Math.min(left, window.innerWidth - width - margin));
+
+  let top = rect.bottom - height;
+  top = Math.max(topLimit, Math.min(top, window.innerHeight - height - margin));
+
+  panel.style.left = `${Math.round(left)}px`;
+  panel.style.top = `${Math.round(top)}px`;
+  panel.style.right = "auto";
+  panel.style.bottom = "auto";
 }
 
 function autoGrow() {
@@ -162,6 +208,8 @@ export function openMascotChat() {
   const panel = ensurePanel();
   panel.classList.add("is-open");
   state.open = true;
+  followMascot();
+  window.requestAnimationFrame(followMascot);
   refreshConfig(true);
   if (state.greeting) renderGreeting();
   window.setTimeout(() => state.input?.focus(), 60);

@@ -130,7 +130,7 @@ def chat(
     with _cooldown_lock:
         last = _cooldown.get(user.id, 0.0)
         if now - last < COOLDOWN_SECONDS:
-            raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "说慢一点，云奈还在想上一句")
+            raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "说慢一点，CDP娘还在想上一句")
         _cooldown[user.id] = now
 
     messages = [m.model_dump() for m in payload.messages if (m.content or "").strip() or m.images]

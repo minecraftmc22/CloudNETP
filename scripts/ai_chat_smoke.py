@@ -124,7 +124,7 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         self._sse({"choices": [{"index": 0, "delta": {"reasoning_content": "先想想…"}}]})
-        for piece in ["你好呀", "，我是云奈", "。"]:
+        for piece in ["你好呀", "，我是CDP娘", "。"]:
             self._sse({"choices": [{"index": 0, "delta": {"content": piece}}]})
         self._sse({"choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]})
         self.wfile.write(b"data: [DONE]\n\n")
@@ -204,25 +204,25 @@ def main() -> int:
         "maxInput": 0,
         "maxOutput": 512,
     }
-    events = collect(cfg, [{"role": "user", "content": "帮我看看网盘里有什么"}], "你是云奈")
+    events = collect(cfg, [{"role": "user", "content": "帮我看看网盘里有什么"}], "你是CDP娘")
     kinds = [e[0] for e in events]
     check("有 meta", kinds[0] == "meta", str(kinds[:3]))
     check("触发了工具", "tool" in kinds, str(kinds))
     check("工具先 running 后 done", _tool_statuses(events) == ["running", "done"], str(_tool_statuses(events)))
     text = "".join(p["text"] for k, p in events if k == "delta")
-    check("拿到流式正文", "云奈" in text, repr(text))
+    check("拿到流式正文", "CDP娘" in text, repr(text))
     check("有思考内容", any(k == "think" for k in kinds))
     check("有 done", kinds[-1] == "done", str(kinds[-2:]))
 
     print("3. 关掉工具后不再请求工具")
     before = STATE["chat_calls"]
     cfg_plain = dict(cfg, tools=False)
-    events = collect(cfg_plain, [{"role": "user", "content": "在吗"}], "你是云奈")
+    events = collect(cfg_plain, [{"role": "user", "content": "在吗"}], "你是CDP娘")
     check("单轮结束", [k for k, _ in events].count("delta") >= 1 and STATE["chat_calls"] == before + 1)
 
     print("4. Anthropic 协议")
     cfg_a = dict(cfg, protocol="anthropic", baseUrl=f"http://127.0.0.1:{PORT}")
-    events = collect(cfg_a, [{"role": "user", "content": "在吗"}], "你是云奈")
+    events = collect(cfg_a, [{"role": "user", "content": "在吗"}], "你是CDP娘")
     kinds = [k for k, _ in events]
     check("走的是 /v1/messages", STATE["anthropic_calls"] == 1, str(STATE))
     check("解析出正文", "".join(p["text"] for k, p in events if k == "delta").startswith("在的"), str(events))

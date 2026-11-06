@@ -393,6 +393,16 @@ export function initLive2DMascot({ stage, host, bubble, pick, pickLabel, onPoke,
     };
   }
 
+  // 位置变了要通知外面（聊天框跟着看板娘走），用 rAF 合并频繁的 pointermove
+  let moveFrame = 0;
+  function notifyMove() {
+    if (moveFrame) return;
+    moveFrame = window.requestAnimationFrame(() => {
+      moveFrame = 0;
+      window.dispatchEvent(new CustomEvent("mascot:move", { detail: { ...state.offset } }));
+    });
+  }
+
   function applyOffset(save = false) {
     state.offset = clampOffset(state.offset.dx, state.offset.dy);
     document.documentElement.style.setProperty("--mascot-dx", `${Math.round(state.offset.dx)}px`);
@@ -404,6 +414,7 @@ export function initLive2DMascot({ stage, host, bubble, pick, pickLabel, onPoke,
         /* 隐私模式忽略 */
       }
     }
+    notifyMove();
   }
 
   function pokeAt(clientX, clientY) {

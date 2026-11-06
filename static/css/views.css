@@ -801,7 +801,8 @@ a.setting-row--link:hover .setting-row__chevron {
   position: relative;
   width: 100%;
 }
-.mascot svg {
+/* 只给云朵兜底图加呼吸动画：别用 `.mascot svg`，否则操作条上的小图标也会跟着上下飘 */
+.mascot__cloud {
   display: block;
   width: 100%;
   height: auto;
@@ -936,14 +937,15 @@ a.setting-row--link:hover .setting-row__chevron {
 .mascot__act {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  height: 26px;
-  padding: 0 9px;
+  gap: 6px;
+  height: 28px;
+  padding: 0 11px;
   border-radius: var(--radius-pill);
   border: 1px solid var(--stroke);
   background: var(--acrylic-strong);
   backdrop-filter: blur(16px);
-  font-size: 11px;
+  font-size: 11.5px;
+  line-height: 1;
   color: var(--text-2);
   white-space: nowrap;
   transition: color var(--dur-fast) var(--ease-standard),
@@ -951,8 +953,10 @@ a.setting-row--link:hover .setting-row__chevron {
     transform var(--dur-fast) var(--ease-fluent);
 }
 .mascot__act .icon {
+  display: block;
   width: 13px;
   height: 13px;
+  flex: none;
 }
 .mascot__act:hover {
   color: var(--text-1);
