@@ -2,13 +2,16 @@
 .env
 *.env.local
 
-# 运行时数据
+# 运行时数据（数据库文件一律不进仓库：主库是 MySQL，本地 / 容灾才用 SQLite）
 storage/
-dev.db
-dev.db-wal
-dev.db-shm
 *.db
+*.db-wal
+*.db-shm
+*.db-journal
+*.sqlite
 *.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
 
 # Python
 __pycache__/

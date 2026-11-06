@@ -11,8 +11,8 @@ import { escapeHtml } from "../api.js";
 import { renderMarkdown } from "./markdown.js";
 import { Toast } from "./toast.js";
 
-const GREETING = "我是 CDP娘，住在你的云盘里～ 想找文件、看看还剩多少空间，直接跟我说。";
-const SUGGESTIONS = ["我最近上传了什么？", "容量还剩多少？", "帮我找个文件"];
+const GREETING = "嘀嘀——系统就绪！我是云奈（Yuna），你的专属数据管家～ 管理员，今天有什么数据需要我帮你守护呀？";
+const SUGGESTIONS = ["我最近上传了什么？", "容量还剩多少？", "帮我看看文件夹乱不乱"];
 const HISTORY_LIMIT = 20;
 const MAX_IMAGES = 3;
 const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
@@ -50,12 +50,12 @@ function ensurePanel() {
   const panel = document.createElement("section");
   panel.className = "mchat";
   panel.id = "mascot-chat";
-  panel.setAttribute("aria-label", "和 CDP娘 对话");
+  panel.setAttribute("aria-label", "和 云奈 对话");
   panel.innerHTML = `
     <header class="mchat__head">
       <span class="mchat__avatar"><img src="/assets/brand-avatar.png" alt=""></span>
       <div class="mchat__who">
-        <b>CDP娘</b>
+        <b>云奈</b>
         <span data-mchat-model>未配置</span>
       </div>
       <button class="icon-btn mchat__icon" type="button" data-mchat-new title="新对话" aria-label="新对话">
@@ -73,7 +73,7 @@ function ensurePanel() {
     <form class="mchat__compose" data-mchat-form>
       <div class="mchat__attach" data-mchat-attach hidden></div>
       <textarea class="mchat__input" data-mchat-input rows="1" maxlength="4000"
-                placeholder="和 CDP娘 说点什么…"></textarea>
+                placeholder="和 云奈 说点什么…"></textarea>
       <div class="mchat__foot">
         <button class="mchat__mini" type="button" data-mchat-image title="发送图片">
           <svg class="icon icon--s"><use href="#i-image"/></svg>
@@ -318,6 +318,7 @@ function toolEntry(container, data) {
   }
   const label = node.querySelector("[data-tool-label]");
   const pre = node.querySelector("[data-tool-result]");
+  if (data.write) node.classList.add("is-write");
   if (data.status === "running") {
     node.classList.add("is-running");
     label.textContent = `正在${data.label || "处理"}…`;

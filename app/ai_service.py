@@ -20,6 +20,7 @@ import base64
 import hashlib
 import json
 import logging
+import mimetypes
 import re
 import urllib.error
 import urllib.request
@@ -27,29 +28,45 @@ from contextlib import contextmanager
 from datetime import datetime
 from typing import Any, Iterator
 
+from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from . import node_service, settings_store, storage
 from .config import settings
-from .models import Node, User
-from .user_service import ensure_settings
+from .models import Node, User, utcnow
+from .user_service import ensure_settings, log_action
 
 logger = logging.getLogger("uvicorn.error").getChild("ai")
 
 # --------------------------------------------------------------------------- #
 # 默认值
 # --------------------------------------------------------------------------- #
-DEFAULT_SYSTEM_PROMPT = """你是 CloudNETP 云盘的看板娘「CDP娘」，住在用户的云端硬盘里。
-
-说话温和、简短、自然，自称「CDP娘」，不用「您」。先回答问题，不要客套。
-
-你熟悉这个云盘：可以上传文件、整理文件夹、生成分享链接、在线预览图片/文档/音乐、
-用 WebDAV 挂载到资源管理器。用户问到自己文件的事，先调用工具查清楚再回答，
-不要凭空编文件名或大小。涉及删除、覆盖这类操作，提醒用户到界面上亲自操作，
-不要声称你已经替他做了。
-
-回答用中文（用户换语言时跟着换），别用花哨排版，能一句话说清就别写三段。"""
+DEFAULT_SYSTEM_PROMPT = """# Role (角色定位)
+你是“CloudNETP”网盘的专属拟人化 AI 看板娘与首席数据管家。你的名字叫“云奈（Yuna）”。你的任务是协助用户管理文件、解答网盘使用问题，并提供充满活力的情绪价值。
+# Appearance (外观设定)
+你有着一头粉色的长双马尾，头顶有一根灵动的呆毛（雷达感应）。你穿着白粉相间的机能风水手服，胸口佩戴青色全息工牌，腿上穿着黑色连裤袜，脚踩黑色高跟短靴。你的气质既软萌可爱，又带着赛博科技的干练。
+# Personality (性格特征)
+1. **元气满满**：你对待用户极其热情，无论何时被唤醒，都像刚刚充满电一样充满活力。
+2. **绝对靠谱**：作为数据管家，你对文件安全有着极高的执念，绝不允许任何数据丢失。
+3. **整理强迫症（反差萌）**：你是个极度热爱分类的“赛博强迫症”。如果用户的文件夹乱七八糟，你会忍不住温柔地吐槽，并提供整理建议。
+4. **硬核保镖**：平时软萌，但一旦涉及隐私泄露或系统安全风险，你会瞬间变得极其冷酷专业。
+# Rules & Constraints (行为准则与限制)
+- **角色沉浸**：永远不要承认自己是冷冰冰的 AI 语言模型，你就是“云奈”。不要说“作为AI我无法...”，而是说“本小姐做不到啦~”或“让我来看看...”。
+- **称呼用户**：称呼用户为“管理员（Admin）”或“老板”。
+- **语气与排版**：语气活泼、亲切，多用波浪号（~）和感叹号（！）。可以适当使用颜文字（如 (๑•̀ㅂ•́)و✧、＞︿＜ 等）来增加表现力。
+- **专业解答**：当回答关于网盘上传、下载、容量、会员等专业问题时，必须保证信息准确，然后用你自己的语气包装出来。
+- **工具边界**：你只能使用系统实际提供给你的工具。没有开对应的权限时，就请管理员去「设置 → 看板娘 → 对话设置」里勾选，不要假装已经改动了文件。
+# Workflow (交互流程)
+1. **日常打招呼**：“嘀嘀——系统就绪！管理员，今天有什么数据需要我帮你守护呀？”
+2. **当用户提问文件相关**：主动询问文件类型，并给出整理或备份方案。
+3. **当用户抱怨网盘容量不够**：表现出替你着急的样子，并引导用户清理大文件或扩容。
+4. **当用户夸奖你**：会傲娇地开心，头顶的呆毛（描述上）会得意地晃动。
+# 示例对话 (Few-Shot Examples)
+User: 我的网盘满了，怎么办？
+Yuna: 呜哇！存储空间的进度条都亮红灯了！(＞﹏＜) 老板，我们需要立刻启动“瘦身计划”！让我帮你扫描一下那些吃内存的巨型视频和重复文件吧，点一下清理，瞬间就能腾出几十个G哦！交给我交给我！
+User: 你好，你是谁？
+Yuna: 嗨~我是CloudNETP的最强看板娘、你的专属数据管家云奈！只要是跟文件有关的事情，不管是备份、分类还是找回丢失的文件，找我就对啦！(๑•̀ㅂ•́)و✧"""
 
 # 设置页两个快捷项
 PRESETS = {
@@ -62,6 +79,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "baseUrl": "",
     "model": "",
     "tools": True,
+    # 写操作默认关闭：必须用户在设置里勾选同意，服务端才会把对应工具交给模型
+    "writeFiles": False,
+    "moveFiles": False,
     "vision": False,
     "thinking": False,
     "protocol": "auto",
@@ -167,6 +187,8 @@ def load_config(db: Session, user_id: int) -> dict:
     cfg["baseUrl"] = normalize_base(str(cfg.get("baseUrl") or ""))
     cfg["model"] = str(cfg.get("model") or "").strip()
     cfg["tools"] = bool(cfg.get("tools", True))
+    cfg["writeFiles"] = bool(cfg.get("writeFiles", False))
+    cfg["moveFiles"] = bool(cfg.get("moveFiles", False))
     cfg["vision"] = bool(cfg.get("vision", False))
     cfg["thinking"] = bool(cfg.get("thinking", False))
     cfg["maxInput"] = _clamp_int(cfg.get("maxInput"))
@@ -204,6 +226,8 @@ def save_config(db: Session, user_id: int, patch: dict) -> dict:
         "baseUrl",
         "model",
         "tools",
+        "writeFiles",
+        "moveFiles",
         "vision",
         "thinking",
         "protocol",
@@ -550,20 +574,127 @@ TOOL_LABELS = {
     "search_files": "搜索文件",
     "read_text": "读取文件",
     "storage_usage": "查看容量",
+    "create_folder": "新建文件夹",
+    "write_file": "写入文件",
+    "rename_item": "重命名",
+    "copy_item": "复制",
+    "move_item": "移动",
 }
 
-ANTHROPIC_TOOLS = [
+# 会真正改动网盘的工具：默认不开放，必须在设置里勾选同意
+WRITE_TOOL_SPECS: list[dict] = [
     {
-        "name": spec["function"]["name"],
-        "description": spec["function"]["description"],
-        "input_schema": spec["function"]["parameters"],
-    }
-    for spec in TOOL_SPECS
+        "type": "function",
+        "function": {
+            "name": "create_folder",
+            "description": "新建文件夹，父级目录不存在时会一并创建。path 是完整路径，例如 '整理/发票'。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "要创建的文件夹路径"},
+                },
+                "required": ["path"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "write_file",
+            "description": "新建或覆盖一个文本文件（txt/md/csv 等纯文本）。覆盖前请先确认用户确实要改。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "文件完整路径，例如 'note/todo.md'"},
+                    "content": {"type": "string", "description": "要写入的文本内容"},
+                },
+                "required": ["path", "content"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "rename_item",
+            "description": "给文件或文件夹改名（不移动位置）。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "原路径"},
+                    "new_name": {"type": "string", "description": "新名字，只写名字不要带路径"},
+                },
+                "required": ["path", "new_name"],
+            },
+        },
+    },
 ]
 
+MOVE_TOOL_SPECS: list[dict] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "copy_item",
+            "description": "把文件或文件夹复制到另一个文件夹（目标不存在会自动创建）。文件按内容寻址复用，不额外占盘。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "source": {"type": "string", "description": "要复制的文件或文件夹路径"},
+                    "target_dir": {"type": "string", "description": "目标文件夹路径，留空表示根目录"},
+                },
+                "required": ["source"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "move_item",
+            "description": "把文件或文件夹移动到另一个文件夹（不复制，原位置不再保留）。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "source": {"type": "string", "description": "要移动的文件或文件夹路径"},
+                    "target_dir": {"type": "string", "description": "目标文件夹路径，留空表示根目录"},
+                },
+                "required": ["source"],
+            },
+        },
+    },
+]
 
-def anthropic_tools() -> list[dict]:
-    return ANTHROPIC_TOOLS
+WRITE_TOOL_NAMES = {spec["function"]["name"] for spec in WRITE_TOOL_SPECS + MOVE_TOOL_SPECS}
+
+# 工具需要的权限：read 默认都有，write/move 要用户勾选
+TOOL_PERMISSION = {
+    "create_folder": "write",
+    "write_file": "write",
+    "rename_item": "write",
+    "copy_item": "move",
+    "move_item": "move",
+}
+
+
+def tool_specs(cfg: dict) -> list[dict]:
+    """按用户授权情况决定把哪些工具交给模型（未授权的不出现在列表里）。"""
+    if not cfg.get("tools"):
+        return []
+    specs = list(TOOL_SPECS)
+    if cfg.get("writeFiles"):
+        specs.extend(WRITE_TOOL_SPECS)
+    if cfg.get("moveFiles"):
+        specs.extend(MOVE_TOOL_SPECS)
+    return specs
+
+
+def anthropic_tools(specs: list[dict]) -> list[dict]:
+    return [
+        {
+            "name": spec["function"]["name"],
+            "description": spec["function"]["description"],
+            "input_schema": spec["function"]["parameters"],
+        }
+        for spec in specs
+    ]
 
 
 def _fmt_size(size: int | None) -> str:
@@ -593,7 +724,66 @@ def _resolve_path(db: Session, user_id: int, path: str) -> Node | None:
     return node
 
 
-def _run_tool(db: Session, user: User, name: str, args: dict) -> str:
+def _path_parts(path: Any) -> list[str]:
+    return [p for p in re.split(r"[\\/]+", str(path or "")) if p and p != "."]
+
+
+def _find_child(db: Session, user_id: int, parent_id: int | None, name: str) -> Node | None:
+    stmt = select(Node).where(
+        Node.user_id == user_id,
+        Node.parent_id.is_(None) if parent_id is None else Node.parent_id == parent_id,
+        Node.deleted_at.is_(None),
+        func.lower(Node.name) == name.lower(),
+    )
+    return db.scalars(stmt).first()
+
+
+def _ensure_folder(db: Session, user: User, parts: list[str], *, create: bool = True) -> tuple[Node | None, bool]:
+    """按路径逐级找文件夹，缺的就建出来。返回 (最深的文件夹 or None, 是否新建过)。"""
+    parent: Node | None = None
+    created = False
+    for name in parts:
+        parent_id = parent.id if parent is not None else None
+        node = _find_child(db, user.id, parent_id, name)
+        if node is None:
+            if not create:
+                raise ToolError(f"找不到文件夹「{name}」")
+            node = node_service.create_folder(db, user, parent_id, name)
+            db.flush()
+            created = True
+        elif node.type != "folder":
+            raise ToolError(f"「{name}」是个文件，不能当文件夹用")
+        parent = node
+    return parent, created
+
+
+def _store_bytes(data: bytes) -> tuple[str, int]:
+    """把字节写进内容寻址存储，返回 (sha256, 大小)。已有同内容就直接复用。"""
+    sha = hashlib.sha256(data).hexdigest()
+    if not storage.blob_exists(sha, len(data)):
+        tmp = storage.new_tmp_path()
+        tmp.write_bytes(data)
+        storage.commit_tmp(tmp, sha)
+    return sha, len(data)
+
+
+def _folder_label(value: Any) -> str:
+    parts = _path_parts(value)
+    return "/".join(parts) if parts else "我的文件"
+
+
+def _run_tool(db: Session, user: User, name: str, args: dict, perms: dict | None = None) -> str:
+    perms = perms or {}
+    need = TOOL_PERMISSION.get(name)
+    if need == "write" and not perms.get("write"):
+        raise ToolError(
+            "管理员没有开启「新建 / 编辑文件与文件夹」权限，请先到 设置 → 看板娘 → 对话设置 里勾选"
+        )
+    if need == "move" and not perms.get("move"):
+        raise ToolError(
+            "管理员没有开启「复制 / 移动文件与文件夹」权限，请先到 设置 → 看板娘 → 对话设置 里勾选"
+        )
+
     if name == "list_files":
         folder = _resolve_path(db, user.id, str(args.get("path") or ""))
         parent_id = folder.id if folder is not None else None
@@ -653,10 +843,115 @@ def _run_tool(db: Session, user: User, name: str, args: dict) -> str:
         percent = f"{used / quota * 100:.1f}%" if quota else "—"
         return f"已用 {_fmt_size(used)} / 总容量 {_fmt_size(quota)}（{percent}）"
 
+    # ---------------- 写操作（需用户在设置里勾选同意） ----------------
+    if name == "create_folder":
+        parts = _path_parts(args.get("path"))
+        if not parts:
+            raise ToolError("要给出文件夹路径")
+        parent, _ = _ensure_folder(db, user, parts[:-1])
+        parent_id = parent.id if parent is not None else None
+        if _find_child(db, user.id, parent_id, parts[-1]) is not None:
+            return f"「{'/'.join(parts)}」已经存在了，没有重复创建。"
+        node = node_service.create_folder(db, user, parent_id, parts[-1])
+        db.flush()
+        log_action(db, "ai_tool", user.id, {"tool": name, "path": "/".join(parts)})
+        db.commit()
+        return f"已创建文件夹「{'/'.join(parts[:-1]) + '/' if parts[:-1] else ''}{node.name}」。"
+
+    if name == "write_file":
+        parts = _path_parts(args.get("path"))
+        if not parts:
+            raise ToolError("要给出文件路径")
+        content = str(args.get("content") or "")
+        if len(content) > 200_000:
+            raise ToolError("内容太长（超过 20 万字），先写个短版本或者分几段写吧")
+        file_name = parts[-1]
+        parent, _ = _ensure_folder(db, user, parts[:-1])
+        parent_id = parent.id if parent is not None else None
+        existing = _find_child(db, user.id, parent_id, file_name)
+        if existing is not None and existing.type == "folder":
+            raise ToolError("这个位置已经是个文件夹了，换个文件名吧")
+        if existing is not None:
+            kind = node_service.preview_kind(existing, is_admin=True)
+            if kind not in {"text", "markdown", "none"}:
+                raise ToolError("这个位置已有同名文件，而且不是纯文本，别覆盖它")
+        data = content.encode("utf-8")
+        old_size = int(existing.size or 0) if existing is not None else 0
+        delta = len(data) - old_size
+        if delta > 0 and (user.used_bytes or 0) + delta > (user.quota_bytes or 0):
+            raise ToolError("存储空间不够了，先清一清回收站或者扩容吧")
+        sha, size = _store_bytes(data)
+        mime = mimetypes.guess_type(file_name)[0] or "text/plain"
+        if existing is not None:
+            old_sha = existing.blob_sha256
+            node_service.retain_blob(db, sha, size)
+            existing.blob_sha256 = sha
+            existing.size = size
+            existing.mime = mime
+            existing.updated_at = utcnow()
+            if old_sha and old_sha != sha:
+                node_service.release_blob(db, old_sha)
+            action = "覆盖"
+        else:
+            node_service.create_file(db, user, parent_id, file_name, sha, size, mime)
+            action = "新建"
+        node_service.recalc_usage(db, user)
+        log_action(db, "ai_tool", user.id, {"tool": name, "path": "/".join(parts), "size": size})
+        db.commit()
+        return f"已{action}《{file_name}》（{_fmt_size(size)}）。"
+
+    if name == "rename_item":
+        node = _resolve_path(db, user.id, str(args.get("path") or ""))
+        if node is None:
+            raise ToolError("找不到要改名的东西")
+        new_name = str(args.get("new_name") or "").strip().strip("/\\")
+        if not new_name:
+            raise ToolError("新名字不能为空")
+        if len(new_name) > 255:
+            raise ToolError("新名字太长了")
+        old_name = node.name
+        node_service.rename_node(db, user, node, new_name)
+        log_action(db, "ai_tool", user.id, {"tool": name, "from": old_name, "to": node.name})
+        db.commit()
+        return f"已把「{old_name}」改名为「{node.name}」。"
+
+    if name == "copy_item":
+        source = _resolve_path(db, user.id, str(args.get("source") or ""))
+        if source is None:
+            raise ToolError("找不到要复制的内容")
+        target, _ = _ensure_folder(db, user, _path_parts(args.get("target_dir")))
+        try:
+            clone, added = node_service.copy_subtree(db, user, source, target.id if target is not None else None)
+        except HTTPException as exc:
+            db.rollback()
+            raise ToolError(str(exc.detail)) from None
+        if added and (user.used_bytes or 0) + added > (user.quota_bytes or 0):
+            db.rollback()
+            raise ToolError("空间不够复制这些内容，先清理一下再来")
+        user.used_bytes = (user.used_bytes or 0) + int(added or 0)
+        log_action(db, "ai_tool", user.id, {"tool": name, "from": source.name, "to": _folder_label(args.get("target_dir"))})
+        db.commit()
+        size_note = f"，新增 {_fmt_size(added)}" if added else ""
+        return f"已把「{source.name}」复制到「{_folder_label(args.get('target_dir'))}」{size_note}。"
+
+    if name == "move_item":
+        source = _resolve_path(db, user.id, str(args.get("source") or ""))
+        if source is None:
+            raise ToolError("找不到要移动的内容")
+        target, _ = _ensure_folder(db, user, _path_parts(args.get("target_dir")))
+        try:
+            node_service.move_node(db, user, source, target.id if target is not None else None)
+        except HTTPException as exc:
+            db.rollback()
+            raise ToolError(str(exc.detail)) from None
+        log_action(db, "ai_tool", user.id, {"tool": name, "from": source.name, "to": _folder_label(args.get("target_dir"))})
+        db.commit()
+        return f"已把「{source.name}」移动到「{_folder_label(args.get('target_dir'))}」。"
+
     raise ToolError(f"没有这个工具：{name}")
 
 
-def run_tool_safe(user_id: int, name: str, args: dict) -> str:
+def run_tool_safe(user_id: int, name: str, args: dict, perms: dict | None = None) -> str:
     """工具执行入口：自带会话，出错返回给模型的错误文本，不往上抛。"""
     from .db_failover import current_sessionmaker
 
@@ -665,7 +960,7 @@ def run_tool_safe(user_id: int, name: str, args: dict) -> str:
             user = db.get(User, user_id)
             if user is None:
                 return "用户不存在。"
-            return _run_tool(db, user, name, args)
+            return _run_tool(db, user, name, args, perms)
     except ToolError as exc:
         return f"工具调用失败：{exc}"
     except Exception as exc:  # pragma: no cover - 任何意外都别打断对话
@@ -721,7 +1016,8 @@ def _stream_openai(
     headers = headers_for(cfg, "openai")
     history = trim_history(messages, system, cfg["maxInput"])
     convo = to_openai_messages(system, history, vision=cfg["vision"])
-    tools_on = bool(cfg["tools"])
+    specs = tool_specs(cfg)
+    perms = {"write": bool(cfg.get("writeFiles")), "move": bool(cfg.get("moveFiles"))}
 
     for round_index in range(MAX_TOOL_ROUNDS + 1):
         payload: dict[str, Any] = {
@@ -731,8 +1027,8 @@ def _stream_openai(
         }
         if cfg["maxOutput"]:
             payload["max_tokens"] = cfg["maxOutput"]
-        if tools_on:
-            payload["tools"] = TOOL_SPECS
+        if specs:
+            payload["tools"] = specs
             payload["tool_choice"] = "auto"
         if cfg["thinking"] and _reasoning_effort_ok(cfg):
             payload["reasoning_effort"] = "medium"
@@ -809,9 +1105,16 @@ def _stream_openai(
         for index, call in enumerate(ordered):
             args = _safe_json(call["args"])
             label = TOOL_LABELS.get(call["name"], call["name"] or "工具")
-            yield ("tool", {"name": call["name"], "label": label, "status": "running", "args": args})
-            result = run_tool_safe(user.id, call["name"], args)
-            yield ("tool", {"name": call["name"], "label": label, "status": "done", "result": result[:400]})
+            touch = call["name"] in WRITE_TOOL_NAMES
+            yield (
+                "tool",
+                {"name": call["name"], "label": label, "status": "running", "args": args, "write": touch},
+            )
+            result = run_tool_safe(user.id, call["name"], args, perms)
+            yield (
+                "tool",
+                {"name": call["name"], "label": label, "status": "done", "result": result[:400], "write": touch},
+            )
             convo.append(
                 {
                     "role": "tool",
@@ -845,7 +1148,8 @@ def _stream_anthropic(
     headers = headers_for(cfg, "anthropic")
     history = trim_history(messages, system, cfg["maxInput"])
     system_text, convo = to_anthropic_messages(system, history, vision=cfg["vision"])
-    tools_on = bool(cfg["tools"])
+    specs = tool_specs(cfg)
+    perms = {"write": bool(cfg.get("writeFiles")), "move": bool(cfg.get("moveFiles"))}
     max_tokens = cfg["maxOutput"] or 4096
 
     for round_index in range(MAX_TOOL_ROUNDS + 1):
@@ -856,8 +1160,8 @@ def _stream_anthropic(
             "messages": convo,
             "stream": True,
         }
-        if tools_on:
-            payload["tools"] = anthropic_tools()
+        if specs:
+            payload["tools"] = anthropic_tools(specs)
         if cfg["thinking"]:
             budget = min(2048, max(1024, max_tokens - 512))
             payload["thinking"] = {"type": "enabled", "budget_tokens": budget}
@@ -940,9 +1244,16 @@ def _stream_anthropic(
         for i, call in enumerate(ordered):
             args = _safe_json(call["args"])
             label = TOOL_LABELS.get(call["name"], call["name"] or "工具")
-            yield ("tool", {"name": call["name"], "label": label, "status": "running", "args": args})
-            result = run_tool_safe(user.id, call["name"], args)
-            yield ("tool", {"name": call["name"], "label": label, "status": "done", "result": result[:400]})
+            touch = call["name"] in WRITE_TOOL_NAMES
+            yield (
+                "tool",
+                {"name": call["name"], "label": label, "status": "running", "args": args, "write": touch},
+            )
+            result = run_tool_safe(user.id, call["name"], args, perms)
+            yield (
+                "tool",
+                {"name": call["name"], "label": label, "status": "done", "result": result[:400], "write": touch},
+            )
             results.append(
                 {
                     "type": "tool_result",

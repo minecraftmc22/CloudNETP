@@ -1,18 +1,20 @@
 """看板娘 AI 对话的离线联调脚本。
 
 不需要真实 API Key：脚本在本机起一个假的 OpenAI / Anthropic 兼容服务，
-把 ai_service 的流式解析、工具调用循环、模型探测全部跑一遍。
+把 ai_service 的流式解析、工具调用循环、模型探测、写权限与增删改工具全部跑一遍。
 
-    DATABASE_URL=sqlite:///./dev.db .venv/Scripts/python scripts/ai_chat_smoke.py
+    .venv/Scripts/python scripts/ai_chat_smoke.py
 
-（用 SQLite 是因为脚本会执行工具，需要有库；本地 MySQL 没起也能跑。）
+（默认用临时目录里的 SQLite，跑完就删；写操作只落在这个临时库里，不碰 dev.db。）
 """
 
 from __future__ import annotations
 
 import json
 import os
+import shutil
 import sys
+import tempfile
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -20,13 +22,31 @@ from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-os.environ.setdefault("DATABASE_URL", "sqlite:///./dev.db")
+
+# 必须在 import app.* 之前定好库：写工具会真的写 node 表 / blob
+_TMP_DIR = Path(tempfile.mkdtemp(prefix="cloudnetp-ai-smoke-"))
+os.environ.setdefault("DATABASE_URL", f"sqlite:///{(_TMP_DIR / 'smoke.db').as_posix()}")
+# blob 也落到临时目录，别在真实 storage 里留测试文件
+os.environ.setdefault("STORAGE_DIR", str(_TMP_DIR / "storage"))
 
 from app import ai_service as ai  # noqa: E402
-from app.db import engine, ensure_schema  # noqa: E402
+from app.db import SessionLocal, engine, ensure_schema  # noqa: E402
+from app.models import User  # noqa: E402
 
-# dev.db 可能是旧版本建的：先补齐缺的列，工具（列目录/搜索）才不会因为缺列报错
 ensure_schema(engine)
+
+# 临时库里放一个测试账号，写工具就有地方落
+with SessionLocal() as _db:
+    _user = User(
+        username="smoke",
+        password_hash="x",
+        display_name="Smoke",
+        quota_bytes=64 * 1024 * 1024,
+        used_bytes=0,
+    )
+    _db.add(_user)
+    _db.commit()
+    USER_ID = int(_user.id)
 
 PORT = 8899
 STATE: dict[str, int] = {"chat_calls": 0, "anthropic_calls": 0}
@@ -104,7 +124,7 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         self._sse({"choices": [{"index": 0, "delta": {"reasoning_content": "先想想…"}}]})
-        for piece in ["你好呀", "，我是CDP娘", "。"]:
+        for piece in ["你好呀", "，我是云奈", "。"]:
             self._sse({"choices": [{"index": 0, "delta": {"content": piece}}]})
         self._sse({"choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]})
         self.wfile.write(b"data: [DONE]\n\n")
@@ -184,25 +204,25 @@ def main() -> int:
         "maxInput": 0,
         "maxOutput": 512,
     }
-    events = collect(cfg, [{"role": "user", "content": "帮我看看网盘里有什么"}], "你是CDP娘")
+    events = collect(cfg, [{"role": "user", "content": "帮我看看网盘里有什么"}], "你是云奈")
     kinds = [e[0] for e in events]
     check("有 meta", kinds[0] == "meta", str(kinds[:3]))
     check("触发了工具", "tool" in kinds, str(kinds))
     check("工具先 running 后 done", _tool_statuses(events) == ["running", "done"], str(_tool_statuses(events)))
     text = "".join(p["text"] for k, p in events if k == "delta")
-    check("拿到流式正文", "CDP娘" in text, repr(text))
+    check("拿到流式正文", "云奈" in text, repr(text))
     check("有思考内容", any(k == "think" for k in kinds))
     check("有 done", kinds[-1] == "done", str(kinds[-2:]))
 
     print("3. 关掉工具后不再请求工具")
     before = STATE["chat_calls"]
     cfg_plain = dict(cfg, tools=False)
-    events = collect(cfg_plain, [{"role": "user", "content": "在吗"}], "你是CDP娘")
+    events = collect(cfg_plain, [{"role": "user", "content": "在吗"}], "你是云奈")
     check("单轮结束", [k for k, _ in events].count("delta") >= 1 and STATE["chat_calls"] == before + 1)
 
     print("4. Anthropic 协议")
     cfg_a = dict(cfg, protocol="anthropic", baseUrl=f"http://127.0.0.1:{PORT}")
-    events = collect(cfg_a, [{"role": "user", "content": "在吗"}], "你是CDP娘")
+    events = collect(cfg_a, [{"role": "user", "content": "在吗"}], "你是云奈")
     kinds = [k for k, _ in events]
     check("走的是 /v1/messages", STATE["anthropic_calls"] == 1, str(STATE))
     check("解析出正文", "".join(p["text"] for k, p in events if k == "delta").startswith("在的"), str(events))
@@ -219,7 +239,51 @@ def main() -> int:
     check("能解回原文", ai.decrypt_key(cipher) == "sk-abcdefghijklmn")
     check("掩码只露头尾", ai.mask_key("sk-abcdefghijklmn") == "sk-ab…klmn", ai.mask_key("sk-abcdefghijklmn"))
 
+    print("7. 写权限与增删改工具")
+    denied = ai.run_tool_safe(
+        USER_ID, "create_folder", {"path": "不该出现的目录"}, {"write": False, "move": False}
+    )
+    check("没授权时拒绝写操作", "没有开启" in denied, denied)
+
+    allowed = {"write": True, "move": True}
+    made = ai.run_tool_safe(USER_ID, "create_folder", {"path": "AI测试/子目录"}, allowed)
+    check("能建多级文件夹", "已创建" in made, made)
+
+    wrote = ai.run_tool_safe(
+        USER_ID, "write_file", {"path": "AI测试/子目录/hello.md", "content": "第一版内容"}, allowed
+    )
+    check("能写文本文件", "新建" in wrote, wrote)
+    read_back = ai.run_tool_safe(USER_ID, "read_text", {"path": "AI测试/子目录/hello.md"}, allowed)
+    check("写进去的内容读得回来", "第一版内容" in read_back, read_back)
+
+    updated = ai.run_tool_safe(
+        USER_ID, "write_file", {"path": "AI测试/子目录/hello.md", "content": "第二版，更长一点点"}, allowed
+    )
+    check("同名文件是覆盖不是新建", "覆盖" in updated, updated)
+
+    renamed = ai.run_tool_safe(
+        USER_ID, "rename_item", {"path": "AI测试/子目录/hello.md", "new_name": "note.md"}, allowed
+    )
+    check("能改名", "note.md" in renamed, renamed)
+
+    copied = ai.run_tool_safe(USER_ID, "copy_item", {"source": "AI测试", "target_dir": "备份"}, allowed)
+    check("能复制目录", "复制到" in copied, copied)
+    listing = ai.run_tool_safe(USER_ID, "list_files", {"path": "备份/AI测试/子目录"}, allowed)
+    check("副本里能看到改名后的文件", "note.md" in listing, listing)
+
+    moved = ai.run_tool_safe(USER_ID, "move_item", {"source": "备份/AI测试", "target_dir": ""}, allowed)
+    check("能移动到根目录", "移动到" in moved, moved)
+
+    dup = ai.run_tool_safe(USER_ID, "create_folder", {"path": "AI测试"}, allowed)
+    check("重复建同名文件夹会提示已存在", "已经存在" in dup, dup)
+
+    specs = ai.tool_specs({"tools": True, "writeFiles": False, "moveFiles": False})
+    check("未授权时工具列表只有只读工具", all(s["function"]["name"] not in ai.WRITE_TOOL_NAMES for s in specs))
+    specs = ai.tool_specs({"tools": True, "writeFiles": True, "moveFiles": True})
+    check("授权后工具列表包含写/移动工具", len(specs) == len(ai.TOOL_SPECS) + len(ai.WRITE_TOOL_SPECS) + len(ai.MOVE_TOOL_SPECS))
+
     server.shutdown()
+    shutil.rmtree(_TMP_DIR, ignore_errors=True)
     print()
     if failures:
         print(f"失败 {len(failures)} 项：{', '.join(failures)}")

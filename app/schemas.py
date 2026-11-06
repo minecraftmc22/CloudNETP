@@ -118,6 +118,9 @@ class AiConfigIn(CamelModel):
     model: str | None = Field(default=None, max_length=120)
     key: str | None = Field(default=None, max_length=400)
     tools: bool | None = None
+    # 写操作权限：默认关闭，勾选后才把对应工具交给模型（服务端仍会二次校验）
+    write_files: bool | None = None
+    move_files: bool | None = None
     vision: bool | None = None
     thinking: bool | None = None
     # auto = 按地址自动判断；openai / anthropic 为手动指定（给非标准地址用）

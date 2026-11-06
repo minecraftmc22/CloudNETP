@@ -147,7 +147,7 @@ function configMarkup() {
             <input type="checkbox" data-ai-flag="tools" ${cfg.tools ? "checked" : ""}>
             <span class="switch__track"><span class="switch__knob"></span></span>
           </span>
-          <span class="ai-line__text"><b>工具调用</b><small>允许 CDP娘 翻你的目录、搜文件、读文本，只读</small></span>
+          <span class="ai-line__text"><b>工具调用</b><small>允许 云奈 翻目录、搜文件、读文本（只读工具；下面的写权限要单独勾）</small></span>
         </label>
         <label class="ai-line">
           <span class="switch">
@@ -183,6 +183,37 @@ function configMarkup() {
       </div>
     </div>
 
+    <div class="setting-row setting-row--stack ai-perms">
+      <div class="setting-row__main">
+        <div class="setting-row__label">数据操作权限<span class="chip ai-perms__flag">需授权</span></div>
+        <div class="setting-row__desc">
+          不勾选时云奈只能看，不能改。勾选后她可以真的动你的文件，每一次操作都会在对话里列出来并记进审计日志
+        </div>
+      </div>
+      <div class="ai-switches">
+        <label class="ai-line">
+          <span class="switch">
+            <input type="checkbox" data-ai-flag="writeFiles" ${cfg.writeFiles ? "checked" : ""}>
+            <span class="switch__track"><span class="switch__knob"></span></span>
+          </span>
+          <span class="ai-line__text">
+            <b>新建 / 编辑 文件与文件夹</b>
+            <small>建目录、写文本、改名；覆盖已有文本文件前会先说明</small>
+          </span>
+        </label>
+        <label class="ai-line">
+          <span class="switch">
+            <input type="checkbox" data-ai-flag="moveFiles" ${cfg.moveFiles ? "checked" : ""}>
+            <span class="switch__track"><span class="switch__knob"></span></span>
+          </span>
+          <span class="ai-line__text">
+            <b>复制 / 移动 文件与文件夹</b>
+            <small>在网盘内搬运或复制内容，不会删除任何东西</small>
+          </span>
+        </label>
+      </div>
+    </div>
+
     ${tokenRow("maxInput", "输入上限", "历史消息超过这个长度会从最旧的开始丢掉", cfg.maxInput)}
     ${tokenRow("maxOutput", "输出上限", "单次回答最多生成多少 token", cfg.maxOutput)}
 
@@ -191,7 +222,7 @@ function configMarkup() {
         ? `<div class="setting-row setting-row--stack ai-prompt">
             <div class="setting-row__main">
               <div class="setting-row__label">系统提示词<span class="chip chip--accent">管理员</span></div>
-              <div class="setting-row__desc">决定 CDP娘 的人设和说话方式，全站生效；留空则用内置默认</div>
+              <div class="setting-row__desc">决定 云奈 的人设和说话方式，全站生效；留空则用内置默认</div>
             </div>
             <textarea class="ai-textarea" data-ai-prompt rows="6" maxlength="8000"
                       placeholder="留空使用默认提示词">${escapeHtml(state.prompt)}</textarea>
