@@ -48,7 +48,6 @@ with SessionLocal() as _db:
     _db.commit()
     USER_ID = int(_user.id)
 
-PORT = 8899
 STATE: dict[str, int] = {"chat_calls": 0, "anthropic_calls": 0}
 
 
@@ -106,9 +105,29 @@ class Handler(BaseHTTPRequestHandler):
     # ---------------- OpenAI 兼容 ----------------
     def _openai(self, body: dict) -> None:
         STATE["chat_calls"] += 1
-        has_tool_result = any(m.get("role") == "tool" for m in body.get("messages") or [])
+        messages = body.get("messages") or []
+        has_tool_result = any(m.get("role") == "tool" for m in messages)
         wants_tools = bool(body.get("tools"))
+        loop_mode = any(
+            isinstance(m.get("content"), str) and "一直用工具" in m["content"] for m in messages
+        )
         self._sse_open()
+
+        # 「一直用工具」模式：有工具就一直要，收走工具才肯说话，用来验证轮次上限
+        if loop_mode:
+            if wants_tools:
+                self._sse({"choices": [{"index": 0, "delta": {"tool_calls": [
+                    {"index": 0, "id": f"loop_{STATE['chat_calls']}", "type": "function",
+                     "function": {"name": "storage_usage", "arguments": "{}"}}
+                ]}}]})
+                self._sse({"choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}]})
+            else:
+                for piece in ["好的", "，先说到这里。"]:
+                    self._sse({"choices": [{"index": 0, "delta": {"content": piece}}]})
+                self._sse({"choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]})
+            self.wfile.write(b"data: [DONE]\n\n")
+            self.wfile.flush()
+            return
 
         if wants_tools and not has_tool_result:
             self._sse({"choices": [{"index": 0, "delta": {"role": "assistant", "tool_calls": [
@@ -160,7 +179,8 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def start_server() -> ThreadingHTTPServer:
-    server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
+    # 端口交给系统分配：本机可能正跑着别的 mock（或上一次的残留），别抢 8899
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return server
 
@@ -178,6 +198,7 @@ def collect(cfg: dict, messages: list[dict], system: str) -> list[tuple[str, dic
 
 def main() -> int:
     server = start_server()
+    port = int(server.server_address[1])
     failures: list[str] = []
 
     def check(name: str, cond: bool, extra: str = "") -> None:
@@ -187,7 +208,7 @@ def main() -> int:
             print(f"  FAIL {name} {extra}")
             failures.append(name)
 
-    base = f"http://127.0.0.1:{PORT}/v1"
+    base = f"http://127.0.0.1:{port}/v1"
     print("1. 模型探测")
     probe = ai.list_models({"baseUrl": base, "key": "sk-test", "model": "mock-large", "protocol": "openai"})
     check("列出 2 个模型", probe["models"] == ["mock-large", "mock-small"], str(probe))
@@ -221,7 +242,7 @@ def main() -> int:
     check("单轮结束", [k for k, _ in events].count("delta") >= 1 and STATE["chat_calls"] == before + 1)
 
     print("4. Anthropic 协议")
-    cfg_a = dict(cfg, protocol="anthropic", baseUrl=f"http://127.0.0.1:{PORT}")
+    cfg_a = dict(cfg, protocol="anthropic", baseUrl=f"http://127.0.0.1:{port}")
     events = collect(cfg_a, [{"role": "user", "content": "在吗"}], "你是CDP娘")
     kinds = [k for k, _ in events]
     check("走的是 /v1/messages", STATE["anthropic_calls"] == 1, str(STATE))
@@ -281,6 +302,41 @@ def main() -> int:
     check("未授权时工具列表只有只读工具", all(s["function"]["name"] not in ai.WRITE_TOOL_NAMES for s in specs))
     specs = ai.tool_specs({"tools": True, "writeFiles": True, "moveFiles": True})
     check("授权后工具列表包含写/移动工具", len(specs) == len(ai.TOOL_SPECS) + len(ai.WRITE_TOOL_SPECS) + len(ai.MOVE_TOOL_SPECS))
+
+    print("8. 工具轮次上限：到上限后要收尾而不是断掉")
+    before = STATE["chat_calls"]
+    events = collect(cfg, [{"role": "user", "content": "一直用工具"}], "你是CDP娘")
+    kinds = [k for k, _ in events]
+    tool_done = [p for k, p in events if k == "tool" and p.get("status") == "done"]
+    check("最多来回 8 轮工具", len(tool_done) == ai.MAX_TOOL_ROUNDS, str(len(tool_done)))
+    check("到上限会提示用户", any(k == "notice" for k in kinds), str(kinds[:6]))
+    tail_text = "".join(p["text"] for k, p in events if k == "delta")
+    check("收尾时仍然有正文", "先说到这里" in tail_text, repr(tail_text))
+    check(
+        "请求次数 = 轮次 + 收尾",
+        STATE["chat_calls"] - before == ai.MAX_TOOL_ROUNDS + 1,
+        str(STATE["chat_calls"] - before),
+    )
+    check("最后一条是 done", kinds[-1] == "done", str(kinds[-3:]))
+    ids = [p.get("id") for k, p in events if k == "tool" and p.get("status") == "running"]
+    check("每轮工具事件都带唯一 id", len(set(ids)) == len(ids) == ai.MAX_TOOL_ROUNDS, str(ids))
+
+    print("9. 轮次上限可配置")
+    events = collect(dict(cfg, maxRounds=2), [{"role": "user", "content": "一直用工具"}], "你是CDP娘")
+    rounds_done = [p for k, p in events if k == "tool" and p.get("status") == "done"]
+    check("maxRounds=2 只跑两轮", len(rounds_done) == 2, str(len(rounds_done)))
+    check(
+        "提示里写的是实际轮次",
+        any("2 轮" in (p.get("message") or "") for k, p in events if k == "notice"),
+        str([p for k, p in events if k == "notice"]),
+    )
+
+    with SessionLocal() as db:
+        saved = ai.save_config(db, USER_ID, {"maxRounds": 12})
+        check("配置能存轮次", saved.get("maxRounds") == 12, str(saved.get("maxRounds")))
+        check("能读回轮次", ai.load_config(db, USER_ID)["maxRounds"] == 12)
+        ai.save_config(db, USER_ID, {"maxRounds": 99})
+        check("超范围会被夹到 50", ai.load_config(db, USER_ID)["maxRounds"] == 50)
 
     server.shutdown()
     shutil.rmtree(_TMP_DIR, ignore_errors=True)

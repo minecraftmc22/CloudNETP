@@ -127,6 +127,8 @@ class AiConfigIn(CamelModel):
     protocol: Literal["auto", "openai", "anthropic"] | None = None
     max_input: int | None = Field(default=None, ge=0, le=2_000_000)
     max_output: int | None = Field(default=None, ge=0, le=2_000_000)
+    # 一次对话里工具往返的轮次上限（1–50，默认 8）
+    max_rounds: int | None = Field(default=None, ge=1, le=50)
 
 
 class AiProbeIn(CamelModel):

@@ -147,7 +147,7 @@ function configMarkup() {
             <input type="checkbox" data-ai-flag="tools" ${cfg.tools ? "checked" : ""}>
             <span class="switch__track"><span class="switch__knob"></span></span>
           </span>
-          <span class="ai-line__text"><b>工具调用</b><small>允许 CDP娘 翻目录、搜文件、读文本（只读工具；下面的写权限要单独勾）</small></span>
+          <span class="ai-line__text"><b>工具调用</b><small>允许 CDP娘 翻目录、搜文件、读文本（只读；写权限要单独勾；轮次上限在下面一行调）</small></span>
         </label>
         <label class="ai-line">
           <span class="switch">
@@ -179,6 +179,28 @@ function configMarkup() {
             <input type="radio" name="ai-protocol" value="anthropic" ${cfg.protocol === "anthropic" ? "checked" : ""}>
             <span>Anthropic（/messages）</span>
           </label>
+        </div>
+      </div>
+    </div>
+
+    <div class="setting-row setting-row--stack">
+      <div class="setting-row__main">
+        <div class="setting-row__label">工具轮次上限</div>
+        <div class="setting-row__desc">一次对话里模型最多来回调几轮工具；到上限会收回工具，让它基于已有结果收尾</div>
+      </div>
+      <div class="ai-tokens">
+        <div class="ai-chips" data-ai-rounds>
+          ${[3, 5, 8, 12, 20]
+            .map(
+              (n) =>
+                `<button type="button" class="ai-chip ${Number(cfg.maxRounds) === n ? "is-active" : ""}" data-ai-round="${n}">${n} 轮</button>`
+            )
+            .join("")}
+          <span class="ai-token-custom">
+            <input type="number" min="1" max="50" step="1" placeholder="1-50"
+                   data-ai-rounds-input
+                   value="${[3, 5, 8, 12, 20].includes(Number(cfg.maxRounds)) ? "" : Number(cfg.maxRounds || 8)}">
+          </span>
         </div>
       </div>
     </div>
@@ -418,6 +440,30 @@ function bind(body) {
       wrap.querySelectorAll("[data-ai-token]").forEach((c) => c.classList.remove("is-active"));
       save({ [field]: value });
     });
+  });
+
+  /* --- 工具轮次上限 --- */
+  const roundsWrap = body.querySelector("[data-ai-rounds]");
+  const roundsInput = body.querySelector("[data-ai-rounds-input]");
+  roundsWrap?.querySelectorAll("[data-ai-round]").forEach((chip) => {
+    chip.addEventListener("click", () => {
+      const value = Number(chip.dataset.aiRound);
+      roundsWrap.querySelectorAll("[data-ai-round]").forEach((c) => c.classList.toggle("is-active", c === chip));
+      if (roundsInput) roundsInput.value = "";
+      save({ maxRounds: value });
+    });
+  });
+  roundsInput?.addEventListener("change", () => {
+    const raw = Number(roundsInput.value);
+    if (!Number.isFinite(raw) || raw < 1) {
+      Toast.warn("填 1–50 之间的轮次");
+      roundsInput.value = "";
+      return;
+    }
+    const value = Math.max(1, Math.min(50, Math.round(raw)));
+    roundsInput.value = String(value);
+    roundsWrap.querySelectorAll("[data-ai-round]").forEach((c) => c.classList.remove("is-active"));
+    save({ maxRounds: value });
   });
 
   /* --- 管理员：系统提示词 --- */

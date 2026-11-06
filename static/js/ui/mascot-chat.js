@@ -356,11 +356,13 @@ function scheduleRender(target, text) {
 }
 
 function toolEntry(container, data) {
-  let node = container.querySelector(`[data-tool="${CSS.escape(data.name || "tool")}"]`);
+  // 用调用 id 做键：同一轮调两次同一个工具、或者连着几轮调同一个，都要各自一条
+  const key = data.id || data.name || "tool";
+  let node = container.querySelector(`[data-tool="${CSS.escape(key)}"]`);
   if (!node) {
     node = document.createElement("details");
     node.className = "mchat__tool";
-    node.dataset.tool = data.name || "tool";
+    node.dataset.tool = key;
     node.innerHTML = `<summary><span class="mchat__dot"></span><span data-tool-label></span></summary><pre data-tool-result></pre>`;
     container.appendChild(node);
   }
@@ -540,6 +542,10 @@ async function streamReply() {
       }
       if (event === "meta") {
         if (state.modelEl && data.model) state.modelEl.textContent = data.model;
+        return;
+      }
+      if (event === "notice") {
+        appendNotice(data.message || "工具调用已达上限，先按已有结果回答", "warn");
         return;
       }
       if (event === "error") {

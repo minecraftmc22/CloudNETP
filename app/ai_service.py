@@ -87,12 +87,15 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "protocol": "auto",
     "maxInput": 0,  # 0 = 用服务商默认（不主动裁剪历史）
     "maxOutput": 0,  # 0 = 用服务商默认
+    "maxRounds": 8,  # 一次对话里工具往返的轮次上限
 }
 
 PROTOCOLS = {"auto", "openai", "anthropic"}
 PROVIDERS = {"", "openai", "deepseek", "custom"}
 
-MAX_TOOL_ROUNDS = 3
+# 工具往返轮次上限：一轮里模型可以同时调多个工具，所以这不是「工具次数」。
+# 到上限后不再给工具，让它用已有结果收尾，而不是把半截对话直接掐断。
+MAX_TOOL_ROUNDS = 8
 HTTP_TIMEOUT = 180
 PROBE_TIMEOUT = 20
 
@@ -193,6 +196,7 @@ def load_config(db: Session, user_id: int) -> dict:
     cfg["thinking"] = bool(cfg.get("thinking", False))
     cfg["maxInput"] = _clamp_int(cfg.get("maxInput"))
     cfg["maxOutput"] = _clamp_int(cfg.get("maxOutput"))
+    cfg["maxRounds"] = _clamp_rounds(cfg.get("maxRounds"))
     cfg["key"] = decrypt_key(str(stored.get("key") or ""))
     return cfg
 
@@ -206,6 +210,14 @@ def _clamp_int(value: Any) -> int:
         return 0
     # 下限给 64：再小连一句完整回答都装不下，多半是填错了
     return max(64, min(2_000_000, number))
+
+
+def _clamp_rounds(value: Any) -> int:
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return MAX_TOOL_ROUNDS
+    return max(1, min(50, number))
 
 
 def public_config(db: Session, user_id: int) -> dict:
@@ -233,6 +245,7 @@ def save_config(db: Session, user_id: int, patch: dict) -> dict:
         "protocol",
         "maxInput",
         "maxOutput",
+        "maxRounds",
     ):
         if field in patch and patch[field] is not None:
             stored[field] = patch[field]
@@ -1019,7 +1032,12 @@ def _stream_openai(
     specs = tool_specs(cfg)
     perms = {"write": bool(cfg.get("writeFiles")), "move": bool(cfg.get("moveFiles"))}
 
-    for round_index in range(MAX_TOOL_ROUNDS + 1):
+    rounds = cfg.get("maxRounds") or MAX_TOOL_ROUNDS
+    for round_index in range(rounds + 1):
+        # 最后一轮不再给工具：让模型拿已有结果收尾，而不是忽然断掉
+        use_tools = bool(specs) and round_index < rounds
+        if specs and round_index == rounds:
+            yield ("notice", {"message": f"工具调用已达上限（{rounds} 轮），这里先按已有结果回答"})
         payload: dict[str, Any] = {
             "model": cfg["model"],
             "messages": convo,
@@ -1027,7 +1045,7 @@ def _stream_openai(
         }
         if cfg["maxOutput"]:
             payload["max_tokens"] = cfg["maxOutput"]
-        if specs:
+        if use_tools:
             payload["tools"] = specs
             payload["tool_choice"] = "auto"
         if cfg["thinking"] and _reasoning_effort_ok(cfg):
@@ -1083,7 +1101,7 @@ def _stream_openai(
                     if fn.get("arguments"):
                         slot["args"] += fn["arguments"]
 
-        if not calls or round_index >= MAX_TOOL_ROUNDS:
+        if not calls or not use_tools:
             yield ("done", {"usage": None, "hadText": text_seen})
             return
 
@@ -1106,14 +1124,30 @@ def _stream_openai(
             args = _safe_json(call["args"])
             label = TOOL_LABELS.get(call["name"], call["name"] or "工具")
             touch = call["name"] in WRITE_TOOL_NAMES
+            # id 让前端把「同一轮的两个调用」和「不同轮的同一个工具」区分开
+            call_id = call["id"] or call["name"]
             yield (
                 "tool",
-                {"name": call["name"], "label": label, "status": "running", "args": args, "write": touch},
+                {
+                    "id": call_id,
+                    "name": call["name"],
+                    "label": label,
+                    "status": "running",
+                    "args": args,
+                    "write": touch,
+                },
             )
             result = run_tool_safe(user.id, call["name"], args, perms)
             yield (
                 "tool",
-                {"name": call["name"], "label": label, "status": "done", "result": result[:400], "write": touch},
+                {
+                    "id": call_id,
+                    "name": call["name"],
+                    "label": label,
+                    "status": "done",
+                    "result": result[:400],
+                    "write": touch,
+                },
             )
             convo.append(
                 {
@@ -1152,7 +1186,12 @@ def _stream_anthropic(
     perms = {"write": bool(cfg.get("writeFiles")), "move": bool(cfg.get("moveFiles"))}
     max_tokens = cfg["maxOutput"] or 4096
 
-    for round_index in range(MAX_TOOL_ROUNDS + 1):
+    rounds = cfg.get("maxRounds") or MAX_TOOL_ROUNDS
+    for round_index in range(rounds + 1):
+        # 与 OpenAI 分支一致：最后一轮不给工具，逼它收尾
+        use_tools = bool(specs) and round_index < rounds
+        if specs and round_index == rounds:
+            yield ("notice", {"message": f"工具调用已达上限（{rounds} 轮），这里先按已有结果回答"})
         payload: dict[str, Any] = {
             "model": cfg["model"],
             "max_tokens": max_tokens,
@@ -1160,7 +1199,7 @@ def _stream_anthropic(
             "messages": convo,
             "stream": True,
         }
-        if specs:
+        if use_tools:
             payload["tools"] = anthropic_tools(specs)
         if cfg["thinking"]:
             budget = min(2048, max(1024, max_tokens - 512))
@@ -1222,7 +1261,7 @@ def _stream_anthropic(
                     stop_reason = (obj.get("delta") or {}).get("stop_reason") or stop_reason
                     continue
 
-        if stop_reason != "tool_use" or not blocks or round_index >= MAX_TOOL_ROUNDS:
+        if stop_reason != "tool_use" or not blocks or not use_tools:
             yield ("done", {"usage": None, "hadText": text_seen})
             return
 
@@ -1245,14 +1284,30 @@ def _stream_anthropic(
             args = _safe_json(call["args"])
             label = TOOL_LABELS.get(call["name"], call["name"] or "工具")
             touch = call["name"] in WRITE_TOOL_NAMES
+            # id 让前端把「同一轮的两个调用」和「不同轮的同一个工具」区分开
+            call_id = call["id"] or call["name"]
             yield (
                 "tool",
-                {"name": call["name"], "label": label, "status": "running", "args": args, "write": touch},
+                {
+                    "id": call_id,
+                    "name": call["name"],
+                    "label": label,
+                    "status": "running",
+                    "args": args,
+                    "write": touch,
+                },
             )
             result = run_tool_safe(user.id, call["name"], args, perms)
             yield (
                 "tool",
-                {"name": call["name"], "label": label, "status": "done", "result": result[:400], "write": touch},
+                {
+                    "id": call_id,
+                    "name": call["name"],
+                    "label": label,
+                    "status": "done",
+                    "result": result[:400],
+                    "write": touch,
+                },
             )
             results.append(
                 {
