@@ -190,6 +190,7 @@ scripts/
 docs/
   logo.png           图标（与站点 PWA 图标同源）
   screenshots/       README 界面截图
+Wiki/                使用文档（VuePress + vuepress-theme-hope，含操作截图）
 sql/schema.sql       MySQL 建表参考
 ```
 

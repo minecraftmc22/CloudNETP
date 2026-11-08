@@ -1,0 +1,18 @@
+{
+  "name": "cloudnetp-wiki",
+  "private": true,
+  "version": "0.3.50",
+  "description": "CloudNETP 使用文档（VuePress 2 + vuepress-theme-hope）",
+  "scripts": {
+    "docs:dev": "vuepress dev .",
+    "docs:build": "vuepress build .",
+    "docs:clean": "vuepress dev . --clean-cache"
+  },
+  "devDependencies": {
+    "@vuepress/bundler-vite": "^2.0.0-rc.31",
+    "sass-embedded": "^1.108.1",
+    "vue": "^3.5.13",
+    "vuepress": "^2.0.0-rc.31",
+    "vuepress-theme-hope": "^2.0.0-rc.110"
+  }
+}
