@@ -1,6 +1,65 @@
-# CloudNETP
+<p align="center">
+  <img src="docs/logo.png" width="132" alt="CloudNETP">
+</p>
 
-WinUI3 / Fluent Design 风格的二次元个人网盘，Python 3.14 + FastAPI 后端，零构建原生 ES Module 前端。
+<h1 align="center">CloudNETP</h1>
+
+<p align="center">
+  <b>自托管的二次元个人网盘</b> · WinUI 3 / Fluent Design 风格 · 文件只放在你自己的机器上
+</p>
+
+<p align="center">
+  <img alt="Python" src="https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white">
+  <img alt="FastAPI" src="https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white">
+  <img alt="SQLAlchemy" src="https://img.shields.io/badge/SQLAlchemy-MySQL%208%20%2F%20SQLite-D71F00">
+  <img alt="i18n" src="https://img.shields.io/badge/i18n-%E4%B8%AD%E6%96%87%20%2F%20English-f9a8d4">
+  <img alt="License" src="https://img.shields.io/badge/License-PolyForm%20Noncommercial-c084fc">
+</p>
+
+Python 3.14 + FastAPI 后端，零构建原生 ES Module 前端；分片秒传、在线预览、分享链接、WebDAV、管理后台与看板娘 AI 助手一应俱全，多用户各占独立空间与配额。
+
+## 界面预览
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/files.jpg" alt="文件管理"></td>
+    <td width="50%"><img src="docs/screenshots/viewer-image.jpg" alt="图片预览"></td>
+  </tr>
+  <tr>
+    <td><b>文件管理</b> · 网格 / 列表双视图，多选、拖拽上传、右键菜单</td>
+    <td><b>在线预览</b> · 图片缩放拖动，音视频与文档就地打开</td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/viewer-markdown.jpg" alt="Markdown 预览"></td>
+    <td><img src="docs/screenshots/settings.jpg" alt="设置"></td>
+  </tr>
+  <tr>
+    <td><b>文档预览</b> · Markdown / Word / Excel / PPT / ODF / PDF 直接在浏览器里看</td>
+    <td><b>外观设置</b> · 亮暗主题、主题色、预设壁纸、各模块不透明度</td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/admin.jpg" alt="管理后台"></td>
+    <td><img src="docs/screenshots/share.jpg" alt="公开分享页"></td>
+  </tr>
+  <tr>
+    <td><b>管理后台</b> · 用户与配额、审计日志、数据库状态、孤儿文件清理</td>
+    <td><b>分享链接</b> · 独立公开页，有效期 / 提取码 / 次数上限</td>
+  </tr>
+</table>
+
+<p align="center">
+  <img src="docs/screenshots/login.jpg" width="860" alt="登录页">
+  <br>
+  <sub><b>登录页</b> · 花瓣粒子背景，右上角直接切换中英文</sub>
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/mobile.jpg" width="240" alt="手机端">
+  <br>
+  <sub><b>手机端</b> · 三列网格 + 底部图标导航</sub>
+</p>
+
+> 截图由 `scripts/make_readme_shots.py` 生成：临时库 + 临时存储里的演示数据，跑完自动清理。
 
 ## 特性
 
@@ -124,7 +183,12 @@ app/
 static/
   css/               theme / layout / components / views / files / viewer / admin / share
   js/                api / store / theme / uploader / sha256 / i18n / views / ui
-scripts/bootstrap.py 首次启动：生成 .env 与随机 SECRET_KEY
+scripts/
+  bootstrap.py       首次启动：生成 .env 与随机 SECRET_KEY
+  make_readme_shots.py  生成 docs/screenshots 里的界面截图（临时库 + 演示数据）
+docs/
+  logo.png           图标（与站点 PWA 图标同源）
+  screenshots/       README 界面截图
 sql/schema.sql       MySQL 建表参考
 ```
 

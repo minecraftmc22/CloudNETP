@@ -68,6 +68,15 @@ const AUTHOR = {
 
 const CHANGELOG = [
   {
+    version: "0.3.48",
+    title: "README 有图了",
+    items: [
+      "README 顶部换成图标 + 徽章，新增「界面预览」：文件管理、预览、设置、后台、分享页、登录页与手机端共八张截图",
+      "截图由 scripts/make_readme_shots.py 生成：临时库 + 临时存储里铺一套演示数据，Playwright 逐个场景抓图后自动清理",
+      "修掉审计日志在中文界面显示「审计动作:登录」这种前缀的问题（key 只用于查字典，不再漏到界面上）",
+    ],
+  },
+  {
     version: "0.3.47",
     title: "一条命令启动，提示词跟着语言走",
     items: [
