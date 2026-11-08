@@ -149,6 +149,45 @@
   margin-left: auto;
   color: var(--text-3);
   font-size: 11px;
+  /* 「463 KB」这类单位不许折行，否则会被挤成两行 */
+  white-space: nowrap;
+}
+/* 连接串 / 路径这类长文本独占一行，别挤成两截 */
+.admin-facts > div.is-wide {
+  grid-column: 1 / -1;
+}
+
+/* 数据库卡片：探活状态点 */
+.db-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-1);
+}
+.db-state::before {
+  content: "";
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-3);
+}
+.db-state.is-ok::before {
+  background: var(--success);
+  box-shadow: 0 0 0 3px var(--success-soft);
+}
+.db-state.is-bad::before {
+  background: var(--danger);
+  box-shadow: 0 0 0 3px var(--danger-soft);
+}
+/* 降级中/需注意的胶囊标签（chip--warn 只在管理页用，放这里不污染通用组件） */
+.chip--warn {
+  color: var(--danger);
+  background: var(--danger-soft);
+  border-color: color-mix(in srgb, var(--danger) 24%, transparent);
 }
 
 /* 最近操作 / 排行 */
@@ -660,6 +699,13 @@
     padding: 0 4px;
     gap: 4px;
     font-size: 12px;
+  }
+}
+
+/* 事实列表在手机上一列到底：两列会把「未运行」「不周期镜像」挤成省略号 */
+@media (max-width: 640px) {
+  .admin-facts {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 

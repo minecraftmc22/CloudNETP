@@ -278,3 +278,9 @@ class UpdateApplyIn(CamelModel):
 
 class AdminGcIn(CamelModel):
     apply: bool = False
+
+
+class AdminDbReconnectIn(CamelModel):
+    """管理页手动重连：切到主库还是容灾 SQLite。"""
+
+    target: Literal["primary", "fallback"] = "primary"

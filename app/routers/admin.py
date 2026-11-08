@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import logging
 import secrets
 from typing import Annotated
 
@@ -13,18 +14,27 @@ from sqlalchemy.orm import Session
 
 from .. import admin_service as admin
 from .. import dav_auth as da
+from .. import db_failover
 from .. import node_service as ns
 from .. import profile_service as ps
 from .. import storage
 from ..db import get_db
 from ..deps import require_admin
 from ..models import User
-from ..schemas import AdminGcIn, AdminLogPurgeIn, AdminSettingsIn, AdminUserPatchIn
+from ..schemas import (
+    AdminDbReconnectIn,
+    AdminGcIn,
+    AdminLogPurgeIn,
+    AdminSettingsIn,
+    AdminUserPatchIn,
+)
 from ..security import check_origin, hash_password
 from ..settings_store import set_value
 from ..user_service import log_action
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
+
+log = logging.getLogger("uvicorn.error")
 
 DbSession = Annotated[Session, Depends(get_db)]
 AdminUser = Annotated[User, Depends(require_admin)]
@@ -367,6 +377,53 @@ def unblock_blob(sha256: str, request: Request, db: DbSession, me: AdminUser) ->
         log_action(db, "admin_blob_unblock", me.id, {"sha256": sha256}, request)
         db.commit()
     return {"unblocked": removed}
+
+
+# --------------------------------------------------------------------------- #
+# 数据库（容灾状态 / 刷新配置 / 手动重连）
+# --------------------------------------------------------------------------- #
+def _db_audit(request: Request, user_id: int, action: str, detail: dict) -> None:
+    """库可能刚被换掉，请求里那条会话绑的是旧引擎，另开一个写审计。"""
+    session = db_failover.current_sessionmaker()()
+    try:
+        log_action(session, action, user_id, detail, request)
+        session.commit()
+    except Exception as exc:  # 审计写失败不该让「库已经连上了」变成 500
+        log.warning("写数据库审计日志失败：%s", exc)
+    finally:
+        session.close()
+
+
+@router.get("/db")
+def db_state(_: AdminUser) -> dict:
+    """当前服务库、主库探活、容灾副本与看门狗参数（连接串已脱敏）。"""
+    return {"db": db_failover.describe()}
+
+
+@router.post("/db/refresh")
+def db_refresh(request: Request, me: AdminUser) -> dict:
+    """重读 .env 的数据库配置，重建连接池并按容灾规则落回可用的库。"""
+    check_origin(request)
+    result = db_failover.reload_config()
+    _db_audit(
+        request,
+        me.id,
+        "admin_db_refresh",
+        {"changes": result["changes"], "landed": result["landed"]},
+    )
+    return {"result": result, "db": db_failover.describe()}
+
+
+@router.post("/db/reconnect")
+def db_reconnect(payload: AdminDbReconnectIn, request: Request, me: AdminUser) -> dict:
+    """手动重连并切到指定库；连不上直接报错，保持当前库不动。"""
+    check_origin(request)
+    try:
+        result = db_failover.reconnect(payload.target)
+    except RuntimeError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from None
+    _db_audit(request, me.id, "admin_db_reconnect", result)
+    return {"result": result, "db": db_failover.describe()}
 
 
 # --------------------------------------------------------------------------- #

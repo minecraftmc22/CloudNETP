@@ -75,6 +75,88 @@ function detailLine(raw) {
   }
 }
 
+/* ------------------------------------------------------------------ */
+/* 数据库卡片：容灾状态 / 刷新配置 / 手动重连                          */
+/* ------------------------------------------------------------------ */
+function dbCardMarkup(db) {
+  const head = `<div class="settings-card__head"><svg class="icon icon--s"><use href="#i-database"/></svg>数据库</div>`;
+  if (!db) {
+    return `<section class="settings-card" data-card="db">${head}
+      <div class="admin-hint">数据库状态读取失败，点右上角刷新按钮重试</div>
+    </section>`;
+  }
+
+  const p = db.primary || {};
+  const f = db.fallback || {};
+  const w = db.watchdog || {};
+  const reach = p.reachable
+    ? `<span class="db-state is-ok">可达</span><small>${p.latencyMs} ms</small>`
+    : `<span class="db-state is-bad">不可达</span><small>超时 ${p.connectTimeout}s</small>`;
+  const fallbackState = f.enabled
+    ? `${f.mirrored ? "可信副本" : "尚未镜像过主库"}${f.dirty ? " · 有未回迁数据" : ""}`
+    : "未开启";
+  const switched = db.switchedAt
+    ? `${formatTime(db.switchedAt)}${db.switchReason ? ` · ${escapeHtml(db.switchReason)}` : ""}`
+    : "进程启动后没有切换过";
+  const held = w.held ? `<span class="chip">已暂停自动回切</span>` : "";
+  const sqliteOnly = p.isSqlite;
+
+  return `<section class="settings-card" data-card="db">${head}
+    <div class="setting-row">
+      <div class="setting-row__main">
+        <div class="setting-row__label">当前服务库
+          <span class="chip ${db.mode === "fallback" ? "chip--warn" : "chip--accent"}">${escapeHtml(db.modeLabel || db.mode)}</span>
+          ${held}
+        </div>
+        <div class="setting-row__desc">最近切换：${switched}</div>
+      </div>
+    </div>
+
+    <div class="admin-facts">
+      <div class="is-wide"><span>主库</span><b class="mono" title="${escapeHtml(p.url || "")}">${escapeHtml(p.url || "—")}</b></div>
+      <div><span>探活</span>${reach}</div>
+      <div><span>副本状态</span><b>${fallbackState}</b></div>
+      <div class="is-wide"><span>容灾副本</span><b class="mono" title="${escapeHtml(f.path || "")}">${escapeHtml(f.path || "—")}</b><small>${formatBytes(f.bytes || 0)}</small></div>
+      <div><span>自动容灾</span><b>${f.enabled ? "开启" : "关闭"}</b><small>${
+        w.probeInterval > 0 ? `探测 ${w.probeInterval}s` : "不自动探测"
+      } · ${w.mirrorInterval > 0 ? `镜像 ${w.mirrorInterval}s` : "不周期镜像"}</small></div>
+      <div><span>看门狗</span><b>${w.running ? "运行中" : "未运行"}</b><small>${
+        w.lastMirrorAt ? `上次镜像 ${formatTime(w.lastMirrorAt)}` : "还没镜像过"
+      }</small></div>
+    </div>
+
+    <div class="setting-row">
+      <div class="setting-row__main">
+        <div class="setting-row__label">刷新配置</div>
+        <div class="setting-row__desc">重读 <code>.env</code> 里的 <code>DATABASE_URL</code> 与容灾参数，重建连接池并重新探活，不用重启服务</div>
+      </div>
+      <button class="btn" type="button" data-db-act="refresh">刷新配置</button>
+    </div>
+
+    <div class="setting-row">
+      <div class="setting-row__main">
+        <div class="setting-row__label">重新连接 MySQL</div>
+        <div class="setting-row__desc">丢弃旧连接池重新握手；当前跑在 SQLite 时会先把本地数据回迁到主库，成功才切回</div>
+      </div>
+      <button class="btn" type="button" data-db-act="primary">重新连接 MySQL</button>
+    </div>
+
+    <div class="setting-row">
+      <div class="setting-row__main">
+        <div class="setting-row__label">重新连接 SQLite</div>
+        <div class="setting-row__desc">${
+          sqliteOnly
+            ? "当前 DATABASE_URL 本来就是 SQLite 文件，容灾切换只在主库指向远程 MySQL 时有意义"
+            : "切到本地容灾库（切之前先镜像一份最新副本）；切过来会暂停自动回切，直到你点上面的按钮"
+        }</div>
+      </div>
+      <button class="btn btn--subtle" type="button" data-db-act="fallback">重新连接 SQLite</button>
+    </div>
+
+    <p class="admin-hint">连接串只显示到库名，密码在服务端已脱敏；手动切换与刷新都会记进审计日志。</p>
+  </section>`;
+}
+
 export function renderAdmin(root) {
   const state = {
     tab: "overview",
@@ -1220,14 +1302,20 @@ export function renderAdmin(root) {
   async function showSettings() {
     panel.innerHTML = loading();
     let settings;
+    let dbInfo = null;
     try {
-      const data = await api.get("/api/admin/settings");
+      const [data, dbData] = await Promise.all([
+        api.get("/api/admin/settings"),
+        // 数据库卡片单独取：这一项失败不该让整个设置页白屏
+        api.get("/api/admin/db").catch(() => null),
+      ]);
       settings = data.settings;
+      dbInfo = dbData?.db || null;
     } catch (err) {
       panel.innerHTML = errorBlock(err.message);
       return;
     }
-    setSub("站点信息、上传限制与维护");
+    setSub("站点信息、数据库与维护");
 
     panel.innerHTML = `
       <section class="settings-card" data-card="site">
@@ -1358,6 +1446,8 @@ export function renderAdmin(root) {
         </div>
       </section>
 
+      ${dbCardMarkup(dbInfo)}
+
       <section class="settings-card">
         <div class="settings-card__head"><svg class="icon icon--s"><use href="#i-database"/></svg>维护</div>
         <div class="setting-row">
@@ -1388,6 +1478,88 @@ export function renderAdmin(root) {
     panel.querySelectorAll("[data-save]").forEach((btn) => {
       btn.addEventListener("click", () => saveCard(btn));
     });
+
+    /* --- 数据库卡片：刷新配置 / 手动重连 --- */
+    function paintDbCard(db) {
+      const card = panel.querySelector('[data-card="db"]');
+      if (!card) return;
+      card.outerHTML = dbCardMarkup(db);
+      bindDbCard();
+    }
+
+    function bindDbCard() {
+      const card = panel.querySelector('[data-card="db"]');
+      if (!card) return;
+
+      // 按钮在请求期间可能随卡片一起被重绘，所以要先把引用和文案存下来
+      async function run(button, task) {
+        const label = button.textContent;
+        button.disabled = true;
+        button.textContent = "处理中…";
+        try {
+          await task();
+        } catch (err) {
+          Toast.error(err.message || "操作失败");
+        } finally {
+          button.disabled = false;
+          button.textContent = label;
+        }
+      }
+
+      card.querySelector('[data-db-act="refresh"]')?.addEventListener("click", (event) => {
+        const button = event.currentTarget;
+        run(button, async () => {
+          const data = await api.post("/api/admin/db/refresh", {});
+          const changed = Object.keys(data.result?.changes || {});
+          paintDbCard(data.db);
+          if (changed.length) {
+            const extra = data.result?.urlChanged ? "（连接串已更换）" : "";
+            Toast.success(`配置已刷新：${changed.join("、")}${extra}`);
+          } else {
+            Toast.info("配置已刷新，没有变化");
+          }
+        });
+      });
+
+      card.querySelector('[data-db-act="primary"]')?.addEventListener("click", async (event) => {
+        const button = event.currentTarget;
+        const ok = await Dialog.confirm({
+          title: "重新连接 MySQL",
+          message:
+            "会丢弃当前连接池重新握手。<br>如果服务正跑在 SQLite 上，会先把本地库的数据回迁到主库，" +
+            "回迁成功才切回；主库连不上则保持现状并报错。",
+          confirmText: "重连",
+        });
+        if (!ok) return;
+        run(button, async () => {
+          const data = await api.post("/api/admin/db/reconnect", { target: "primary" });
+          const rows = data.result?.migratedRows || 0;
+          paintDbCard(data.db);
+          Toast.success(`已连上 MySQL${rows ? `，回迁 ${rows} 行` : ""}`);
+        });
+      });
+
+      card.querySelector('[data-db-act="fallback"]')?.addEventListener("click", async (event) => {
+        const button = event.currentTarget;
+        const ok = await Dialog.confirm({
+          title: "重新连接 SQLite",
+          message:
+            "会先镜像一份主库的最新副本，然后切到本地数据库服务。<br>" +
+            "切过来后自动回切会暂停，直到你点「重新连接 MySQL」或重启服务。",
+          confirmText: "切到 SQLite",
+          danger: true,
+        });
+        if (!ok) return;
+        run(button, async () => {
+          const data = await api.post("/api/admin/db/reconnect", { target: "fallback" });
+          const rows = data.result?.mirroredRows || 0;
+          paintDbCard(data.db);
+          Toast.success(`已切到 SQLite${rows ? `，镜像 ${rows} 行` : ""}`);
+        });
+      });
+    }
+
+    bindDbCard();
 
     panel.querySelector('[data-act="purge-logs"]')?.addEventListener("click", purgeLogs);
     panel.querySelector('[data-act="blob-gc"]')?.addEventListener("click", blobGc);

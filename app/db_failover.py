@@ -25,12 +25,14 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from datetime import datetime
 from typing import Any
+from urllib.parse import quote, urlsplit, urlunsplit
 
 from sqlalchemy import Engine, and_, bindparam, create_engine, event, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
-from .config import settings
+from .config import ENV_FILE, refresh_db_settings, settings
 
 log = logging.getLogger("uvicorn.error").getChild("cloudnetp.db")
 
@@ -62,8 +64,15 @@ _fallback_engine: Engine | None = None
 _fallback_session: sessionmaker | None = None
 _probe_engine: Engine | None = None
 _last_mirror = 0.0
+_last_switch_at = 0.0
+_last_switch_reason = ""
+# 管理员在后台手动切到 SQLite：暂停「主库一恢复就自动回切」，
+# 否则他刚点完 30 秒就被看门狗改回去，会以为按钮没生效（重启进程即解除）
+_hold_fallback = False
 _watchdog: threading.Thread | None = None
 _started = False
+# 探活结果缓存：管理页轮询时不必每次都真连一次（默认 8 秒内复用）
+_probe_cache: dict[str, Any] = {"at": 0.0, "ok": False, "ms": 0}
 
 # fallback 库里的「可信副本」标记：镜像成功才写。回迁前靠它判断副本来历
 MARK_KEY = "__failover_mirror_at"
@@ -81,7 +90,7 @@ def _make_fallback_engine() -> Engine:
         url,
         echo=settings.DB_ECHO,
         future=True,
-        connect_args={"check_same_thread": False, "timeout": 30},
+        connect_args={"check_same_thread": False, "timeout": max(1, settings.SQLITE_TIMEOUT)},
     )
 
     @event.listens_for(eng, "connect")
@@ -132,17 +141,26 @@ def current_sessionmaker() -> sessionmaker:
 
 
 def _switch(to: str, reason: str) -> None:
-    global _mode
+    global _mode, _last_switch_at, _last_switch_reason
     with _lock:
         if _mode == to:
             return
         _mode = to
+        _last_switch_at = time.time()
+        _last_switch_reason = reason
     if to == MODE_FALLBACK:
         log.warning("数据库降级 → SQLite 回退（%s）。期间数据写入本地，主库恢复后自动回迁", reason)
         _mark_dirty()
     else:
         log.info("数据库切回 → 主库（%s）", reason)
         _clear_dirty()
+
+
+def _switch_since() -> str | None:
+    """最近一次切换的时间（本地时区 ISO），从没切过返回 None。"""
+    if not _last_switch_at:
+        return None
+    return datetime.fromtimestamp(_last_switch_at).isoformat(timespec="seconds")
 
 
 # ---------------------------------------------------------------- 探测
@@ -156,6 +174,33 @@ def probe(eng: Engine | None = None) -> bool:
         return True
     except Exception:
         return False
+
+
+def probe_now() -> tuple[bool, int]:
+    """真探一次，返回 (是否可用, 耗时毫秒)，顺手把结果写进缓存。"""
+    start = time.perf_counter()
+    ok = probe()
+    ms = int((time.perf_counter() - start) * 1000)
+    _probe_cache.update({"at": time.time(), "ok": ok, "ms": ms})
+    return ok, ms
+
+
+def probe_cached(ttl: float = 8.0) -> tuple[bool, int]:
+    """探活带缓存：管理页刷新时不必每点一次都排一次 3 秒超时。"""
+    if time.time() - float(_probe_cache.get("at") or 0) < ttl:
+        return bool(_probe_cache["ok"]), int(_probe_cache["ms"])
+    return probe_now()
+
+
+def _reset_probe_engine() -> None:
+    """连接串换了之后，探活池也得重建，否则还在探旧地址。"""
+    global _probe_engine
+    old, _probe_engine = _probe_engine, None
+    if old is not None:
+        try:
+            old.dispose()
+        except Exception:
+            pass
 
 
 def probe_engine() -> Engine:
@@ -349,13 +394,231 @@ def promote_once() -> int:
     return n
 
 
+def _promote_and_switch(reason: str) -> int:
+    """回迁成功才切回主库，返回回迁行数。回迁失败把异常抛给调用方（继续保持 SQLite）。"""
+    promoted = promote_once()
+    _switch(MODE_PRIMARY, reason)
+    try:
+        mirror_once("回切后立即")  # 让 SQLite 立刻成为最新副本
+    except Exception as exc:
+        log.warning("回切后立即镜像失败：%s", exc)
+    return promoted
+
+
+# ---------------------------------------------------------------- 管理页接口
+
+def _mask_url(url: str) -> str:
+    """连接串脱敏：密码换成 ****，其余保留，方便管理员核对是不是连的这台机器。"""
+    if "@" not in url:
+        return url
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return url
+    if not parts.password:
+        return url
+    host = parts.hostname or ""
+    if parts.port:
+        host = f"{host}:{parts.port}"
+    user = quote(parts.username or "", safe="")
+    return urlunsplit((parts.scheme, f"{user}:****@{host}", parts.path, parts.query, parts.fragment))
+
+
+def _fallback_bytes() -> int:
+    """容灾库实际占盘：WAL 模式下数据可能还在 -wal 里，一起算上。"""
+    path = settings.fallback_db_path
+    total = 0
+    for suffix in ("", "-wal", "-shm"):
+        try:
+            total += path.with_name(path.name + suffix).stat().st_size
+        except OSError:
+            continue
+    return total
+
+
+def _stamp(ts: float) -> str | None:
+    return datetime.fromtimestamp(ts).isoformat(timespec="seconds") if ts else None
+
+
+def describe() -> dict[str, Any]:
+    """管理页「数据库」卡片的状态快照，不含任何明文密钥。"""
+    from .db import engine
+
+    reachable, latency = probe_cached()
+    primary_sqlite = settings.is_sqlite
+    in_fallback = _mode == MODE_FALLBACK
+    fallback_path = settings.fallback_db_path
+
+    return {
+        "mode": _mode,
+        "modeLabel": "SQLite 容灾" if in_fallback else ("SQLite" if primary_sqlite else "MySQL 主库"),
+        "switchedAt": _stamp(_last_switch_at),
+        "switchReason": _last_switch_reason,
+        "primary": {
+            "url": _mask_url(settings.DATABASE_URL),
+            "dialect": engine.dialect.name,
+            "isSqlite": primary_sqlite,
+            "reachable": reachable,
+            "latencyMs": latency,
+            "connectTimeout": settings.DB_CONNECT_TIMEOUT,
+            "queryTimeout": settings.DB_TIMEOUT,
+        },
+        "fallback": {
+            "enabled": settings.DB_FALLBACK_ENABLED,
+            "path": str(fallback_path),
+            "exists": fallback_path.exists(),
+            "bytes": _fallback_bytes(),
+            "mirrored": mirrored_before(),
+            "dirty": dirty(),
+        },
+        "watchdog": {
+            # 线程可能还活着但间隔被改成 0（手动刷新配置），对外一律算「没在自动切换」
+            "running": bool(_watchdog and _watchdog.is_alive()) and settings.DB_PROBE_INTERVAL > 0,
+            "probeInterval": settings.DB_PROBE_INTERVAL,
+            "mirrorInterval": settings.DB_MIRROR_INTERVAL,
+            "held": _hold_fallback,
+            "lastMirrorAt": _stamp(_last_mirror),
+        },
+        "configFile": str(ENV_FILE),
+    }
+
+
+def _rebuild_fallback_engine() -> None:
+    """丢掉本地 SQLite 连接池重建（路径可能刚被 SQLITE_PATH 改过）。"""
+    global _fallback_engine, _fallback_session
+    old = _fallback_engine
+    _fallback_engine, _fallback_session = None, None
+    if old is not None:
+        try:
+            old.dispose()
+        except Exception:
+            pass
+    settings.fallback_db_path.parent.mkdir(parents=True, exist_ok=True)
+    from .db import ensure_schema
+
+    ensure_schema(fallback_engine())
+
+
+def _mask_value(key: str, value: Any) -> str:
+    """配置变更项脱敏：连接串去密码，密码只报「有/无」。"""
+    if key == "DATABASE_URL":
+        return _mask_url(str(value))
+    if key == "DB_PASSWORD":
+        return "****" if value else ""
+    return str(value)
+
+
+def _ensure_primary_schema() -> None:
+    """换了主库地址时结构可能不齐，补建一次（失败只告警，不阻断）。"""
+    from .db import engine, ensure_schema
+
+    try:
+        ensure_schema(engine)
+    except Exception as exc:
+        log.warning("主库表结构检查失败：%s", exc)
+
+
+def reload_config() -> dict[str, Any]:
+    """重读 .env 的数据库配置 → 重建连接池 → 探活 → 落回可用的库。
+
+    返回变更项与落地结果，前端据此提示（例如「连接串已更换，已切回主库」）。
+    与「手动重连」的区别：连不上不报错，按容灾规则落回 SQLite，保证站点先活着。
+    """
+    from . import db as db_module
+
+    changes = refresh_db_settings()
+    url_changed = db_module.rebuild_engine()
+    _reset_probe_engine()
+    reachable, latency = probe_now()
+
+    landed = _mode
+    promoted = 0
+    if reachable:
+        _ensure_primary_schema()
+        if _mode == MODE_FALLBACK and not _hold_fallback:
+            try:
+                promoted = _promote_and_switch("刷新配置后主库可用")
+                landed = MODE_PRIMARY
+            except Exception as exc:
+                log.warning("刷新配置后回迁失败，继续用 SQLite：%s", exc)
+                landed = MODE_FALLBACK
+    elif settings.DB_FALLBACK_ENABLED and _mode == MODE_PRIMARY:
+        _switch(MODE_FALLBACK, "刷新配置时主库不可用")
+        landed = MODE_FALLBACK
+
+    # 间隔从 0 改成正数时，把启动时就跳过的看门狗补起来（已在跑则直接返回）
+    if settings.DB_PROBE_INTERVAL > 0:
+        start_watchdog()
+
+    return {
+        "changes": {
+            key: {"from": _mask_value(key, old), "to": _mask_value(key, new)}
+            for key, (old, new) in changes.items()
+        },
+        "urlChanged": url_changed,
+        "reachable": reachable,
+        "latencyMs": latency,
+        "landed": landed,
+        "migratedRows": promoted,
+    }
+
+
+def reconnect(target: str) -> dict[str, Any]:
+    """管理页手动重连：按最新配置重建连接并切到指定库。
+
+    失败抛 RuntimeError，当前服务库保持不变（宁可让管理员看到报错，也不能半路换库）。
+    """
+    global _hold_fallback
+    if target not in (MODE_PRIMARY, MODE_FALLBACK):
+        raise ValueError("未知的连接目标")
+
+    from . import db as db_module
+
+    if target == MODE_PRIMARY:
+        # 顺手把 .env 改过的连接串生效，省得「改了配置还得重启」
+        changed = db_module.rebuild_engine()
+        _reset_probe_engine()
+        reachable, latency = probe_now()
+        if not reachable:
+            raise RuntimeError(
+                "主库连不上，仍在使用当前库。检查 .env 的 DATABASE_URL、数据库进程和网络后重试"
+            )
+        _ensure_primary_schema()
+        promoted = _promote_and_switch("管理页手动重连主库") if _mode == MODE_FALLBACK else 0
+        _hold_fallback = False
+        return {
+            "target": MODE_PRIMARY,
+            "urlChanged": changed,
+            "latencyMs": latency,
+            "migratedRows": promoted,
+        }
+
+    _rebuild_fallback_engine()
+    mirrored = 0
+    if _mode == MODE_PRIMARY and probe():
+        try:
+            mirrored = mirror_once("手动切换前")
+        except Exception as exc:
+            raise RuntimeError(f"切换前镜像失败，仍在使用主库：{exc}") from None
+    _switch(MODE_FALLBACK, "管理页手动切到 SQLite")
+    _hold_fallback = True  # 手动选择优先：不自动回切，等管理员点「重新连接 MySQL」
+    return {
+        "target": MODE_FALLBACK,
+        "urlChanged": False,
+        "latencyMs": 0,
+        "migratedRows": 0,
+        "mirroredRows": mirrored,
+    }
+
+
 # ---------------------------------------------------------------- 看门狗
 
 def _tick() -> None:
     global _last_mirror
 
     if _mode == MODE_PRIMARY:
-        if not probe():
+        reachable, _ms = probe_now()
+        if not reachable:
             _switch(MODE_FALLBACK, "主库探测失败")
             return
         if 0 < settings.DB_MIRROR_INTERVAL <= time.time() - _last_mirror:
@@ -366,7 +629,10 @@ def _tick() -> None:
                 # 镜像失败不代表主库挂了（可能是瞬时抖动），下轮再试
                 log.warning("主库 → SQLite 镜像失败，下轮重试：%s", exc)
     else:
-        if not probe():
+        if _hold_fallback:
+            return  # 管理员手动停在 SQLite：不自动回切，重启进程后恢复自动
+        reachable, _ms = probe_now()
+        if not reachable:
             return
         # 主库回来了：先回迁，成功才切回；失败保持 SQLite，下轮重试
         try:
@@ -385,6 +651,9 @@ def _tick() -> None:
 def _watchdog_loop() -> None:  # pragma: no cover - 线程主循环
     while True:
         time.sleep(max(5, settings.DB_PROBE_INTERVAL))
+        if settings.DB_PROBE_INTERVAL <= 0:
+            # 运行中把间隔改成 0（刷新配置）：线程留着空转，改回正数就自动恢复工作
+            continue
         try:
             _tick()
         except Exception:

@@ -11,45 +11,79 @@ from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from .config import settings
 
-_connect_args: dict[str, Any] = {}
-_engine_kwargs: dict[str, Any] = {"echo": settings.DB_ECHO, "future": True}
 
-if settings.is_sqlite:
-    _connect_args["check_same_thread"] = False
-else:
-    # 远程 MySQL（跨网络/内网穿透）必须显式超时，否则网络抖动会让请求永久卡在 socket 读上
-    _connect_args.update(
-        connect_timeout=settings.DB_CONNECT_TIMEOUT,
-        read_timeout=settings.DB_TIMEOUT,
-        write_timeout=settings.DB_TIMEOUT,
-    )
-    _engine_kwargs.update(
-        pool_pre_ping=True,
-        # 远端建连成本很高（SSL 握手 3~10s），尽量复用长连接
-        pool_recycle=3600,
-        pool_timeout=30,
-        pool_size=10,
-        max_overflow=20,
-    )
+def _build_engine(url: str) -> Any:
+    """按连接串造引擎。SQLite 走单文件参数，远程库必须带显式超时。"""
+    connect_args: dict[str, Any] = {}
+    kwargs: dict[str, Any] = {"echo": settings.DB_ECHO, "future": True}
 
-engine = create_engine(settings.DATABASE_URL, connect_args=_connect_args, **_engine_kwargs)
+    if url.startswith("sqlite"):
+        connect_args["check_same_thread"] = False
+        connect_args["timeout"] = settings.SQLITE_TIMEOUT
+    else:
+        # 远程 MySQL（跨网络/内网穿透）必须显式超时，否则网络抖动会让请求永久卡在 socket 读上
+        connect_args.update(
+            connect_timeout=settings.DB_CONNECT_TIMEOUT,
+            read_timeout=settings.DB_TIMEOUT,
+            write_timeout=settings.DB_TIMEOUT,
+        )
+        kwargs.update(
+            pool_pre_ping=True,
+            # 远端建连成本很高（SSL 握手 3~10s），尽量复用长连接
+            pool_recycle=3600,
+            pool_timeout=30,
+            pool_size=10,
+            max_overflow=20,
+        )
 
-if settings.is_sqlite:
+    eng = create_engine(url, connect_args=connect_args, **kwargs)
 
-    @event.listens_for(engine, "connect")
-    def _sqlite_pragmas(dbapi_conn, _record):  # pragma: no cover - 运行时副作用
-        cur = dbapi_conn.cursor()
-        cur.execute("PRAGMA journal_mode=WAL")
-        cur.execute("PRAGMA foreign_keys=ON")
-        cur.execute("PRAGMA synchronous=NORMAL")
-        cur.close()
+    if url.startswith("sqlite"):
+
+        @event.listens_for(eng, "connect")
+        def _sqlite_pragmas(dbapi_conn, _record):  # pragma: no cover - 运行时副作用
+            cur = dbapi_conn.cursor()
+            cur.execute("PRAGMA journal_mode=WAL")
+            cur.execute("PRAGMA foreign_keys=ON")
+            cur.execute("PRAGMA synchronous=NORMAL")
+            cur.close()
+
+    return eng
 
 
+# 记住造引擎时的连接串：engine.url 里的密码是掩码的，不能拿来比
+_engine_url = settings.DATABASE_URL
+engine = _build_engine(_engine_url)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False, class_=Session)
 
 
 class Base(DeclarativeBase):
     pass
+
+
+def rebuild_engine() -> bool:
+    """按当前 settings.DATABASE_URL 重建主库引擎，返回连接串是否真的变了。
+
+    - 连接串没变：只丢弃旧连接池（等价于「重连一次」），正在飞的请求各自持有自己的连接，不受影响。
+    - 变了：换新引擎 + 换 SessionLocal，旧引擎 dispose（已 checkout 的连接等它们归还）。
+    调用方（管理页刷新配置 / 手动重连）负责随后重新探活与切库。
+    """
+    global engine, SessionLocal, _engine_url
+
+    url = settings.DATABASE_URL
+    if url == _engine_url:
+        engine.dispose()
+        return False
+
+    old = engine
+    engine = _build_engine(url)
+    SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False, class_=Session)
+    _engine_url = url
+    try:
+        old.dispose()
+    except Exception:  # 旧池子还挂着连接也不影响新库可用
+        pass
+    return True
 
 
 def get_db() -> Iterator[Session]:

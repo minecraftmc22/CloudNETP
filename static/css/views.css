@@ -2497,6 +2497,13 @@ a.setting-row--link:hover .setting-row__chevron {
 .ai-status[data-state="bad"] {
   color: var(--danger);
 }
+/* 显式保存行：两行说明 + 右侧按钮，撑高一点更透气 */
+.settings .setting-row.ai-save {
+  min-height: 72px;
+}
+.settings .setting-row.ai-save .ai-actions {
+  justify-content: flex-end;
+}
 .ai-switches {
   display: flex;
   flex-direction: column;

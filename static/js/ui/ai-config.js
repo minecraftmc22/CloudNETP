@@ -256,6 +256,17 @@ function configMarkup() {
           </div>`
         : ""
     }
+
+    <div class="setting-row ai-save">
+      <div class="setting-row__main">
+        <div class="setting-row__label">保存配置</div>
+        <div class="setting-row__desc">改一项就即时存一项；想确认整块配置都落库了，点这里一次性提交</div>
+      </div>
+      <div class="ai-actions">
+        <span class="ai-status" data-ai-save-status></span>
+        <button class="btn btn--accent" type="button" data-ai-save>保存配置</button>
+      </div>
+    </div>
   `;
 }
 
@@ -492,6 +503,68 @@ function bind(body) {
     }
   });
 
+  /* --- 显式保存：把整块配置一次性提交 --- */
+  const saveButton = body.querySelector("[data-ai-save]");
+  const saveTip = body.querySelector("[data-ai-save-status]");
+
+  function collectAll() {
+    const patch = {
+      baseUrl: base.value.trim(),
+      protocol: currentProtocol(),
+    };
+
+    // 模型：下拉框看得见就用下拉框的值，切到「自定义」时用输入框
+    const customBox = body.querySelector("[data-ai-model-custom]");
+    const picked = customBox && !customBox.hidden ? modelInput?.value.trim() : select?.value;
+    const model = picked === CUSTOM_MODEL ? modelInput?.value.trim() : picked;
+    if (model) patch.model = model;
+
+    body.querySelectorAll("[data-ai-flag]").forEach((input) => {
+      patch[input.dataset.aiFlag] = input.checked;
+    });
+
+    ["maxInput", "maxOutput"].forEach((field) => {
+      const wrap = body.querySelector(`[data-ai-tokens="${field}"]`);
+      if (!wrap) return;
+      if (wrap.querySelector(`[data-ai-default="${field}"]`).checked) {
+        patch[field] = 0; // 0 = 用模型提供商默认值
+        return;
+      }
+      const chip = wrap.querySelector("[data-ai-token].is-active");
+      const custom = wrap.querySelector(`[data-ai-token-input="${field}"]`);
+      const raw = custom?.value ? Number(custom.value) : chip ? Number(chip.dataset.value) : 0;
+      patch[field] = Number.isFinite(raw) && raw > 0 ? Math.max(1024, Math.round(raw)) : 0;
+    });
+
+    const chipRounds = roundsWrap?.querySelector("[data-ai-round].is-active");
+    const rawRounds = roundsInput?.value
+      ? Number(roundsInput.value)
+      : chipRounds
+        ? Number(chipRounds.dataset.aiRound)
+        : 8;
+    patch.maxRounds = Math.min(50, Math.max(1, Math.round(rawRounds || 8)));
+
+    // 密钥留空 = 不改（后端也是这个语义），只有真填了才提交
+    const keyValue = key.value.trim();
+    if (keyValue) patch.key = keyValue;
+    return patch;
+  }
+
+  saveButton?.addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    setStatus(saveTip, "正在保存…", "");
+    const ok = await save(collectAll(), { quiet: true });
+    button.disabled = false;
+    if (ok) {
+      const time = new Date().toLocaleTimeString("zh-CN", { hour12: false });
+      setStatus(saveTip, `已保存 ${time}`, "ok");
+      Toast.success("配置已保存");
+    } else {
+      setStatus(saveTip, "保存失败", "bad");
+    }
+  });
+
   function currentProtocol() {
     if (!protocolToggle?.checked) return "auto";
     return body.querySelector('input[name="ai-protocol"]:checked')?.value || "openai";
@@ -525,7 +598,7 @@ function syncModelsToSelect(models, current) {
 /* ------------------------------------------------------------------ */
 /* 保存                                                               */
 /* ------------------------------------------------------------------ */
-async function save(patch) {
+async function save(patch, { quiet = false } = {}) {
   window.clearTimeout(state.saveTimer);
   try {
     const result = await api.put("/api/ai/config", patch);
@@ -545,7 +618,10 @@ async function save(patch) {
     }
     const base = document.querySelector("[data-ai-base]");
     if (base && patch.baseUrl !== undefined) base.value = state.cfg?.baseUrl || base.value;
+    return true;
   } catch (err) {
-    Toast.error(err.message || "保存失败");
+    // 显式保存自己会显示失败原因，这里就不再弹一次
+    if (!quiet) Toast.error(err.message || "保存失败");
+    return false;
   }
 }

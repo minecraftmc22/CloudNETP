@@ -11,19 +11,49 @@ from urllib.parse import quote, urlsplit
 BASE_DIR = Path(__file__).resolve().parent.parent
 ENV_FILE = BASE_DIR / ".env"
 
+# .env 里出现过的键 → 当时读到的值。刷新配置时靠它判断「当前生效值是不是文件带进来的」，
+# 免得把运维通过 systemd / 命令行显式设置的进程环境变量覆盖掉。
+_ENV_FILE_VALUES: dict[str, str] = {}
 
-def _load_env_file(path: Path) -> None:
+
+def _parse_env_file(path: Path) -> dict[str, str]:
     if not path.is_file():
-        return
+        return {}
+    found: dict[str, str] = {}
     for raw in path.read_text(encoding="utf-8-sig").splitlines():
         line = raw.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, _, value = line.partition("=")
-        key = key.strip()
-        value = value.strip().strip('"').strip("'")
-        # 真实环境变量优先，.env 只做兜底
-        os.environ.setdefault(key, value)
+        found[key.strip()] = value.strip().strip('"').strip("'")
+    return found
+
+
+def _load_env_file(path: Path, refresh: bool = False) -> dict[str, str]:
+    """读 .env。首次加载用 setdefault（真实环境变量优先）；refresh=True 时重读并覆盖。
+
+    刷新只覆盖「当前值确实是上次从 .env 读进来」的键：文件里删掉的键会从 os.environ 收回，
+    但如果是运维自己 export 的同名变量，则原样保留。
+    """
+    found = _parse_env_file(path)
+
+    if not refresh:
+        for key, value in found.items():
+            os.environ.setdefault(key, value)
+        _ENV_FILE_VALUES.update(found)
+        return found
+
+    for key, value in found.items():
+        previous = _ENV_FILE_VALUES.get(key)
+        if key not in os.environ or (previous is not None and os.environ.get(key) == previous):
+            os.environ[key] = value
+    for key in list(_ENV_FILE_VALUES):
+        previous = _ENV_FILE_VALUES[key]
+        if key not in found and os.environ.get(key) == previous:
+            os.environ.pop(key, None)
+    _ENV_FILE_VALUES.clear()
+    _ENV_FILE_VALUES.update(found)
+    return found
 
 
 _load_env_file(ENV_FILE)
@@ -73,7 +103,7 @@ def _compose_database_url() -> str:
 class Settings:
     # ---- 应用 ----
     APP_NAME: str = _get("APP_NAME", "CloudNETP")
-    VERSION: str = "0.3.42"
+    VERSION: str = "0.3.43"
     DEBUG: bool = _get_bool("DEBUG", True)
 
     # ---- 监听与对外地址 ----
@@ -298,5 +328,35 @@ class Settings:
 
 
 settings = Settings()
+
+
+def refresh_db_settings() -> dict[str, tuple[object, object]]:
+    """重读 .env 里的数据库配置，就地更新 settings 对象。
+
+    其它模块都是 `from .config import settings` 持有同一个引用，所以必须原地 setattr，
+    不能重新 new 一个 Settings（那样旧引用还是老值，库和配置会对不上）。
+    返回 {键: (旧值, 新值)}，只含真正变化的项。
+    """
+    _load_env_file(ENV_FILE, refresh=True)
+    changes: dict[str, tuple[object, object]] = {}
+
+    def apply(name: str, value: object) -> None:
+        old = getattr(settings, name)
+        if old != value:
+            setattr(settings, name, value)
+            changes[name] = (old, value)
+
+    apply("DATABASE_URL", _compose_database_url())
+    apply("DB_ECHO", _get_bool("DB_ECHO", False))
+    apply("DB_CONNECT_TIMEOUT", _get_int("DB_CONNECT_TIMEOUT", 10))
+    apply("DB_TIMEOUT", _get_int("DB_TIMEOUT", 60))
+    apply("DB_AUTO_CREATE", _get_bool("DB_AUTO_CREATE", True))
+    apply("DB_FALLBACK_ENABLED", _get_bool("DB_FALLBACK_ENABLED", True))
+    apply("DB_PROBE_INTERVAL", _get_int("DB_PROBE_INTERVAL", 30))
+    apply("DB_MIRROR_INTERVAL", _get_int("DB_MIRROR_INTERVAL", 300))
+    apply("SQLITE_PATH", _get("SQLITE_PATH").strip())
+    apply("SQLITE_TIMEOUT", _get_int("SQLITE_TIMEOUT", 30))
+    return changes
+
 
 STATIC_DIR = BASE_DIR / "static"
