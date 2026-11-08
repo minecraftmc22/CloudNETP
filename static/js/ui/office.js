@@ -12,6 +12,7 @@
  * 所以不会把用户的文档交给任何外部服务。
  */
 
+import { t } from "../i18n.js";
 import { mountOdfDoc, mountOdfSheet, mountOdfSlide } from "./odf.js";
 import { mountLegacyDoc, mountLegacyPpt, mountRtf } from "./docparse.js";
 
@@ -124,7 +125,7 @@ function sheetTable(ws, XLSX) {
 
   const more =
     range.e.r - range.s.r + 1 > rows || range.e.c - range.s.c + 1 > cols
-      ? `<p class="office__hint">表格较大，仅显示前 ${rows} 行 / ${cols} 列，完整内容请下载查看。</p>`
+      ? `<p class="office__hint">${t("表格较大，仅显示前 {rows} 行 / {cols} 列，完整内容请下载查看。", { rows, cols })}</p>`
       : "";
   return `<div class="office__sheet-scroll"><table class="sh-table"><thead><tr>${head.join("")}</tr></thead><tbody>${body.join("")}</tbody></table></div>${more}`;
 }

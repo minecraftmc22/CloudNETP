@@ -1,12 +1,17 @@
 /**
  * 公开分享页：提取码校验 → 文件预览 / 文件夹浏览 → 下载。
- * 与主应用共用主题 token，但不依赖登录态与 store。
+ * 与主应用共用主题 token，与 i18n 字典，但不依赖登录态与 store。
+ *
+ * 语言：先按本机 / 浏览器定（initI18n），拿到登录态后若账号里存了语言再以账号为准，
+ * 这样未登录的访客看自己浏览器语言，登录用户看自己设置里的语言。
  */
 import { registerPwa } from "./pwa.js";
+import { H, getLang, initI18n, langTag, normalizeLang, setLang, t } from "./i18n.js";
 import { renderMarkdown } from "./ui/markdown.js";
 import { mountOffice, OFFICE_KINDS } from "./ui/office.js";
 
 registerPwa();
+initI18n();
 
 const root = document.getElementById("share-root");
 const token = (location.pathname.match(/\/s\/([^/?#]+)/) || [])[1] || "";
@@ -50,6 +55,24 @@ function formatBytes(bytes) {
   return `${value >= 100 ? Math.round(value) : value.toFixed(1)} ${units[i]}`;
 }
 
+/** 「 · 2026/11/8 到期」，日期按当前语言格式化 */
+function expirySuffix(iso) {
+  if (!iso) return "";
+  const date = new Date(iso).toLocaleDateString(langTag());
+  return ` · ${t("{date} 到期", { date })}`;
+}
+
+/**
+ * 分享标题。合集分享的名字是后端拼的「N 个项目」，不是用户起的名字，
+ * 所以这里用 itemCount 按当前语言重拼一遍；其它类型沿用后端给的 name。
+ */
+function shareName(share) {
+  if (share?.type === "multi" && Number.isFinite(Number(share.itemCount))) {
+    return t("{n} 个项目", { n: Number(share.itemCount) });
+  }
+  return share?.name || "";
+}
+
 function apiUrl(path, params = {}) {
   const url = new URL(`/api/public/shares/${token}${path}`, location.origin);
   if (code) url.searchParams.set("code", code);
@@ -68,7 +91,9 @@ async function request(path, options = {}) {
   const type = res.headers.get("content-type") || "";
   const data = type.includes("json") ? await res.json().catch(() => null) : null;
   if (!res.ok) {
-    const err = new Error((data && (data.detail || data.message)) || `请求失败（${res.status}）`);
+    // 后端 detail 也是中文 msgid，过一遍 t()：字典里有就翻，没有就原样显示
+    const detail = data && (data.detail || data.message);
+    const err = new Error((detail && t(detail)) || t("请求失败（{status}）", { status: res.status }));
     err.status = res.status;
     throw err;
   }
@@ -83,11 +108,11 @@ function showModal({ title, body, confirmText = "确定", danger = false, onConf
   backdrop.className = "share-modal__backdrop";
   backdrop.innerHTML = `
     <div class="share-modal" role="dialog" aria-modal="true">
-      <h2 class="share-modal__title">${esc(title)}</h2>
+      <h2 class="share-modal__title">${esc(t(title))}</h2>
       <div class="share-modal__body">${body}</div>
       <div class="share-modal__foot">
-        <button class="btn" type="button" data-cancel>取消</button>
-        <button class="btn ${danger ? "btn--danger" : "btn--accent"}" type="button" data-ok>${esc(confirmText)}</button>
+        <button class="btn" type="button" data-cancel>${t("取消")}</button>
+        <button class="btn ${danger ? "btn--danger" : "btn--accent"}" type="button" data-ok>${esc(t(confirmText))}</button>
       </div>
     </div>`;
   const close = () => backdrop.remove();
@@ -104,7 +129,7 @@ function showModal({ title, body, confirmText = "确定", danger = false, onConf
     } catch (err) {
       const tip = backdrop.querySelector("[data-modal-error]");
       if (tip) {
-        tip.textContent = err.message || "操作失败";
+        tip.textContent = err.message || t("操作失败");
         tip.hidden = false;
       }
       okBtn.disabled = false;
@@ -119,10 +144,10 @@ function infoModal(title, message) {
   backdrop.className = "share-modal__backdrop";
   backdrop.innerHTML = `
     <div class="share-modal" role="dialog" aria-modal="true">
-      <h2 class="share-modal__title">${esc(title)}</h2>
+      <h2 class="share-modal__title">${esc(t(title))}</h2>
       <div class="share-modal__body">${message}</div>
       <div class="share-modal__foot">
-        <button class="btn btn--accent" type="button" data-ok>好的</button>
+        <button class="btn btn--accent" type="button" data-ok>${t("好的")}</button>
       </div>
     </div>`;
   const close = () => backdrop.remove();
@@ -152,7 +177,7 @@ function loadMe() {
 function openReport() {
   showModal({
     title: "举报分享",
-    body: `
+    body: H`
       <p class="share-modal__desc">如果该分享包含违规内容，请提交举报。管理员审核确认后会禁止该文件的分享，你的举报会匿名处理。</p>
       <label class="share-modal__label" for="report-reason">举报理由（选填）</label>
       <textarea class="share-modal__textarea" id="report-reason" maxlength="200"
@@ -163,7 +188,7 @@ function openReport() {
     onConfirm: async (backdrop) => {
       const reason = backdrop.querySelector("#report-reason").value.trim();
       await request("/report", { method: "POST", body: { reason } });
-      infoModal("举报已提交", `<p class="share-modal__desc">感谢你的反馈，管理员会尽快审核处理。</p>`);
+      infoModal("举报已提交", H`<p class="share-modal__desc">感谢你的反馈，管理员会尽快审核处理。</p>`);
     },
   });
 }
@@ -179,7 +204,7 @@ async function saveToMyDrive(items) {
   if (!me) {
     infoModal(
       "需要登录",
-      `<p class="share-modal__desc">转存到我的网盘需要先登录账号。</p>
+      H`<p class="share-modal__desc">转存到我的网盘需要先登录账号。</p>
        <div class="share-modal__foot" style="margin-top:14px">
          <a class="btn btn--accent" href="/?next=${encodeURIComponent(location.pathname)}">去登录</a>
        </div>`
@@ -188,14 +213,22 @@ async function saveToMyDrive(items) {
   }
   const list = Array.isArray(items) ? items.filter(Boolean) : [];
   const count = list.length;
+  // 名字直接加粗内嵌在句子里：中文的「」在英文界面里没有对应写法，套上去反而像乱码
+  const bold = (name) => `<b>${esc(name)}</b>`;
   const what =
-    count === 1 ? `「<b>${esc(list[0].name)}</b>」` : count > 1 ? `这 <b>${count}</b> 个项目` : `「<b>${esc(meta?.name || "文件")}</b>」`;
+    count === 1
+      ? bold(list[0].name)
+      : count > 1
+        ? t("这 {n} 个项目", { n: `<b>${count}</b>` })
+        : bold(shareName(meta) || t("文件"));
   showModal({
     title: "转存到我的网盘",
-    body: `
-      <p class="share-modal__desc">将${what}保存到自己网盘的根目录。文件不会占用额外存储（相同内容只存一份），但会占用你的空间配额。</p>
+    body: `<p class="share-modal__desc">${t(
+      "{what}将保存到自己网盘的根目录。文件不会占用额外存储（相同内容只存一份），但会占用你的空间配额。",
+      { what }
+    )}</p>
       <p class="share-modal__error" data-modal-error hidden></p>`,
-    confirmText: count > 1 ? `转存 ${count} 项` : "转存",
+    confirmText: count > 1 ? t("转存 {n} 项", { n: count }) : "转存",
     onConfirm: async () => {
       const body = count ? { nodeIds: list.map((i) => i.id) } : {};
       const data = await fetch(apiUrl("/save"), {
@@ -205,10 +238,12 @@ async function saveToMyDrive(items) {
         body: JSON.stringify(body),
       });
       const payload = await data.json().catch(() => null);
-      if (!data.ok) throw new Error(payload?.detail || `转存失败（${data.status}）`);
+      if (!data.ok) throw new Error((payload?.detail && t(payload.detail)) || t("转存失败（{status}）", { status: data.status }));
       const savedName =
-        payload.count > 1 ? `这 ${payload.count} 个项目` : `「<b>${esc(payload.name || meta?.name || "文件")}</b>」`;
-      infoModal("转存成功", `<p class="share-modal__desc">${savedName}已保存到你的网盘根目录。</p>`);
+        payload.count > 1
+          ? t("这 {n} 个项目", { n: payload.count })
+          : bold(payload.name || shareName(meta) || t("文件"));
+      infoModal("转存成功", `<p class="share-modal__desc">${t("{what}已保存到你的网盘根目录。", { what: savedName })}</p>`);
     },
   });
 }
@@ -220,9 +255,9 @@ function authorChip(share) {
   const face = a.avatar
     ? `<img class="share-author__img" src="${esc(a.avatar)}" alt="">`
     : `<span class="share-author__initial">${esc(a.name.slice(0, 1).toUpperCase())}</span>`;
-  return `<span class="share-author" title="${a.masked ? "分享者只公开昵称的前两位" : ""}">
+  return `<span class="share-author" title="${a.masked ? t("分享者只公开昵称的前两位") : ""}">
       <span class="share-author__avatar">${face}</span>
-      <span class="share-author__text">由 <b>${esc(a.name)}</b> 分享</span>
+      <span class="share-author__text">${t("由 {name} 分享", { name: `<b>${esc(a.name)}</b>` })}</span>
     </span>`;
 }
 
@@ -231,8 +266,8 @@ function renderError(title, desc) {
   root.innerHTML = `
     <section class="share-card share-card--center">
       <div class="share-empty__art">${icon("i-alert")}</div>
-      <h1 class="share-empty__title">${esc(title)}</h1>
-      <p class="share-empty__desc">${esc(desc)}</p>
+      <h1 class="share-empty__title">${esc(t(title))}</h1>
+      <p class="share-empty__desc">${esc(t(desc))}</p>
     </section>`;
 }
 
@@ -240,15 +275,15 @@ function renderGate() {
   root.innerHTML = `
     <section class="share-card share-card--center">
       <div class="share-empty__art">${icon("i-lock")}</div>
-      <h1 class="share-empty__title">需要提取码</h1>
-      <p class="share-empty__desc">「${esc(meta.name)}」受提取码保护，请输入提取码。</p>
+      <h1 class="share-empty__title">${t("需要提取码")}</h1>
+      <p class="share-empty__desc">${t("「{name}」受提取码保护，请输入提取码。", { name: esc(shareName(meta)) })}</p>
       ${authorChip(meta)}
       <form class="share-gate" data-gate>
         <span class="textbox">
-          <input type="text" name="code" maxlength="8" placeholder="请输入提取码"
+          <input type="text" name="code" maxlength="8" placeholder="${t("请输入提取码")}"
                  autocomplete="off" spellcheck="false" autocapitalize="characters" data-code>
         </span>
-        <button class="btn btn--accent" type="submit" data-submit>打开</button>
+        <button class="btn btn--accent" type="submit" data-submit>${t("打开")}</button>
       </form>
       <p class="share-gate__error" data-error hidden></p>
     </section>`;
@@ -262,7 +297,7 @@ function renderGate() {
     event.preventDefault();
     const value = input.value.trim();
     if (!value) {
-      errorEl.textContent = "请先输入提取码";
+      errorEl.textContent = t("请先输入提取码");
       errorEl.hidden = false;
       return;
     }
@@ -276,7 +311,7 @@ function renderGate() {
       await enter();
     } catch (err) {
       code = "";
-      errorEl.textContent = err.message || "提取码不正确";
+      errorEl.textContent = err.message || t("提取码不正确");
       errorEl.hidden = false;
       input.select();
     } finally {
@@ -309,11 +344,11 @@ function previewMarkup(share, nodeId = null) {
         </div>`;
     case "text":
       return `<div class="share-preview share-preview--text">
-          <pre data-text>加载中…</pre>
+          <pre data-text>${t("加载中…")}</pre>
         </div>`;
     case "markdown":
       return `<div class="share-preview share-preview--md">
-          <article class="md-body" data-md>加载中…</article>
+          <article class="md-body" data-md>${t("加载中…")}</article>
         </div>`;
     case "docx":
     case "doc":
@@ -325,10 +360,12 @@ function previewMarkup(share, nodeId = null) {
     case "oslide":
     case "ppt":
       return `<div class="share-preview share-preview--office">
-          <div class="office-host" data-office><div class="share-preview__loading">正在解析文档…</div></div>
+          <div class="office-host" data-office><div class="share-preview__loading">${t("正在解析文档…")}</div></div>
         </div>`;
     case "toolarge":
-      return `<div class="share-nopreview">文件较大（${formatBytes(share.size)}），超过 50 MB 的文档不在线预览，请下载到本地后打开。</div>`;
+      return `<div class="share-nopreview">${t("文件较大（{size}），超过 50 MB 的文档不在线预览，请下载到本地后打开。", {
+        size: formatBytes(share.size),
+      })}</div>`;
     default:
       return "";
   }
@@ -344,10 +381,10 @@ function hydratePreview(container, share, nodeId = null) {
     request("/text", { params })
       .then((data) => {
         pre.textContent = data.content || "";
-        if (data.truncated) pre.insertAdjacentHTML("afterend", `<p class="share-tip">仅显示前 1 MB 内容</p>`);
+        if (data.truncated) pre.insertAdjacentHTML("afterend", `<p class="share-tip">${t("仅显示前 1 MB 内容")}</p>`);
       })
       .catch((err) => {
-        pre.textContent = `无法预览文本：${err.message}`;
+        pre.textContent = t("无法预览文本：{msg}", { msg: err.message });
       });
   }
 
@@ -359,7 +396,7 @@ function hydratePreview(container, share, nodeId = null) {
         article.innerHTML = renderMarkdown(data.content || "");
       })
       .catch((err) => {
-        article.textContent = `无法预览 Markdown：${err.message}`;
+        article.textContent = t("无法预览 Markdown：{msg}", { msg: err.message });
       });
   }
 
@@ -367,7 +404,7 @@ function hydratePreview(container, share, nodeId = null) {
     const host = container.querySelector("[data-office]");
     if (!host) return;
     mountOffice(host, share, share.previewKind, apiUrl("/preview", params)).catch((err) => {
-      host.innerHTML = `<p class="share-tip">文档解析失败：${esc(err.message)}，可以下载后查看。</p>`;
+      host.innerHTML = `<p class="share-tip">${t("文档解析失败：{msg}，可以下载后查看。", { msg: esc(err.message) })}</p>`;
     });
   }
 }
@@ -380,27 +417,25 @@ function renderFile(share) {
         <span class="share-file__icon" data-kind="${(share.icon || "i-file").slice(2)}">${icon(share.icon || "i-file")}</span>
         <div class="share-file__main">
           <h1 class="share-file__name" title="${esc(share.name)}">${esc(share.name)}</h1>
-          <p class="share-file__meta">${formatBytes(share.size)}${
-            share.expiresAt ? ` · ${new Date(share.expiresAt).toLocaleDateString("zh-CN")} 到期` : ""
-          }</p>
+          <p class="share-file__meta">${formatBytes(share.size)}${expirySuffix(share.expiresAt)}</p>
           ${authorChip(share)}
         </div>
         <div class="share-card__actions">
-          <button class="btn" type="button" data-save-drive title="转存到我的网盘">
-            ${icon("i-cloud")}<span>转存</span>
+          <button class="btn" type="button" data-save-drive title="${t("转存到我的网盘")}">
+            ${icon("i-cloud")}<span>${t("转存")}</span>
           </button>
-          <button class="btn" type="button" data-report title="举报该分享">
-            ${icon("i-alert")}<span>举报</span>
+          <button class="btn" type="button" data-report title="${t("举报该分享")}">
+            ${icon("i-alert")}<span>${t("举报")}</span>
           </button>
           <a class="btn btn--accent" href="${downloadUrl}" download>
-            ${icon("i-download")}<span>下载</span>
+            ${icon("i-download")}<span>${t("下载")}</span>
           </a>
         </div>
       </header>
-      ${previewMarkup(share) || `<div class="share-nopreview">这类文件暂不支持在线预览，请下载后查看。</div>`}
+      ${previewMarkup(share) || `<div class="share-nopreview">${t("这类文件暂不支持在线预览，请下载后查看。")}</div>`}
       ${
         share.remainingDownloads !== null
-          ? `<p class="share-tip">剩余可下载 ${share.remainingDownloads} 次</p>`
+          ? `<p class="share-tip">${t("剩余可下载 {n} 次", { n: share.remainingDownloads })}</p>`
           : ""
       }
     </section>`;
@@ -420,15 +455,15 @@ function ensurePreviewModal() {
   previewModal.hidden = true;
   previewModal.innerHTML = `
     <div class="share-preview-modal__backdrop" data-close></div>
-    <div class="share-preview-modal__panel" role="dialog" aria-modal="true" aria-label="文件预览">
+    <div class="share-preview-modal__panel" role="dialog" aria-modal="true" aria-label="${t("文件预览")}">
       <header class="share-preview-modal__head">
         <span class="share-preview-modal__icon" data-modal-icon data-kind="file">${icon("i-file")}</span>
         <div class="share-preview-modal__title">
           <h2 data-modal-name></h2>
           <p class="share-preview-modal__meta" data-modal-meta></p>
         </div>
-        <a class="icon-btn" data-modal-download download title="下载">${icon("i-download")}</a>
-        <button class="icon-btn" type="button" data-close title="关闭预览">${icon("i-close")}</button>
+        <a class="icon-btn" data-modal-download download title="${t("下载")}">${icon("i-download")}</a>
+        <button class="icon-btn" type="button" data-close title="${t("关闭预览")}">${icon("i-close")}</button>
       </header>
       <div class="share-preview-modal__body" data-modal-body></div>
     </div>`;
@@ -462,7 +497,7 @@ function openPreview(item) {
   const body = el.querySelector("[data-modal-body]");
   body.innerHTML =
     previewMarkup(item, item.id) ||
-    `<div class="share-nopreview">这类文件暂不支持在线预览，请下载后查看。</div>`;
+    `<div class="share-nopreview">${t("这类文件暂不支持在线预览，请下载后查看。")}</div>`;
   el.hidden = false;
   document.body.classList.add("is-preview-open");
   hydratePreview(body, item, item.id);
@@ -474,22 +509,22 @@ function itemRowHtml(item) {
   const iconName = item.icon || (isFolder ? "i-folder" : "i-file");
   return `
     <div class="share-item" data-id="${item.id}" data-type="${item.type}">
-      <label class="share-item__pick" title="选择这一项">
+      <label class="share-item__pick" title="${t("选择这一项")}">
         <input class="pickbox" type="checkbox" data-check>
       </label>
       <span class="share-item__icon" data-kind="${iconName.slice(2)}">${icon(iconName)}</span>
       <span class="share-item__name" title="${esc(item.name)}">${esc(item.name)}</span>
-      <span class="share-item__size">${isFolder ? `${item.childCount ?? 0} 项` : formatBytes(item.size)}</span>
+      <span class="share-item__size">${isFolder ? t("{n} 项", { n: item.childCount ?? 0 }) : formatBytes(item.size)}</span>
       <span class="share-item__actions">
         ${
           isFolder
             ? ""
-            : `<button class="icon-btn" type="button" data-preview title="预览">${icon("i-eye")}</button>`
+            : `<button class="icon-btn" type="button" data-preview title="${t("预览")}">${icon("i-eye")}</button>`
         }
         ${
           isFolder
-            ? `<button class="icon-btn" type="button" data-enter title="打开文件夹">${icon("i-folder")}</button>`
-            : `<a class="icon-btn" href="${apiUrl("/download", { nodeId: item.id })}" download title="下载">${icon("i-download")}</a>`
+            ? `<button class="icon-btn" type="button" data-enter title="${t("打开文件夹")}">${icon("i-folder")}</button>`
+            : `<a class="icon-btn" href="${apiUrl("/download", { nodeId: item.id })}" download title="${t("下载")}">${icon("i-download")}</a>`
         }
       </span>
     </div>`;
@@ -497,12 +532,12 @@ function itemRowHtml(item) {
 
 function listItemsHtml(items, emptyText) {
   if (!items.length) {
-    return `<div class="share-empty__desc" style="text-align:center;padding:28px 0">${emptyText}</div>`;
+    return `<div class="share-empty__desc" style="text-align:center;padding:28px 0">${t(emptyText)}</div>`;
   }
   return `<div class="share-listbar">
       <label class="share-listbar__all">
         <input class="pickbox" type="checkbox" data-pick-all>
-        <span>全选</span>
+        <span>${t("全选")}</span>
       </label>
       <span class="share-listbar__count" data-picked-count></span>
     </div>
@@ -521,8 +556,8 @@ function bindList({ items, onEnter }) {
   const sync = () => {
     const n = picked.size;
     if (saveBtn) saveBtn.disabled = n === 0;
-    if (saveLabel) saveLabel.textContent = n ? `转存 ${n} 项` : "转存选中";
-    if (countEl) countEl.textContent = n ? `已选 ${n} 项` : "";
+    if (saveLabel) saveLabel.textContent = n ? t("转存 {n} 项", { n }) : t("转存选中");
+    if (countEl) countEl.textContent = n ? t("已选 {n} 项", { n }) : "";
     if (allBox) allBox.checked = rows.length > 0 && n === rows.length;
   };
 
@@ -579,30 +614,31 @@ function renderCollection(share, items) {
         <div class="share-folder__title">
           <span class="share-folder__icon">${icon("i-folder")}</span>
           <div>
-            <h1 class="share-file__name">${esc(share.name)}</h1>
-            <p class="share-file__meta">共 ${items.length} 项 · ${formatBytes(share.size)}${
-              share.expiresAt ? ` · ${new Date(share.expiresAt).toLocaleDateString("zh-CN")} 到期` : ""
-            }</p>
+            <h1 class="share-file__name">${esc(shareName(share))}</h1>
+            <p class="share-file__meta">${t("共 {n} 项 · {size}", {
+              n: items.length,
+              size: formatBytes(share.size),
+            })}${expirySuffix(share.expiresAt)}</p>
             ${authorChip(share)}
           </div>
         </div>
         <div class="share-card__actions">
           ${
             items.length
-              ? `<button class="btn" type="button" data-save-picked disabled title="勾选项目后转存到自己网盘">
-            ${icon("i-cloud")}<span data-picked-label>转存选中</span>
+              ? `<button class="btn" type="button" data-save-picked disabled title="${t("勾选项目后转存到自己网盘")}">
+            ${icon("i-cloud")}<span data-picked-label>${t("转存选中")}</span>
           </button>`
               : ""
           }
-          <button class="btn" type="button" data-report title="举报该分享">
-            ${icon("i-alert")}<span>举报</span>
+          <button class="btn" type="button" data-report title="${t("举报该分享")}">
+            ${icon("i-alert")}<span>${t("举报")}</span>
           </button>
         </div>
       </header>
       ${listItemsHtml(items, "分享的内容都已被删除。")}
       ${
         share.remainingDownloads !== null
-          ? `<p class="share-tip">剩余可下载 ${share.remainingDownloads} 次</p>`
+          ? `<p class="share-tip">${t("剩余可下载 {n} 次", { n: share.remainingDownloads })}</p>`
           : ""
       }
     </section>`;
@@ -628,35 +664,33 @@ function renderFolder(folder, items) {
         <div class="share-folder__title">
           ${
             trail.length > 1
-              ? `<button class="icon-btn" type="button" data-back title="返回上一级">${icon("i-back")}</button>`
+              ? `<button class="icon-btn" type="button" data-back title="${t("返回上一级")}">${icon("i-back")}</button>`
               : ""
           }
           <span class="share-folder__icon">${icon("i-folder")}</span>
           <div>
             <h1 class="share-file__name">${esc(folder.name)}</h1>
-            <p class="share-file__meta">共 ${items.length} 项${
-              meta?.expiresAt ? ` · ${new Date(meta.expiresAt).toLocaleDateString("zh-CN")} 到期` : ""
-            }</p>
+            <p class="share-file__meta">${t("共 {n} 项", { n: items.length })}${expirySuffix(meta?.expiresAt)}</p>
             ${authorChip(meta)}
           </div>
         </div>
         <div class="share-card__actions">
           ${
             items.length
-              ? `<button class="btn" type="button" data-save-picked disabled title="勾选项目后转存到自己网盘">
-            ${icon("i-cloud")}<span data-picked-label>转存选中</span>
+              ? `<button class="btn" type="button" data-save-picked disabled title="${t("勾选项目后转存到自己网盘")}">
+            ${icon("i-cloud")}<span data-picked-label>${t("转存选中")}</span>
           </button>`
               : ""
           }
           ${
             virtualRoot
               ? ""
-              : `<button class="btn" type="button" data-save-drive title="转存整个文件夹到我的网盘">
-            ${icon("i-cloud")}<span>转存此文件夹</span>
+              : `<button class="btn" type="button" data-save-drive title="${t("转存整个文件夹到我的网盘")}">
+            ${icon("i-cloud")}<span>${t("转存此文件夹")}</span>
           </button>`
           }
-          <button class="btn" type="button" data-report title="举报该分享">
-            ${icon("i-alert")}<span>举报</span>
+          <button class="btn" type="button" data-report title="${t("举报该分享")}">
+            ${icon("i-alert")}<span>${t("举报")}</span>
           </button>
         </div>
       </header>
@@ -705,17 +739,33 @@ async function enter() {
   }
 }
 
+/**
+ * 拉登录态，顺便对齐语言：登录用户以账号里存的语言为准，
+ * 未登录就走 initI18n 那套（本机 → 浏览器）。渲染前 await 一次即可。
+ */
+async function syncAccountLang() {
+  try {
+    await loadMe();
+  } catch {
+    /* 未登录 / 网络抖动都不影响分享页本身 */
+  }
+  const lang = normalizeLang(me?.user?.settings?.language);
+  if (lang && lang !== getLang()) setLang(lang, { persist: true, silent: true });
+}
+
 async function boot() {
+  const langTask = syncAccountLang(); // 与首个请求并行，别为语言多等一个来回
   if (!token) {
+    await langTask;
     renderError("链接不完整", "请确认分享链接是否复制完整。");
     return;
   }
-  loadMe(); // 并行拿登录态，供「转存」按钮判断
   try {
     const data = await request("");
+    await langTask;
     meta = data.share;
-    document.title = `${meta.name} · 分享`;
-    document.querySelector("[data-brand]").textContent = "CloudNETP 分享";
+    document.title = t("{name} · 分享", { name: shareName(meta) });
+    document.querySelector("[data-brand]").textContent = t("CloudNETP 分享");
     if (meta.hasCode && !meta.unlocked) {
       if (code) {
         // 链接里带 code，直接换授权
@@ -734,6 +784,7 @@ async function boot() {
     }
     await enter();
   } catch (err) {
+    await langTask;
     if (err.status === 403) renderError("分享已被禁止访问", err.message || "该文件因违规被管理员禁止分享。");
     else if (err.status === 410) renderError("分享已失效", err.message);
     else if (err.status === 404) renderError("分享不存在", "链接可能输入有误，或者分享者已取消分享。");

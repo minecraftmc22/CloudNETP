@@ -176,7 +176,7 @@ export function renderFiles(root) {
 
   function renderCrumb() {
     if (state.searchMode) {
-      crumbEl.innerHTML = H`<span class="crumb__item is-current">搜索「${escapeHtml(state.keyword)}」</span>`;
+      crumbEl.innerHTML = `<span class="crumb__item is-current">${t("搜索「{q}」", { q: escapeHtml(state.keyword) })}</span>`;
       return;
     }
     // 根目录下面包屑与标题重复，只留排序按钮

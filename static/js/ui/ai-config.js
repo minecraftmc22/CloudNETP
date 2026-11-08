@@ -288,7 +288,7 @@ export async function mountAiSettings(card) {
     state.prompt = data.systemPrompt || "";
     state.defaultPrompt = data.defaultPrompt || "";
   } catch {
-    body.innerHTML = `<div class="settings-card__note">配置读取失败，刷新页面再试</div>`;
+    body.innerHTML = `<div class="settings-card__note">${t("配置读取失败，刷新页面再试")}</div>`;
     return;
   }
 

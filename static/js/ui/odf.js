@@ -9,6 +9,8 @@
  * 不追求像素级还原（那要完整实现 ODF 样式），目标是把结构和文字无损读出来。
  */
 
+import { t } from "../i18n.js";
+
 const SCRIPT_BASE = "/static/vendor/office/";
 const MAX_ROWS = 800;
 const MAX_COLS = 80;
@@ -245,7 +247,7 @@ function odsTable(sheet, colLetters) {
 
   const more =
     sheet.rows.length >= MAX_ROWS
-      ? `<p class="office__hint">表格较大，仅显示前 ${MAX_ROWS} 行，完整内容请下载查看。</p>`
+      ? `<p class="office__hint">${t("表格较大，仅显示前 {n} 行，完整内容请下载查看。", { n: MAX_ROWS })}</p>`
       : "";
   return `<div class="office__sheet-scroll"><table class="sh-table"><thead><tr>${head.join(
     ""
@@ -377,7 +379,7 @@ function odpHtml(slides, index, page, width) {
       `height:${((box.h / page.height) * 100).toFixed(3)}%`,
     ].join(";");
     if (box.image) {
-      return `<div class="sl-box sl-box--img" style="${style}"><span>图片</span></div>`;
+      return `<div class="sl-box sl-box--img" style="${style}"><span>${t("图片")}</span></div>`;
     }
     const size = box.heading ? 30 : 18;
     const lines = box.text

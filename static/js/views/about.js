@@ -2,7 +2,7 @@
  * 关于视图：版本信息 / 主要能力 / 技术栈 / 更新记录
  */
 import { escapeHtml } from "../api.js";
-import { H } from "../i18n.js";
+import { H, getLang, t } from "../i18n.js";
 import { store, siteOrigin } from "../store.js";
 import { Toast } from "../ui/toast.js";
 import { copyText } from "../ui/share.js";
@@ -67,6 +67,19 @@ const AUTHOR = {
 };
 
 const CHANGELOG = [
+  {
+    version: "0.3.46",
+    title: "分享页也会说英文了",
+    items: [
+      "公开分享页（/s/…）接入 i18n：提取码门槛、单文件、合集、文件夹浏览、举报与转存弹窗、下载剩余次数全部跟着语言走",
+      "分享页是独立入口，不依赖登录态：未登录按本机 → 浏览器语言兜底；登录用户打开别人的分享时，语言以账号里存的为准",
+      "合集分享的「N 个项目」是后端拼的标题，改成前端用 itemCount 按当前语言重拼，不再出现中文标题配英文列表",
+      "后端返回的 detail 也过一遍 t()：字典里有对应中文 msgid 就翻（如「提取码不正确」），没有就原样显示，不会把错误吞掉",
+      "补掉预览器、Office/ODF 表格提示、上传面板、歌词面板里被插值劈开、之前扫不到的句子",
+      "新增 scripts/i18n_html_check.py（扫 H 模板与 innerHTML 里漏译的静态文案）、i18n_add.py（追加译文时自动跳过已有 key、写完校验 JSON）、i18n_dedupe.py，并把重复 key 检查并进 i18n_check.py",
+      "关于页的更新记录正文仍以中文原文为准，英文界面在卡片顶部给出一行说明",
+    ],
+  },
   {
     version: "0.3.45",
     title: "管理后台也翻成英文了",
@@ -497,7 +510,7 @@ export function renderAbout(root) {
             </button>
             <span class="about-badge ${fallback ? "is-warn" : ""}">
               <svg class="icon icon--s"><use href="#i-database"/></svg>
-              ${fallback ? "降级运行 · SQLite" : "主库 · MySQL"}
+              ${fallback ? t("降级运行 · SQLite") : t("主库 · MySQL")}
             </span>
           </div>
         </section>
@@ -510,8 +523,8 @@ export function renderAbout(root) {
               <div class="about-feat" style="--tone:${f.tone}">
                 <span class="about-feat__icon"><svg class="icon"><use href="#${f.icon}"/></svg></span>
                 <div>
-                  <div class="about-feat__title">${f.title}</div>
-                  <div class="about-feat__desc">${f.desc}</div>
+                  <div class="about-feat__title">${t(f.title)}</div>
+                  <div class="about-feat__desc">${t(f.desc)}</div>
                 </div>
               </div>`
             ).join("")}
@@ -524,8 +537,8 @@ export function renderAbout(root) {
             ${STACK.map(
               ([name, role]) => H`
               <div class="about-stack__item">
-                <span class="about-stack__name">${name}</span>
-                <span class="about-stack__role">${role}</span>
+                <span class="about-stack__name">${t(name)}</span>
+                <span class="about-stack__role">${t(role)}</span>
               </div>`
             ).join("")}
           </div>
@@ -582,8 +595,9 @@ export function renderAbout(root) {
         <section class="about-card">
           <div class="about-card__head">
             <svg class="icon icon--s"><use href="#i-clock"/></svg>更新记录
-            <span class="about-card__count">${CHANGELOG.length} 个版本</span>
+            <span class="about-card__count">${t("{n} 个版本", { n: CHANGELOG.length })}</span>
           </div>
+          ${getLang() === "zh-CN" ? "" : `<div class="about-card__note">${t("更新记录的正文只提供中文原文。")}</div>`}
           <ol class="about-log">
             ${CHANGELOG.map(
               (c, i) => H`
@@ -602,13 +616,13 @@ export function renderAbout(root) {
             ).join("")}
           </ol>
           <button class="about-more" type="button" data-act="more">
-            <span data-more-text>展开全部 ${CHANGELOG.length} 个版本</span>
+            <span data-more-text>${t("展开全部 {n} 个版本", { n: CHANGELOG.length })}</span>
             <svg class="icon icon--s"><use href="#i-chevron-down"/></svg>
           </button>
         </section>
 
         <footer class="about-foot">
-          <span>© 2026 ${escapeHtml(appName)} · 数据存放在你自己的服务器上</span>
+          <span>${t("© 2026 {app} · 数据存放在你自己的服务器上", { app: escapeHtml(appName) })}</span>
           <span class="about-foot__sep">·</span>
           <span>作者 <a class="about-foot__link" href="${AUTHOR.repo}" target="_blank" rel="noopener">${escapeHtml(AUTHOR.name)}</a></span>
           <span class="about-foot__sep">·</span>
@@ -636,9 +650,9 @@ export function renderAbout(root) {
       if (updateStatus) updateStatus.innerHTML = updateResultHtml(data);
     } catch (err) {
       if (updateStatus) {
-        updateStatus.innerHTML = H`<span class="update-state is-error">检查失败：${escapeHtml(
-          err.message || "网络不可达"
-        )}</span>`;
+        updateStatus.innerHTML = `<span class="update-state is-error">${t("检查失败：{msg}", {
+          msg: escapeHtml(err.message || t("网络不可达")),
+        })}</span>`;
       }
     } finally {
       checkBtn.disabled = false;
@@ -652,7 +666,7 @@ export function renderAbout(root) {
     const open = !list.classList.contains("is-open");
     list.classList.toggle("is-open", open);
     more.classList.toggle("is-open", open);
-    moreText.textContent = open ? "收起" : H`展开全部 ${CHANGELOG.length} 个版本`;
+    moreText.textContent = open ? t("收起") : t("展开全部 {n} 个版本", { n: CHANGELOG.length });
     if (!open) more.scrollIntoView({ block: "nearest", behavior: "smooth" });
   });
 }

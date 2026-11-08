@@ -978,9 +978,10 @@ export function openViewer(item, { onDownload } = {}) {
         requestAnimationFrame(() => setPanelMode(pref.mode || "auto"));
         if ((pref.mode || "auto") === "song" && pref.song) {
           searchInput.value = pref.song.title || "";
-          resultsEl.innerHTML = H`<p class="lyr__panel-hint">当前：${escapeHtml(
-            [pref.song.title, pref.song.artist].filter(Boolean).join(" — ") || "指定歌曲"
-          )}，重新搜索可更换</p>`;
+          const picked = [pref.song.title, pref.song.artist].filter(Boolean).join(" — ") || t("指定歌曲");
+          resultsEl.innerHTML = `<p class="lyr__panel-hint">${t("当前：{name}，重新搜索可更换", {
+            name: escapeHtml(picked),
+          })}</p>`;
         }
       } catch {
         requestAnimationFrame(() => setPanelMode("auto"));
@@ -1184,7 +1185,10 @@ export function openViewer(item, { onDownload } = {}) {
     bodyEl.innerHTML = H`<div class="viewer__fallback">
         <div class="viewer__fallback-art"><svg class="icon"><use href="#i-download"/></svg></div>
         <div class="viewer__fallback-title">文件太大，不在线预览</div>
-        <div class="viewer__fallback-desc">${escapeHtml(item.name)} · ${formatBytes(item.size)}<br>超过 ${formatBytes(PREVIEW_MAX_BYTES)} 的文档需要下载到本地打开。</div>
+        <div class="viewer__fallback-desc">${escapeHtml(item.name)} · ${formatBytes(item.size)}<br>${t(
+          "超过 {size} 的文档需要下载到本地打开。",
+          { size: formatBytes(PREVIEW_MAX_BYTES) }
+        )}</div>
         <a class="btn btn--accent" href="${downloadUrl}">
           <svg class="icon icon--s"><use href="#i-download"/></svg>下载到本地
         </a>
