@@ -13,6 +13,14 @@ import { copyText } from "../ui/share.js";
 import { Toast } from "../ui/toast.js";
 import { checkForUpdates, updateResultHtml, applyResultHtml } from "../ui/update.js";
 
+/** 审计动作的字典 key 带「审计动作:」前缀（避免和按钮文案撞义）。
+ * 中文界面下 t() 查不到就原样返回 key，这里把前缀去掉，界面上不出现 key 本身。 */
+function actionText(label) {
+  const key = `审计动作:${label}`;
+  const text = t(key);
+  return text === key ? label : text;
+}
+
 const TABS = [
   { id: "overview", label: "概览", icon: "i-chart" },
   { id: "users", label: "用户", icon: "i-user" },
@@ -295,7 +303,7 @@ export function renderAdmin(root) {
               <div class="admin-feed__row">
                 <span class="admin-feed__dot ${log.tone === "info" ? "" : H`is-${log.tone}`}"></span>
                 <span class="admin-feed__main"><b>${escapeHtml(log.username || t("系统"))}</b> · ${escapeHtml(
-                        t(`审计动作:${log.label}`)
+                        actionText(log.label)
                       )} ${escapeHtml(detailLine(log.detail))}</span>
                 <span class="admin-feed__time">${formatTime(log.createdAt)}</span>
               </div>`
@@ -1223,7 +1231,7 @@ export function renderAdmin(root) {
                 (item) =>
                   H`<option value="${escapeHtml(item.action)}" ${
                     state.logs.action === item.action ? "selected" : ""
-                  }>${escapeHtml(t(`审计动作:${item.label}`))}（${item.count}）</option>`
+                  }>${escapeHtml(actionText(item.label))}（${item.count}）</option>`
               )
               .join("")}
           </select>
@@ -1321,7 +1329,7 @@ export function renderAdmin(root) {
               <span class="log-dot ${log.tone === "info" ? "" : H`is-${log.tone}`}"></span>
               <div class="log-main">
                 <div class="log-title">
-                  ${escapeHtml(t(`审计动作:${log.label}`))}
+                  ${escapeHtml(actionText(log.label))}
                   <span class="log-title__who">${escapeHtml(log.username || t("系统"))}${log.userId ? H` #${log.userId}` : ""}</span>
                 </div>
                 <div class="log-detail">${escapeHtml(detailLine(log.detail) || "—")}</div>
@@ -1362,7 +1370,7 @@ export function renderAdmin(root) {
       }
     }
     Dialog.alert({
-      title: `${t(`审计动作:${log.label}`)} · ${log.username || t("系统")}`,
+      title: `${actionText(log.label)} · ${log.username || t("系统")}`,
       message: H`
         <div class="dialog__hint">#${log.id} · ${escapeHtml(log.createdAt || "")} · IP ${escapeHtml(log.ip || "—")}</div>
         ${detail || H`<div class="dialog__hint" style="margin-top:8px">这条记录没有附加信息</div>`}`,
