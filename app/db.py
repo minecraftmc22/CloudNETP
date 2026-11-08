@@ -133,6 +133,8 @@ _COLUMN_PATCHES: dict[str, dict[str, str]] = {
         "surface_opacity": "JSON NULL",
         # 看板娘 AI 配置（老库补列后为 NULL，读取处统一按空对象处理）
         "ai_config": "JSON NULL",
+        # 界面语言（老库补列后为 NULL，前端按浏览器语言兜底）
+        "language": "VARCHAR(16) NULL",
     },
     "users": {
         "display_name": "VARCHAR(32) NULL",

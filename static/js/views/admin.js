@@ -4,6 +4,7 @@
  * 只有 role === 1 的用户能进入（路由层已拦截，后端也会二次校验）。
  */
 import { api, escapeHtml, formatBytes, formatTime, percent } from "../api.js";
+import { H } from "../i18n.js";
 import { store } from "../store.js";
 import { avatarMarkup } from "../ui/avatar.js";
 import { Dialog } from "../ui/dialog.js";
@@ -26,9 +27,9 @@ const LOG_PAGE_SIZE = 30;
 const GB = 1024 ** 3;
 const MB = 1024 ** 2;
 
-const loading = () => `<div class="admin-loading"><span class="spinner"></span></div>`;
+const loading = () => H`<div class="admin-loading"><span class="spinner"></span></div>`;
 
-const errorBlock = (msg) => `
+const errorBlock = (msg) => H`
   <div class="empty">
     <div class="empty__art"><svg class="icon"><use href="#i-alert"/></svg></div>
     <div class="empty__title">加载失败</div>
@@ -36,7 +37,7 @@ const errorBlock = (msg) => `
   </div>`;
 
 function statCard(icon, label, value, sub) {
-  return `
+  return H`
     <div class="stat-card">
       <div class="stat-card__label"><svg class="icon"><use href="#${icon}"/></svg>${label}</div>
       <div class="stat-card__value">${value}</div>
@@ -52,7 +53,7 @@ function dbLabel(database, dbMode) {
 
 function pagerHtml(page, total, pageSize) {
   const pages = Math.max(1, Math.ceil(total / pageSize));
-  return `
+  return H`
     <button type="button" data-page="${page - 1}" ${page <= 1 ? "disabled" : ""}>上一页</button>
     <span>第 ${page} / ${pages} 页 · 共 ${total} 条</span>
     <button type="button" data-page="${page + 1}" ${page >= pages ? "disabled" : ""}>下一页</button>`;
@@ -66,7 +67,7 @@ function detailLine(raw) {
     if (data && typeof data === "object" && !Array.isArray(data)) {
       return Object.entries(data)
         .slice(0, 4)
-        .map(([k, v]) => `${k}=${typeof v === "object" ? JSON.stringify(v) : v}`)
+        .map(([k, v]) => H`${k}=${typeof v === "object" ? JSON.stringify(v) : v}`)
         .join(" · ");
     }
     return String(data);
@@ -81,7 +82,7 @@ function detailLine(raw) {
 function dbCardMarkup(db) {
   const head = `<div class="settings-card__head"><svg class="icon icon--s"><use href="#i-database"/></svg>数据库</div>`;
   if (!db) {
-    return `<section class="settings-card" data-card="db">${head}
+    return H`<section class="settings-card" data-card="db">${head}
       <div class="admin-hint">数据库状态读取失败，点右上角刷新按钮重试</div>
     </section>`;
   }
@@ -90,18 +91,18 @@ function dbCardMarkup(db) {
   const f = db.fallback || {};
   const w = db.watchdog || {};
   const reach = p.reachable
-    ? `<span class="db-state is-ok">可达</span><small>${p.latencyMs} ms</small>`
-    : `<span class="db-state is-bad">不可达</span><small>超时 ${p.connectTimeout}s</small>`;
+    ? H`<span class="db-state is-ok">可达</span><small>${p.latencyMs} ms</small>`
+    : H`<span class="db-state is-bad">不可达</span><small>超时 ${p.connectTimeout}s</small>`;
   const fallbackState = f.enabled
-    ? `${f.mirrored ? "可信副本" : "尚未镜像过主库"}${f.dirty ? " · 有未回迁数据" : ""}`
+    ? H`${f.mirrored ? "可信副本" : "尚未镜像过主库"}${f.dirty ? " · 有未回迁数据" : ""}`
     : "未开启";
   const switched = db.switchedAt
-    ? `${formatTime(db.switchedAt)}${db.switchReason ? ` · ${escapeHtml(db.switchReason)}` : ""}`
+    ? H`${formatTime(db.switchedAt)}${db.switchReason ? H` · ${escapeHtml(db.switchReason)}` : ""}`
     : "进程启动后没有切换过";
-  const held = w.held ? `<span class="chip">已暂停自动回切</span>` : "";
+  const held = w.held ? H`<span class="chip">已暂停自动回切</span>` : "";
   const sqliteOnly = p.isSqlite;
 
-  return `<section class="settings-card" data-card="db">${head}
+  return H`<section class="settings-card" data-card="db">${head}
     <div class="setting-row">
       <div class="setting-row__main">
         <div class="setting-row__label">当前服务库
@@ -118,10 +119,10 @@ function dbCardMarkup(db) {
       <div><span>副本状态</span><b>${fallbackState}</b></div>
       <div class="is-wide"><span>容灾副本</span><b class="mono" title="${escapeHtml(f.path || "")}">${escapeHtml(f.path || "—")}</b><small>${formatBytes(f.bytes || 0)}</small></div>
       <div><span>自动容灾</span><b>${f.enabled ? "开启" : "关闭"}</b><small>${
-        w.probeInterval > 0 ? `探测 ${w.probeInterval}s` : "不自动探测"
-      } · ${w.mirrorInterval > 0 ? `镜像 ${w.mirrorInterval}s` : "不周期镜像"}</small></div>
+        w.probeInterval > 0 ? H`探测 ${w.probeInterval}s` : "不自动探测"
+      } · ${w.mirrorInterval > 0 ? H`镜像 ${w.mirrorInterval}s` : "不周期镜像"}</small></div>
       <div><span>看门狗</span><b>${w.running ? "运行中" : "未运行"}</b><small>${
-        w.lastMirrorAt ? `上次镜像 ${formatTime(w.lastMirrorAt)}` : "还没镜像过"
+        w.lastMirrorAt ? H`上次镜像 ${formatTime(w.lastMirrorAt)}` : "还没镜像过"
       }</small></div>
     </div>
 
@@ -167,7 +168,7 @@ export function renderAdmin(root) {
     logs: { page: 1, query: "", action: "", userId: null, username: "", total: 0 },
   };
 
-  root.innerHTML = `
+  root.innerHTML = H`
     <div class="view-head">
       <div class="view-title"><svg class="icon"><use href="#i-shield"/></svg>管理后台</div>
       <span class="view-sub" data-sub>站点运行状态</span>
@@ -181,7 +182,7 @@ export function renderAdmin(root) {
         <div class="segmented__thumb" data-thumb></div>
         ${TABS.map(
           (tab) =>
-            `<button class="segmented__btn ${tab.id === "overview" ? "is-active" : ""}" type="button" data-tab="${tab.id}">
+            H`<button class="segmented__btn ${tab.id === "overview" ? "is-active" : ""}" type="button" data-tab="${tab.id}">
                <svg class="icon"><use href="#${tab.icon}"/></svg>${tab.label}
              </button>`
         ).join("")}
@@ -225,13 +226,13 @@ export function renderAdmin(root) {
     const diskPct = percent(st.diskUsed, st.diskTotal || 1);
     setSub(`${system.appName} v${system.version} · ${dbLabel(system.database, system.dbMode)}`);
 
-    panel.innerHTML = `
+    panel.innerHTML = H`
       <div class="stat-grid">
         ${statCard(
           "i-user",
           "用户",
           `${u.total}`,
-          `今日活跃 ${u.activeToday} · 本周新增 ${u.newThisWeek}${u.banned ? ` · 封禁 ${u.banned}` : ""}`
+          `今日活跃 ${u.activeToday} · 本周新增 ${u.newThisWeek}${u.banned ? H` · 封禁 ${u.banned}` : ""}`
         )}
         ${statCard(
           "i-folder",
@@ -280,9 +281,9 @@ export function renderAdmin(root) {
               data.recentLogs.length
                 ? data.recentLogs
                     .map(
-                      (log) => `
+                      (log) => H`
               <div class="admin-feed__row">
-                <span class="admin-feed__dot ${log.tone === "info" ? "" : `is-${log.tone}`}"></span>
+                <span class="admin-feed__dot ${log.tone === "info" ? "" : H`is-${log.tone}`}"></span>
                 <span class="admin-feed__main"><b>${escapeHtml(log.username || "系统")}</b> · ${escapeHtml(
                         log.label
                       )} ${escapeHtml(detailLine(log.detail))}</span>
@@ -290,7 +291,7 @@ export function renderAdmin(root) {
               </div>`
                     )
                     .join("")
-                : `<div class="admin-feed__row"><span class="admin-feed__main muted">还没有审计记录</span></div>`
+                : H`<div class="admin-feed__row"><span class="admin-feed__main muted">还没有审计记录</span></div>`
             }
           </div>
         </section>
@@ -302,7 +303,7 @@ export function renderAdmin(root) {
               data.topUsers.length
                 ? data.topUsers
                     .map(
-                      (item, index) => `
+                      (item, index) => H`
               <div class="admin-rank__row">
                 <span class="admin-rank__idx">${index + 1}</span>
                 <span class="admin-rank__name">${escapeHtml(item.username)}</span>
@@ -310,7 +311,7 @@ export function renderAdmin(root) {
               </div>`
                     )
                     .join("")
-                : `<div class="admin-rank__row"><span></span><span class="muted">暂无数据</span><span></span></div>`
+                : H`<div class="admin-rank__row"><span></span><span class="muted">暂无数据</span><span></span></div>`
             }
           </div>
         </section>
@@ -328,7 +329,7 @@ export function renderAdmin(root) {
   ];
 
   async function showUsers() {
-    panel.innerHTML = `
+    panel.innerHTML = H`
       <div class="admin-toolbar">
         <span class="searchbox">
           <span class="textbox">
@@ -339,7 +340,7 @@ export function renderAdmin(root) {
         <div class="admin-chips">
           ${USER_FILTERS.map(
             (f) =>
-              `<button class="admin-chip ${state.users.filter === f.id ? "is-active" : ""}" type="button" data-filter="${f.id}">${f.label}</button>`
+              H`<button class="admin-chip ${state.users.filter === f.id ? "is-active" : ""}" type="button" data-filter="${f.id}">${f.label}</button>`
           ).join("")}
         </div>
         <div class="grow"></div>
@@ -395,7 +396,7 @@ export function renderAdmin(root) {
       setSub(`${data.total} 个账号 · ${state.users.filter === "all" ? "全部状态" : USER_FILTERS.find((f) => f.id === state.users.filter)?.label}`);
 
       if (!data.items.length) {
-        tableEl.innerHTML = `
+        tableEl.innerHTML = H`
           <div class="empty">
             <div class="empty__art"><svg class="icon"><use href="#i-user"/></svg></div>
             <div class="empty__title">没有匹配的用户</div>
@@ -405,7 +406,7 @@ export function renderAdmin(root) {
         return;
       }
 
-      tableEl.innerHTML = `
+      tableEl.innerHTML = H`
         <div class="admin-table">
           <div class="admin-row admin-row--head">
             <span>用户</span><span>空间</span><span>文件</span><span>最近登录</span><span>状态</span><span></span>
@@ -445,21 +446,21 @@ export function renderAdmin(root) {
       : '<span class="admin-badge is-ok">正常</span>';
     // 名称优先用昵称（display_name），登录名只在两者不同时作为次要标识
     const shownName = user.displayName || user.username;
-    const alias = shownName !== user.username ? `@${user.username} · ` : "";
-    return `
+    const alias = shownName !== user.username ? H`@${user.username} · ` : "";
+    return H`
       <div class="admin-row" data-id="${user.id}">
         <div class="admin-user">
           <span class="admin-avatar">${avatarMarkup({ displayName: shownName, username: user.username, avatarUrl: user.avatarUrl })}</span>
           <div style="min-width:0">
             <div class="admin-user__name" title="${escapeHtml(shownName)}">${escapeHtml(shownName)} ${roleChip}</div>
-            <div class="admin-user__meta">${escapeHtml(alias)}#${user.id} · ${user.createdAt ? `注册于 ${formatTime(user.createdAt)}` : "—"}</div>
+            <div class="admin-user__meta">${escapeHtml(alias)}#${user.id} · ${user.createdAt ? H`注册于 ${formatTime(user.createdAt)}` : "—"}</div>
           </div>
         </div>
         <div class="admin-space">
           <div class="admin-space__num">${formatBytes(user.usedBytes)} / ${formatBytes(user.quotaBytes)}</div>
           <div class="progress"><div class="progress__bar" style="width:${pct}%"></div></div>
         </div>
-        <div class="admin-cell">${user.fileCount} 个${user.trashCount ? ` · 回收站 ${user.trashCount}` : ""}</div>
+        <div class="admin-cell">${user.fileCount} 个${user.trashCount ? H` · 回收站 ${user.trashCount}` : ""}</div>
         <div class="admin-cell">${formatTime(user.lastLoginAt)}</div>
         <div>${status}</div>
         <div class="admin-actions" style="text-align:right">
@@ -482,7 +483,7 @@ export function renderAdmin(root) {
       align: "end",
       header: {
         name: user.displayName || user.username,
-        meta: `@${user.username} · #${user.id} · ${user.role === 1 ? "管理员" : "普通用户"} · ${formatBytes(user.usedBytes)}`,
+        meta: H`@${user.username} · #${user.id} · ${user.role === 1 ? "管理员" : "普通用户"} · ${formatBytes(user.usedBytes)}`,
       },
       items: [
         { label: "查看审计日志", icon: "i-clock", onClick: () => openUserLogs(user) },
@@ -517,8 +518,8 @@ export function renderAdmin(root) {
   async function changeQuota(user, reload) {
     const current = user.quotaBytes / GB;
     const result = await Dialog.form({
-      title: `调整配额 · ${user.username}`,
-      message: `当前已用 ${formatBytes(user.usedBytes)}。配额低于已用空间时，该用户将无法继续上传。`,
+      title: H`调整配额 · ${user.username}`,
+      message: H`当前已用 ${formatBytes(user.usedBytes)}。配额低于已用空间时，该用户将无法继续上传。`,
       confirmText: "保存",
       fields: [
         {
@@ -550,7 +551,7 @@ export function renderAdmin(root) {
   async function resetPassword(user) {
     const ok = await Dialog.confirm({
       title: "重置密码",
-      message: `将为 <b>${escapeHtml(user.username)}</b> 生成一个新的随机密码，该用户所有已登录设备会立即失效。`,
+      message: H`将为 <b>${escapeHtml(user.username)}</b> 生成一个新的随机密码，该用户所有已登录设备会立即失效。`,
       confirmText: "生成新密码",
       danger: true,
     });
@@ -559,7 +560,7 @@ export function renderAdmin(root) {
       const res = await api.post(`/api/admin/users/${user.id}/password`);
       const copy = await Dialog.confirm({
         title: "新密码（仅显示这一次）",
-        message: `请通过安全渠道转交给 <b>${escapeHtml(res.username)}</b>，关闭后无法再次查看：
+        message: H`请通过安全渠道转交给 <b>${escapeHtml(res.username)}</b>，关闭后无法再次查看：
           <div class="code-display">${escapeHtml(res.password)}</div>
           <div class="dialog__hint">数据库里仍只保存哈希，忘记只能重新生成</div>`,
         confirmText: "复制密码",
@@ -580,8 +581,8 @@ export function renderAdmin(root) {
       title: next === 1 ? "设为管理员" : "取消管理员",
       message:
         next === 1
-          ? `<b>${escapeHtml(user.username)}</b> 将获得管理后台权限，可以查看所有用户与审计日志、修改系统设置。`
-          : `<b>${escapeHtml(user.username)}</b> 将失去管理后台权限，普通功能不受影响。`,
+          ? H`<b>${escapeHtml(user.username)}</b> 将获得管理后台权限，可以查看所有用户与审计日志、修改系统设置。`
+          : H`<b>${escapeHtml(user.username)}</b> 将失去管理后台权限，普通功能不受影响。`,
       confirmText: next === 1 ? "设为管理员" : "取消权限",
       danger: next === 0,
     });
@@ -600,8 +601,8 @@ export function renderAdmin(root) {
     const ok = await Dialog.confirm({
       title: ban ? "封禁账号" : "解封账号",
       message: ban
-        ? `封禁后 <b>${escapeHtml(user.username)}</b> 会立即被踢下线，且无法再登录。文件不会被删除，解封后恢复。`
-        : `<b>${escapeHtml(user.username)}</b> 将恢复登录权限。`,
+        ? H`封禁后 <b>${escapeHtml(user.username)}</b> 会立即被踢下线，且无法再登录。文件不会被删除，解封后恢复。`
+        : H`<b>${escapeHtml(user.username)}</b> 将恢复登录权限。`,
       confirmText: ban ? "封禁" : "解封",
       danger: ban,
     });
@@ -617,8 +618,8 @@ export function renderAdmin(root) {
 
   async function deleteUser(user, reload) {
     const ok = await Dialog.confirm({
-      title: `删除用户 · ${user.username}`,
-      message: `将永久删除该账号及其 <b>${user.fileCount}</b> 个文件（${formatBytes(user.usedBytes)}）、
+      title: H`删除用户 · ${user.username}`,
+      message: H`将永久删除该账号及其 <b>${user.fileCount}</b> 个文件（${formatBytes(user.usedBytes)}）、
         ${user.shareCount} 个分享链接、${user.trashCount} 个回收站条目。此操作<b>不可恢复</b>，
         审计日志会保留。`,
       confirmText: "永久删除",
@@ -671,15 +672,15 @@ export function renderAdmin(root) {
     none: "其他文件",
   };
 
-  const svgIcon = (name) => `<svg class="icon"><use href="#${name}"/></svg>`;
+  const svgIcon = (name) => H`<svg class="icon"><use href="#${name}"/></svg>`;
 
   async function showReports() {
-    panel.innerHTML = `
+    panel.innerHTML = H`
       <div class="admin-toolbar">
         <div class="admin-chips">
           ${REPORT_FILTERS.map(
             (f) =>
-              `<button class="admin-chip ${state.reports.filter === f.id ? "is-active" : ""}" type="button" data-filter="${f.id}">${f.label}</button>`
+              H`<button class="admin-chip ${state.reports.filter === f.id ? "is-active" : ""}" type="button" data-filter="${f.id}">${f.label}</button>`
           ).join("")}
         </div>
         <div class="grow"></div>
@@ -723,7 +724,7 @@ export function renderAdmin(root) {
       }`);
 
       if (!data.items.length) {
-        tableEl.innerHTML = `
+        tableEl.innerHTML = H`
           <div class="empty">
             <div class="empty__art"><svg class="icon"><use href="#i-alert"/></svg></div>
             <div class="empty__title">没有举报记录</div>
@@ -733,7 +734,7 @@ export function renderAdmin(root) {
         return;
       }
 
-      tableEl.innerHTML = `
+      tableEl.innerHTML = H`
         <div class="admin-table">
           <div class="admin-row admin-row--head admin-row--report">
             <span>被举报文件</span><span>哈希值</span><span>举报理由 / 举报人</span><span>时间</span><span>状态</span>
@@ -783,34 +784,34 @@ export function renderAdmin(root) {
   function reportRowHtml(report) {
     const iconName = report.icon || (report.isFolder ? "i-folder" : "i-file");
     const previewHref = report.nodeId
-      ? `/api/admin/reports/${report.id}/preview?nodeId=${report.nodeId}`
-      : `/api/admin/reports/${report.id}/preview`;
+      ? H`/api/admin/reports/${report.id}/preview?nodeId=${report.nodeId}`
+      : H`/api/admin/reports/${report.id}/preview`;
     // 图片直接给缩略图，审核时一眼能看出内容；点开就是原图
     const visual =
       report.previewKind === "image"
-        ? `<a class="admin-thumb" href="${previewHref}" target="_blank" rel="noopener" title="查看原图">
+        ? H`<a class="admin-thumb" href="${previewHref}" target="_blank" rel="noopener" title="查看原图">
              <img src="/api/admin/reports/${report.id}/thumb?w=96${
-            report.nodeId ? `&nodeId=${report.nodeId}` : ""
+            report.nodeId ? H`&nodeId=${report.nodeId}` : ""
           }" alt="" loading="lazy">
            </a>`
-        : `<span class="admin-fileicon" data-kind="${iconName.replace(/^i-/, "")}">${svgIcon(iconName)}</span>`;
+        : H`<span class="admin-fileicon" data-kind="${iconName.replace(/^i-/, "")}">${svgIcon(iconName)}</span>`;
     const kindLabel = PREVIEW_LABEL[report.previewKind] || "文件";
     // 单文件能看到确切大小；文件夹/合集只报总量，点开才看清单
     const metaLine = report.blobSha256
-      ? `${kindLabel} · ${formatBytes(report.size)}`
-      : `合集 · 共 ${formatBytes(report.size)}`;
+      ? H`${kindLabel} · ${formatBytes(report.size)}`
+      : H`合集 · 共 ${formatBytes(report.size)}`;
     const hash = report.blobSha256
-      ? `<div class="report-hash" data-copy-hash title="点击复制完整哈希">${escapeHtml(
+      ? H`<div class="report-hash" data-copy-hash title="点击复制完整哈希">${escapeHtml(
           report.blobSha256.slice(0, 16)
         )}…${escapeHtml(report.blobSha256.slice(-8))}</div>
          <div class="admin-user__meta">${report.refCount} 处引用</div>`
-      : `<div class="admin-user__meta">合集分享不记单个哈希</div>
+      : H`<div class="admin-user__meta">合集分享不记单个哈希</div>
          <div class="admin-user__meta">共 ${formatBytes(report.size)}</div>`;
     const reason = report.reason
-      ? `<div class="report-reason" title="${escapeHtml(report.reason)}">${escapeHtml(report.reason)}</div>`
-      : `<div class="report-reason muted">未填写理由</div>`;
+      ? H`<div class="report-reason" title="${escapeHtml(report.reason)}">${escapeHtml(report.reason)}</div>`
+      : H`<div class="report-reason muted">未填写理由</div>`;
     const reporter = `${escapeHtml(report.reporter || "匿名")}${
-      report.reporterIp ? ` · ${escapeHtml(report.reporterIp)}` : ""
+      report.reporterIp ? H` · ${escapeHtml(report.reporterIp)}` : ""
     }`;
     const shareState = report.shareActive
       ? '<span class="admin-badge is-warn">链接仍有效</span>'
@@ -824,7 +825,7 @@ export function renderAdmin(root) {
     } else if (report.status === "approved" && report.blocked && report.blobSha256) {
       actions.push(`<button class="btn btn--sm" type="button" data-unblock>解除拉黑</button>`);
     }
-    return `
+    return H`
       <div class="admin-row admin-row--report" data-id="${report.id}">
         <div class="admin-user">
           ${visual}
@@ -848,8 +849,8 @@ export function renderAdmin(root) {
 
   async function approveReport(report, reload) {
     const detail = report.isFolder
-      ? `审核通过后该分享链接会立即失效（文件夹分享不涉及文件哈希）。`
-      : `审核通过后：
+      ? H`审核通过后该分享链接会立即失效（文件夹分享不涉及文件哈希）。`
+      : H`审核通过后：
         <div class="dialog__hint">· 哈希 <span class="code-display" style="display:inline;padding:2px 8px">${escapeHtml(
           report.blobSha256 || ""
         )}</span> 会被拉黑</div>
@@ -857,7 +858,7 @@ export function renderAdmin(root) {
         <div class="dialog__hint">· 文件本体不删除，分享者自己的网盘仍可查看和下载</div>`;
     const ok = await Dialog.confirm({
       title: "确认举报通过？",
-      message: `「<b>${escapeHtml(report.firstName)}</b>」${detail}`,
+      message: H`「<b>${escapeHtml(report.firstName)}</b>」${detail}`,
       confirmText: "通过举报并拉黑",
       danger: true,
     });
@@ -874,7 +875,7 @@ export function renderAdmin(root) {
   async function rejectReport(report, reload) {
     const ok = await Dialog.confirm({
       title: "驳回举报",
-      message: `将把「<b>${escapeHtml(report.firstName)}</b>」的举报标记为已驳回，分享不受影响。`,
+      message: H`将把「<b>${escapeHtml(report.firstName)}</b>」的举报标记为已驳回，分享不受影响。`,
       confirmText: "驳回举报",
     });
     if (!ok) return;
@@ -890,7 +891,7 @@ export function renderAdmin(root) {
   async function unblockHash(report, reload) {
     const ok = await Dialog.confirm({
       title: "解除拉黑",
-      message: `解除后哈希 <b>${escapeHtml(report.blobSha256 || "")}</b> 对应的文件可以重新被分享。`,
+      message: H`解除后哈希 <b>${escapeHtml(report.blobSha256 || "")}</b> 对应的文件可以重新被分享。`,
       confirmText: "解除拉黑",
       danger: true,
     });
@@ -919,16 +920,16 @@ export function renderAdmin(root) {
             const iconName = f.icon || "i-file";
             const visual =
               f.previewKind === "image" && !f.missing
-                ? `<img class="report-file__thumb" src="/api/admin/reports/${report.id}/thumb?nodeId=${f.nodeId}&w=120" alt="" loading="lazy">`
-                : `<span class="admin-fileicon" data-kind="${iconName.replace(/^i-/, "")}">${svgIcon(
+                ? H`<img class="report-file__thumb" src="/api/admin/reports/${report.id}/thumb?nodeId=${f.nodeId}&w=120" alt="" loading="lazy">`
+                : H`<span class="admin-fileicon" data-kind="${iconName.replace(/^i-/, "")}">${svgIcon(
                     iconName
                   )}</span>`;
             const open = f.missing
               ? '<span class="admin-user__meta">内容已删除</span>'
-              : `<a class="btn btn--subtle btn--sm" href="/api/admin/reports/${report.id}/preview?nodeId=${
+              : H`<a class="btn btn--subtle btn--sm" href="/api/admin/reports/${report.id}/preview?nodeId=${
                   f.nodeId
                 }" target="_blank" rel="noopener">打开</a>`;
-            return `
+            return H`
               <div class="report-file">
                 ${visual}
                 <div class="report-file__main">
@@ -946,29 +947,29 @@ export function renderAdmin(root) {
       : '<div class="admin-user__meta">这个分享里的内容已经被删除了。</div>';
 
     await Dialog.alert({
-      title: `举报详情 · ${report.firstName}`,
-      message: `
+      title: H`举报详情 · ${report.firstName}`,
+      message: H`
         <div class="dialog__hint">分享链接 /s/${escapeHtml(report.token)}（${
         report.shareActive ? "仍有效" : "已失效"
       }）</div>
         ${
           report.blobSha256
-            ? `<div class="dialog__hint">哈希值：<span class="code-display" style="display:inline;padding:2px 8px">${escapeHtml(
+            ? H`<div class="dialog__hint">哈希值：<span class="code-display" style="display:inline;padding:2px 8px">${escapeHtml(
                 report.blobSha256
               )}</span></div>`
             : '<div class="dialog__hint">类型：文件夹 / 合集分享</div>'
         }
         <div class="dialog__hint">举报理由：${escapeHtml(report.reason || "未填写")}</div>
         <div class="dialog__hint">举报人：${escapeHtml(report.reporter || "匿名")}${
-        report.reporterIp ? ` · IP ${escapeHtml(report.reporterIp)}` : ""
+        report.reporterIp ? H` · IP ${escapeHtml(report.reporterIp)}` : ""
       }</div>
         <div class="dialog__hint">时间：${formatTime(report.createdAt)}${
         report.handledAt
-          ? ` · 处理：${escapeHtml(report.handledBy || "—")} ${formatTime(report.handledAt)}`
+          ? H` · 处理：${escapeHtml(report.handledBy || "—")} ${formatTime(report.handledAt)}`
           : ""
       }</div>
         <div class="report-detail__head">
-          被举报内容 · ${items.length ? `${items.length} 个文件 · ${formatBytes(
+          被举报内容 · ${items.length ? H`${items.length} 个文件 · ${formatBytes(
           items.reduce((sum, f) => sum + (f.size || 0), 0)
         )}` : "无"}
         </div>
@@ -1001,12 +1002,12 @@ export function renderAdmin(root) {
   ];
 
   async function showFeedback() {
-    panel.innerHTML = `
+    panel.innerHTML = H`
       <div class="admin-toolbar">
         <div class="admin-chips">
           ${FEEDBACK_FILTERS.map(
             (f) =>
-              `<button class="admin-chip ${state.feedback.filter === f.id ? "is-active" : ""}" type="button" data-filter="${f.id}">${f.label}</button>`
+              H`<button class="admin-chip ${state.feedback.filter === f.id ? "is-active" : ""}" type="button" data-filter="${f.id}">${f.label}</button>`
           ).join("")}
         </div>
         <div class="grow"></div>
@@ -1052,7 +1053,7 @@ export function renderAdmin(root) {
       }`);
 
       if (!data.items.length) {
-        listEl.innerHTML = `
+        listEl.innerHTML = H`
           <div class="empty">
             <div class="empty__art"><svg class="icon"><use href="#i-mail"/></svg></div>
             <div class="empty__title">暂无反馈</div>
@@ -1062,28 +1063,28 @@ export function renderAdmin(root) {
         return;
       }
 
-      listEl.innerHTML = `<div class="feedback-list admin-feedback">${data.items
+      listEl.innerHTML = H`<div class="feedback-list admin-feedback">${data.items
         .map(
-          (item) => `
+          (item) => H`
           <article class="fb-item" data-fb="${item.id}">
             <div class="fb-item__top">
               <span class="fb-tag fb-tag--${escapeHtml(item.kind)}">${escapeHtml(item.kindLabel)}</span>
               <span class="fb-status ${item.status ? "is-done" : "is-pending"}">${escapeHtml(item.statusLabel)}</span>
               <span class="fb-item__user">${escapeHtml(item.displayName || item.username || "未知用户")}${
                 item.displayName && item.displayName !== item.username
-                  ? ` <span class="muted">@${escapeHtml(item.username)}</span>`
+                  ? H` <span class="muted">@${escapeHtml(item.username)}</span>`
                   : ""
               }</span>
               <span class="fb-item__time">${escapeHtml(formatTime(item.createdAt))}</span>
             </div>
-            ${item.title ? `<div class="fb-item__title">${escapeHtml(item.title)}</div>` : ""}
+            ${item.title ? H`<div class="fb-item__title">${escapeHtml(item.title)}</div>` : ""}
             <p class="fb-item__content">${escapeHtml(item.content)}</p>
-            ${item.contact ? `<div class="fb-item__meta">联系方式：${escapeHtml(item.contact)}</div>` : ""}
+            ${item.contact ? H`<div class="fb-item__meta">联系方式：${escapeHtml(item.contact)}</div>` : ""}
             <div class="fb-item__actions">
               ${
                 item.status
-                  ? `<button class="btn btn--subtle btn--sm" type="button" data-reopen>重新打开</button>`
-                  : `<button class="btn btn--accent btn--sm" type="button" data-resolve>标记已处理</button>`
+                  ? H`<button class="btn btn--subtle btn--sm" type="button" data-reopen>重新打开</button>`
+                  : H`<button class="btn btn--accent btn--sm" type="button" data-resolve>标记已处理</button>`
               }
               <button class="btn btn--subtle btn--sm" type="button" data-delete>删除</button>
             </div>
@@ -1101,7 +1102,7 @@ export function renderAdmin(root) {
         card.querySelector("[data-delete]")?.addEventListener("click", async () => {
           const ok = await Dialog.confirm({
             title: "删除这条反馈",
-            message: `来自 <b>${escapeHtml(item.displayName || item.username || "用户")}</b> 的反馈将被永久删除，不可恢复。`,
+            message: H`来自 <b>${escapeHtml(item.displayName || item.username || "用户")}</b> 的反馈将被永久删除，不可恢复。`,
             confirmText: "删除",
             danger: true,
           });
@@ -1142,7 +1143,7 @@ export function renderAdmin(root) {
 
   async function showLogs() {
     const actions = await ensureActions();
-    panel.innerHTML = `
+    panel.innerHTML = H`
       <div class="admin-toolbar">
         <span class="selectbox">
           <select data-action>
@@ -1150,7 +1151,7 @@ export function renderAdmin(root) {
             ${actions
               .map(
                 (item) =>
-                  `<option value="${escapeHtml(item.action)}" ${
+                  H`<option value="${escapeHtml(item.action)}" ${
                     state.logs.action === item.action ? "selected" : ""
                   }>${escapeHtml(item.label)}（${item.count}）</option>`
               )
@@ -1228,7 +1229,7 @@ export function renderAdmin(root) {
       setSub(`${data.total} 条审计记录`);
 
       if (!data.items.length) {
-        listEl.innerHTML = `
+        listEl.innerHTML = H`
           <div class="empty">
             <div class="empty__art"><svg class="icon"><use href="#i-clock"/></svg></div>
             <div class="empty__title">没有匹配的记录</div>
@@ -1238,17 +1239,17 @@ export function renderAdmin(root) {
         return;
       }
 
-      listEl.innerHTML = `
+      listEl.innerHTML = H`
         <div class="log-list">
           ${data.items
             .map(
-              (log) => `
+              (log) => H`
             <div class="log-row" data-id="${log.id}">
-              <span class="log-dot ${log.tone === "info" ? "" : `is-${log.tone}`}"></span>
+              <span class="log-dot ${log.tone === "info" ? "" : H`is-${log.tone}`}"></span>
               <div class="log-main">
                 <div class="log-title">
                   ${escapeHtml(log.label)}
-                  <span class="log-title__who">${escapeHtml(log.username || "系统")}${log.userId ? ` #${log.userId}` : ""}</span>
+                  <span class="log-title__who">${escapeHtml(log.username || "系统")}${log.userId ? H` #${log.userId}` : ""}</span>
                 </div>
                 <div class="log-detail">${escapeHtml(detailLine(log.detail) || "—")}</div>
               </div>
@@ -1288,8 +1289,8 @@ export function renderAdmin(root) {
       }
     }
     Dialog.alert({
-      title: `${log.label} · ${log.username || "系统"}`,
-      message: `
+      title: H`${log.label} · ${log.username || "系统"}`,
+      message: H`
         <div class="dialog__hint">#${log.id} · ${escapeHtml(log.createdAt || "")} · IP ${escapeHtml(log.ip || "—")}</div>
         ${detail || '<div class="dialog__hint" style="margin-top:8px">这条记录没有附加信息</div>'}`,
       confirmText: "关闭",
@@ -1317,7 +1318,7 @@ export function renderAdmin(root) {
     }
     setSub("站点信息、数据库与维护");
 
-    panel.innerHTML = `
+    panel.innerHTML = H`
       <section class="settings-card" data-card="site">
         <div class="settings-card__head"><svg class="icon icon--s"><use href="#i-cloud"/></svg>站点</div>
         <div class="admin-form-grid">
@@ -1535,7 +1536,7 @@ export function renderAdmin(root) {
           const data = await api.post("/api/admin/db/reconnect", { target: "primary" });
           const rows = data.result?.migratedRows || 0;
           paintDbCard(data.db);
-          Toast.success(`已连上 MySQL${rows ? `，回迁 ${rows} 行` : ""}`);
+          Toast.success(`已连上 MySQL${rows ? H`，回迁 ${rows} 行` : ""}`);
         });
       });
 
@@ -1554,7 +1555,7 @@ export function renderAdmin(root) {
           const data = await api.post("/api/admin/db/reconnect", { target: "fallback" });
           const rows = data.result?.mirroredRows || 0;
           paintDbCard(data.db);
-          Toast.success(`已切到 SQLite${rows ? `，镜像 ${rows} 行` : ""}`);
+          Toast.success(`已切到 SQLite${rows ? H`，镜像 ${rows} 行` : ""}`);
         });
       });
     }
@@ -1570,14 +1571,14 @@ export function renderAdmin(root) {
       updateBtn.disabled = true;
       if (updateResult) {
         updateResult.hidden = false;
-        updateResult.innerHTML = `<span class="update-state">正在检查 GitHub…</span>`;
+        updateResult.innerHTML = H`<span class="update-state">正在检查 GitHub…</span>`;
       }
       try {
         const data = await checkForUpdates(true);
         if (updateResult) updateResult.innerHTML = updateResultHtml(data);
       } catch (err) {
         if (updateResult) {
-          updateResult.innerHTML = `<span class="update-state is-error">检查失败：${escapeHtml(
+          updateResult.innerHTML = H`<span class="update-state is-error">检查失败：${escapeHtml(
             err.message || "网络不可达"
           )}</span>`;
         }
@@ -1601,7 +1602,7 @@ export function renderAdmin(root) {
       updateBtn.disabled = true;
       if (updateResult) {
         updateResult.hidden = false;
-        updateResult.innerHTML = `<span class="update-state">正在拉取并合并…</span>`;
+        updateResult.innerHTML = H`<span class="update-state">正在拉取并合并…</span>`;
       }
       try {
         const data = await api.post("/api/admin/update/apply", { restart: true });
@@ -1612,7 +1613,7 @@ export function renderAdmin(root) {
         }
       } catch (err) {
         if (updateResult) {
-          updateResult.innerHTML = `<span class="update-state is-error">更新失败：${escapeHtml(
+          updateResult.innerHTML = H`<span class="update-state is-error">更新失败：${escapeHtml(
             err.message || "网络不可达"
           )}</span>`;
         }
@@ -1681,13 +1682,13 @@ export function renderAdmin(root) {
         if (!scan.orphans) {
           await Dialog.alert({
             title: "扫描完成",
-            message: `数据库登记 ${scan.knownBlobs} 个 blob，磁盘 ${scan.diskFiles} 个文件，没有发现孤儿文件。`,
+            message: H`数据库登记 ${scan.knownBlobs} 个 blob，磁盘 ${scan.diskFiles} 个文件，没有发现孤儿文件。`,
           });
           return;
         }
         const ok = await Dialog.confirm({
           title: "发现孤儿文件",
-          message: `磁盘上有 <b>${scan.orphans}</b> 个未被数据库引用的文件（${formatBytes(
+          message: H`磁盘上有 <b>${scan.orphans}</b> 个未被数据库引用的文件（${formatBytes(
             scan.orphanBytes
           )}），其中 <b>${scan.removable}</b> 个放置超过 1 小时，可以安全删除。<br>
             另有 ${scan.tmpStale} 个超过 6 小时的临时上传文件会被一并清理。`,

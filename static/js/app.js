@@ -2,6 +2,8 @@
  * 应用入口：装配、路由、导航、装饰
  */
 import { api, ApiError, formatBytes } from "./api.js";
+import { H } from "./i18n.js";
+import { applyStatic, initI18n, setLang, t, watchI18n } from "./i18n.js";
 import { store } from "./store.js";
 import {
   applyAppearance,
@@ -65,6 +67,7 @@ const el = (id) => document.getElementById(id);
 /* 启动                                                               */
 /* ------------------------------------------------------------------ */
 async function boot() {
+  initI18n();
   registerPwa();
   applyCachedAppearance();
   watchSystemTheme();
@@ -75,7 +78,7 @@ async function boot() {
     store.set({ meta });
     el("brand-name").textContent = meta.appName || "CloudNETP";
     el("brand-version").textContent = `v${meta.version || "0.1.0"}`;
-    document.title = `${meta.appName || "CloudNETP"} · 樱色云盘`;
+    document.title = `${meta.appName || "CloudNETP"} · ${t("樱色云盘")}`;
   } catch {
     /* 元信息失败不阻塞登录 */
   }
@@ -87,7 +90,7 @@ async function boot() {
     if (err instanceof ApiError && err.status === 401) {
       showAuth();
     } else {
-      Toast.error("无法连接后端服务，请确认 uvicorn 已启动");
+      Toast.error(t("无法连接后端服务，请确认 uvicorn 已启动"));
       showAuth();
     }
   } finally {
@@ -111,8 +114,8 @@ function showAuth() {
       enterApp(user);
       if (firstAdmin) {
         Dialog.alert({
-          title: "你是第一位用户",
-          message: "该账号已自动获得<strong>管理员</strong>权限，可以进入「管理后台」调整配额与系统设置。",
+          title: t("你是第一位用户"),
+          message: t("该账号已自动获得<strong>管理员</strong>权限，可以进入「管理后台」调整配额与系统设置。"),
         });
       } else {
         Toast.success(`欢迎回来，${user.username}`);
@@ -123,6 +126,10 @@ function showAuth() {
 
 function enterApp(user) {
   store.set({ user, navCollapsed: !!user.settings?.navCollapsed });
+  // 账号里存的语言优先于本机设置（换设备也能跟上）
+  if (user.settings?.language) {
+    setLang(user.settings.language, { persist: true, silent: true });
+  }
   el("auth-root").hidden = true;
   el("shell").hidden = false;
 
@@ -215,22 +222,22 @@ function renderNav() {
   const used = user?.usedBytes || 0;
   const pct = quota ? Math.min(100, Math.round((used / quota) * 100)) : 0;
 
-  nav.innerHTML = `
+  nav.innerHTML = H`
     ${NAV_ITEMS.map((item) => {
-      if (item.group) return `<div class="nav__group">${item.group}</div>`;
+      if (item.group) return H`<div class="nav__group">${t(item.group)}</div>`;
       if (item.adminOnly && user?.role !== 1) return "";
-      return `
+      return H`
         <a class="nav-item ${current === item.route ? "is-active" : ""}"
-           href="#/${item.route}" data-route="${item.route}" data-tip="${item.label}"
-           aria-label="${item.label}" ${current === item.route ? 'aria-current="page"' : ""}>
+           href="#/${item.route}" data-route="${item.route}" data-tip="${t(item.label)}"
+           aria-label="${t(item.label)}" ${current === item.route ? 'aria-current="page"' : ""}>
           <svg class="icon"><use href="#${item.icon}"/></svg>
-          <span class="nav-item__label">${item.label}</span>
+          <span class="nav-item__label">${t(item.label)}</span>
         </a>`;
     }).join("")}
     <div class="nav__spacer"></div>
     <div class="nav__storage">
       <div class="nav__storage-title">
-        <span>存储空间</span>
+        <span>${t("存储空间")}</span>
         <span class="nav__storage-num">${pct}%</span>
       </div>
       <div class="progress"><div class="progress__bar" style="width:${pct}%"></div></div>
@@ -244,7 +251,7 @@ function renderNav() {
 function applyNavState(collapsed) {
   el("app-body").dataset.nav = collapsed ? "collapsed" : "expanded";
   store.set({ navCollapsed: collapsed });
-  el("nav-toggle").title = collapsed ? "展开导航" : "折叠导航";
+  el("nav-toggle").title = collapsed ? t("展开导航") : t("折叠导航");
 }
 
 let collapseTimer = 0;
@@ -276,15 +283,15 @@ const PLACEHOLDERS = {
 };
 
 function renderPlaceholder(root, { icon, title, desc }) {
-  root.innerHTML = `
+  root.innerHTML = H`
     <div class="view-head">
-      <div class="view-title"><svg class="icon"><use href="#${icon}"/></svg>${title}</div>
+      <div class="view-title"><svg class="icon"><use href="#${icon}"/></svg>${t(title)}</div>
     </div>
     <div class="view-body">
       <div class="empty">
         <div class="empty__art"><svg class="icon"><use href="#${icon}"/></svg></div>
-        <div class="empty__title">${title}</div>
-        <div class="empty__desc">${desc}</div>
+        <div class="empty__title">${t(title)}</div>
+        <div class="empty__desc">${t(desc)}</div>
       </div>
     </div>`;
 }
@@ -317,7 +324,7 @@ function route() {
   else if (name === "admin") renderAdmin(root);
   else renderPlaceholder(root, PLACEHOLDERS.admin);
 
-  document.title = `${TITLES[name]} · ${store.get().meta?.appName || "CloudNETP"}`;
+  document.title = `${t(TITLES[name])} · ${store.get().meta?.appName || "CloudNETP"}`;
   document.querySelectorAll(".nav-item").forEach((item) => {
     item.classList.toggle("is-active", item.dataset.route === name);
   });
@@ -332,7 +339,7 @@ function updateThemeIcon() {
   const resolved = resolveTheme(mode);
   const use = el("theme-toggle").querySelector("use");
   use.setAttribute("href", resolved === "dark" ? "#i-sun" : "#i-moon");
-  el("theme-toggle").title = resolved === "dark" ? "切换到亮色" : "切换到暗色";
+  el("theme-toggle").title = resolved === "dark" ? t("切换到亮色") : t("切换到暗色");
 }
 
 function setupThemeToggle() {
@@ -354,11 +361,11 @@ function installMenuItems() {
   if (state.canInstall) {
     return [
       {
-        label: "安装到桌面",
+        label: t("安装到桌面"),
         icon: "i-plus",
         onClick: async () => {
           const outcome = await promptInstall();
-          if (outcome === "accepted") Toast.success("安装完成后会以独立窗口打开");
+          if (outcome === "accepted") Toast.success(t("安装完成后会以独立窗口打开"));
         },
       },
     ];
@@ -366,13 +373,13 @@ function installMenuItems() {
   if (state.iosManual) {
     return [
       {
-        label: "添加到主屏幕…",
+        label: t("添加到主屏幕…"),
         icon: "i-plus",
         onClick: () =>
           Dialog.alert({
-            title: "添加到主屏幕",
+            title: t("添加到主屏幕"),
             message:
-              "在 Safari 底部工具栏点「分享」按钮，选择「添加到主屏幕」，就能像 App 一样全屏打开小云盘。",
+              t("在 Safari 底部工具栏点「分享」按钮，选择「添加到主屏幕」，就能像 App 一样全屏打开小云盘。"),
           }),
       },
     ];
@@ -393,7 +400,7 @@ function setupUserMenu() {
         meta: [
           `@${user.username}`,
           `${formatBytes(user.usedBytes)} / ${formatBytes(user.quotaBytes)}`,
-          user.role === 1 ? "管理员" : "普通用户",
+          user.role === 1 ? t("管理员") : t("普通用户"),
           user.bio ? user.bio.slice(0, 40) : "",
         ]
           .filter(Boolean)
@@ -401,12 +408,12 @@ function setupUserMenu() {
       },
       items: [
         ...installMenuItems(),
-        { label: "设置", icon: "i-settings", onClick: () => (location.hash = "#/settings") },
+        { label: t("设置"), icon: "i-settings", onClick: () => (location.hash = "#/settings") },
         ...(user.role === 1
-          ? [{ label: "管理后台", icon: "i-shield", onClick: () => (location.hash = "#/admin") }]
+          ? [{ label: t("管理后台"), icon: "i-shield", onClick: () => (location.hash = "#/admin") }]
           : []),
         { sep: true },
-        { label: "退出登录", icon: "i-logout", danger: true, onClick: logout },
+        { label: t("退出登录"), icon: "i-logout", danger: true, onClick: logout },
       ],
     });
   });
@@ -414,9 +421,9 @@ function setupUserMenu() {
 
 async function logout() {
   const ok = await Dialog.confirm({
-    title: "退出登录",
-    message: "确定要退出当前账号吗？",
-    confirmText: "退出",
+    title: t("退出登录"),
+    message: t("确定要退出当前账号吗？"),
+    confirmText: t("退出"),
   });
   if (!ok) return;
   try {
@@ -461,7 +468,7 @@ function setupEmailTip() {
       /* 隐私模式下写不进去也没关系，本次会话仍然隐藏 */
     }
     tip.hidden = true;
-    Toast.info("已关闭提醒，需要时可在设置里绑定邮箱");
+    Toast.info(t("已关闭提醒，需要时可在设置里绑定邮箱"));
   });
 }
 
@@ -475,7 +482,7 @@ let mascotLive = null;
 function saySomething() {
   const bubble = el("mascot-bubble");
   if (!bubble) return;
-  bubble.textContent = MASCOT_LINES[(Math.random() * MASCOT_LINES.length) | 0];
+  bubble.textContent = t(MASCOT_LINES[(Math.random() * MASCOT_LINES.length) | 0]);
   bubble.classList.add("is-on");
   window.clearTimeout(bubbleTimer);
   bubbleTimer = window.setTimeout(() => bubble.classList.remove("is-on"), 5200);
@@ -516,18 +523,26 @@ function hideMascot() {
   if (user) {
     patchSettingsLocal({ showMascot: false });
     api.patch("/api/me/settings", { showMascot: false }).catch(() => {
-      Toast.warn("已经收起来了，但同步到服务器失败");
+      Toast.warn(t("已经收起来了，但同步到服务器失败"));
     });
   }
-  Toast.info("看板娘已收起，可在「设置 → 装饰」里重新打开");
+  Toast.info(t("看板娘已收起，可在「设置 → 装饰」里重新打开"));
 }
 
 /* ------------------------------------------------------------------ */
 /* 全局事件                                                           */
 /* ------------------------------------------------------------------ */
+// 语言切换：导航、静态壳、当前视图全部按新语言重画（视图模板里都走 t()/H）
+watchI18n(() => {
+  applyStatic();
+  renderNav();
+  const { user } = store.get();
+  if (user) route();
+});
+
 window.addEventListener("session:expired", () => {
   if (store.get().user) {
-    Toast.warn("登录状态已失效，请重新登录");
+    Toast.warn(t("登录状态已失效，请重新登录"));
     showAuth();
   }
 });

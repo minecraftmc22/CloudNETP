@@ -10,6 +10,7 @@
  */
 import { escapeHtml } from "../api.js";
 
+import { H } from "../i18n.js";
 const MIN_VISIBLE_MS = 900; // 再快也要停留这么久，否则用户看不到"正在移动"
 const HOLD_MS = 1200; // 完成后的停留时间
 const sleep = (ms) => new Promise((done) => window.setTimeout(done, ms));
@@ -32,7 +33,7 @@ export async function runTask({
   const panel = document.createElement("div");
   panel.className = "task-panel";
   panel.setAttribute("role", "status");
-  panel.innerHTML = `
+  panel.innerHTML = H`
     <div class="task-panel__head">
       <svg class="icon icon--s"><use href="#${icon}"/></svg>
       <span class="task-panel__title" data-title>${escapeHtml(title)}…</span>
@@ -41,7 +42,7 @@ export async function runTask({
     <div class="task-panel__list">
       ${rows
         .map(
-          (row) => `
+          (row) => H`
         <div class="task-item" data-row="${row.index}">
           <div class="task-item__top">
             <span class="task-item__name" title="${escapeHtml(row.item.name)}">${escapeHtml(row.item.name)}</span>

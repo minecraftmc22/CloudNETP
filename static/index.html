@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="version" content="0.3.43">
+  <meta name="version" content="0.3.44">
   <meta name="theme-color" content="#150f21">
   <title>CloudNETP · 樱色云盘</title>
   <link rel="icon" href="/assets/favicon.ico" sizes="any">
@@ -103,7 +103,7 @@
 <!-- ============ 主界面 ============ -->
 <div id="shell" class="app-shell" hidden>
   <header class="titlebar">
-    <button id="nav-toggle" class="icon-btn" type="button" title="折叠导航" aria-label="折叠导航">
+    <button id="nav-toggle" class="icon-btn" type="button" data-i18n-title="折叠导航" data-i18n-aria="折叠导航">
       <svg class="icon"><use href="#i-panel"/></svg>
     </button>
     <div class="titlebar__brand">
@@ -118,16 +118,16 @@
       <div id="email-tip" class="email-tip" hidden>
         <button class="email-tip__main" type="button" data-email-go>
           <svg class="icon icon--s"><use href="#i-mail"/></svg>
-          <span>未绑定邮箱，请尽快绑定</span>
+          <span data-i18n="未绑定邮箱，请尽快绑定">未绑定邮箱，请尽快绑定</span>
         </button>
-        <button class="email-tip__close" type="button" data-email-dismiss aria-label="不再提示" title="不再提示">
+        <button class="email-tip__close" type="button" data-email-dismiss data-i18n-aria="不再提示" data-i18n-title="不再提示">
           <svg class="icon icon--s"><use href="#i-close"/></svg>
         </button>
       </div>
-      <button id="theme-toggle" class="icon-btn" type="button" title="切换主题" aria-label="切换主题">
+      <button id="theme-toggle" class="icon-btn" type="button" data-i18n-title="切换主题" data-i18n-aria="切换主题">
         <svg class="icon"><use href="#i-moon"/></svg>
       </button>
-      <button id="user-chip" class="user-chip" type="button" aria-haspopup="menu">
+      <button id="user-chip" class="user-chip" type="button" aria-haspopup="menu" data-i18n-aria="个人菜单">
         <span class="user-chip__avatar" id="user-avatar">?</span>
         <span class="user-chip__name" id="user-name">未登录</span>
       </button>
@@ -135,14 +135,14 @@
   </header>
 
   <div class="app-body" id="app-body">
-    <nav class="nav" id="nav" aria-label="主导航"></nav>
+    <nav class="nav" id="nav" data-i18n-aria="主导航"></nav>
     <main class="view-root" id="view-root"></main>
   </div>
 </div>
 
 <!-- ============ 看板娘（Live2D，模型来自 /live2d/model；没有模型时退回云朵） ============ -->
-<div id="mascot" class="mascot" role="complementary" aria-label="看板娘">
-  <div class="mascot__bubble" id="mascot-bubble">今天也一起整理文件吧～</div>
+<div id="mascot" class="mascot" role="complementary" data-i18n-aria="看板娘">
+  <div class="mascot__bubble" id="mascot-bubble" data-i18n="今天也一起整理文件吧～">今天也一起整理文件吧～</div>
   <div class="mascot__stage" id="mascot-stage">
   <svg class="mascot__cloud" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
     <defs>
@@ -179,20 +179,20 @@
     <circle cx="99" cy="62" r="2" fill="#fbcfe8" opacity="0.85"/>
   </svg>
   </div>
-  <button class="mascot__pick" id="mascot-pick" type="button" hidden title="切换到下一个模型">
+  <button class="mascot__pick" id="mascot-pick" type="button" hidden data-i18n-title="切换到下一个模型">
     <svg class="icon icon--s"><use href="#i-refresh"/></svg>
-    <span id="mascot-pick-label">换一个</span>
+    <span id="mascot-pick-label" data-i18n="换一个">换一个</span>
   </button>
   <!-- 悬停才出现的操作条：锁定（鼠标穿透）/ 对话 / 关闭 -->
   <div class="mascot__actions" id="mascot-actions">
-    <button class="mascot__act" type="button" data-mascot-act="lock" title="锁定后鼠标可以穿过看板娘，点到底下的文件">
-      <svg class="icon icon--s"><use href="#i-lock"/></svg><span data-label>锁定</span>
+    <button class="mascot__act" type="button" data-mascot-act="lock" data-i18n-title="锁定后鼠标可以穿过看板娘，点到底下的文件">
+      <svg class="icon icon--s"><use href="#i-lock"/></svg><span data-label data-i18n="锁定">锁定</span>
     </button>
-    <button class="mascot__act" type="button" data-mascot-act="chat" title="和 CDP娘 聊两句">
-      <svg class="icon icon--s"><use href="#i-chat"/></svg><span data-label>对话</span>
+    <button class="mascot__act" type="button" data-mascot-act="chat" data-i18n-title="和 CDP娘 聊两句">
+      <svg class="icon icon--s"><use href="#i-chat"/></svg><span data-label data-i18n="对话">对话</span>
     </button>
-    <button class="mascot__act" type="button" data-mascot-act="close" title="暂时收起看板娘（可在设置里打开）">
-      <svg class="icon icon--s"><use href="#i-close"/></svg><span data-label>关闭</span>
+    <button class="mascot__act" type="button" data-mascot-act="close" data-i18n-title="暂时收起看板娘（可在设置里打开）">
+      <svg class="icon icon--s"><use href="#i-close"/></svg><span data-label data-i18n="关闭">关闭</span>
     </button>
   </div>
 </div>

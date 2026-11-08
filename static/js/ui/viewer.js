@@ -4,6 +4,7 @@
  * 只负责展示，不修改任何文件。
  */
 import { api, escapeHtml, formatBytes } from "../api.js";
+import { H } from "../i18n.js";
 import { store } from "../store.js";
 import { renderMarkdown } from "./markdown.js";
 import { mountOffice, OFFICE_KINDS } from "./office.js";
@@ -215,7 +216,7 @@ export function openViewer(item, { onDownload } = {}) {
 
   const host = document.createElement("div");
   host.className = "viewer";
-  host.innerHTML = `
+  host.innerHTML = H`
     <div class="viewer__backdrop" data-act="close"></div>
     <div class="viewer__frame" role="dialog" aria-modal="true" aria-label="${escapeHtml(item.name)}">
       <header class="viewer__bar">
@@ -275,7 +276,7 @@ export function openViewer(item, { onDownload } = {}) {
 
   const fail = (message) => {
     hideLoader();
-    bodyEl.innerHTML = `
+    bodyEl.innerHTML = H`
       <div class="viewer__fallback">
         <div class="viewer__fallback-art"><svg class="icon"><use href="#i-alert"/></svg></div>
         <div class="viewer__fallback-title">预览失败</div>
@@ -405,7 +406,7 @@ export function openViewer(item, { onDownload } = {}) {
       console.warn("[viewer] ArtPlayer 初始化失败，回退原生播放器", err);
       // 播放器或插件异常时退回原生 <video>，保证还能看
       if (!document.contains(container)) return null;
-      container.innerHTML = `<video class="viewer__video" src="${previewUrl}" controls preload="metadata" playsinline></video>`;
+      container.innerHTML = H`<video class="viewer__video" src="${previewUrl}" controls preload="metadata" playsinline></video>`;
       const video = container.querySelector("video");
       video?.addEventListener("loadeddata", hideLoader, { once: true });
       video?.addEventListener("error", () => fail("视频无法播放，可能是编码不受浏览器支持。"));
@@ -435,7 +436,7 @@ export function openViewer(item, { onDownload } = {}) {
     const fmt = (sec) => {
       if (!Number.isFinite(sec)) return "--:--";
       const s = Math.max(0, Math.round(sec));
-      return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+      return H`${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
     };
 
     let lines = [];
@@ -905,12 +906,12 @@ export function openViewer(item, { onDownload } = {}) {
     const doSearch = async () => {
       const q = searchInput.value.trim();
       if (!q) return;
-      resultsEl.innerHTML = `<p class="lyr__panel-hint">搜索中…</p>`;
+      resultsEl.innerHTML = H`<p class="lyr__panel-hint">搜索中…</p>`;
       try {
         const data = await api.get(`/api/lyrics/search?q=${encodeURIComponent(q)}`);
         if (!document.contains(root)) return;
         if (!data.items?.length) {
-          resultsEl.innerHTML = `<p class="lyr__panel-hint">没有找到，换个关键词试试</p>`;
+          resultsEl.innerHTML = H`<p class="lyr__panel-hint">没有找到，换个关键词试试</p>`;
           return;
         }
         resultsEl.innerHTML = "";
@@ -919,7 +920,7 @@ export function openViewer(item, { onDownload } = {}) {
           btn.type = "button";
           btn.className = "lyr__result";
           btn.innerHTML =
-            `<span class="lyr__result-title">${escapeHtml(it.title || "未知标题")}</span>` +
+            H`<span class="lyr__result-title">${escapeHtml(it.title || "未知标题")}</span>` +
             `<span class="lyr__result-artist">${escapeHtml([it.artist, it.album].filter(Boolean).join(" · "))}</span>`;
           btn.addEventListener("click", () =>
             applyPref({ mode: "song", songId: it.id, songTitle: it.title || "", songArtist: it.artist || "" })
@@ -928,7 +929,7 @@ export function openViewer(item, { onDownload } = {}) {
         });
       } catch (err) {
         if (!document.contains(root)) return;
-        resultsEl.innerHTML = `<p class="lyr__panel-hint">${escapeHtml(err?.message || "搜索失败")}</p>`;
+        resultsEl.innerHTML = H`<p class="lyr__panel-hint">${escapeHtml(err?.message || "搜索失败")}</p>`;
       }
     };
     let searchTimer = 0;
@@ -977,7 +978,7 @@ export function openViewer(item, { onDownload } = {}) {
         requestAnimationFrame(() => setPanelMode(pref.mode || "auto"));
         if ((pref.mode || "auto") === "song" && pref.song) {
           searchInput.value = pref.song.title || "";
-          resultsEl.innerHTML = `<p class="lyr__panel-hint">当前：${escapeHtml(
+          resultsEl.innerHTML = H`<p class="lyr__panel-hint">当前：${escapeHtml(
             [pref.song.title, pref.song.artist].filter(Boolean).join(" — ") || "指定歌曲"
           )}，重新搜索可更换</p>`;
         }
@@ -1012,7 +1013,7 @@ export function openViewer(item, { onDownload } = {}) {
 
   /* ---------------- 各类内容 ---------------- */
   if (kind === "image") {
-    bodyEl.innerHTML = `<div class="viewer__stage" data-stage>
+    bodyEl.innerHTML = H`<div class="viewer__stage" data-stage>
         <img class="viewer__img" data-img src="${previewUrl}" alt="${escapeHtml(item.name)}" draggable="false">
       </div>`;
     stageEl = bodyEl.querySelector("[data-stage]");
@@ -1028,7 +1029,7 @@ export function openViewer(item, { onDownload } = {}) {
     syncZoom();
     bindImagePan(stageEl, () => zoom);
   } else if (kind === "video") {
-    bodyEl.innerHTML = `<div class="viewer__stage is-video">
+    bodyEl.innerHTML = H`<div class="viewer__stage is-video">
         <div class="viewer__player" data-player></div>
       </div>`;
     mountVideo(bodyEl.querySelector("[data-player]"), item).then((instance) => {
@@ -1041,7 +1042,7 @@ export function openViewer(item, { onDownload } = {}) {
       if (active && active.host === host) active.player = instance;
     });
   } else if (kind === "audio") {
-    bodyEl.innerHTML = `
+    bodyEl.innerHTML = H`
       <div class="lyr" data-lyr>
         <div class="lyr__bg" data-lyr-bg></div>
         <div class="lyr__veil"></div>
@@ -1139,10 +1140,10 @@ export function openViewer(item, { onDownload } = {}) {
       </div>`;
     mountAudio(bodyEl.querySelector("[data-lyr]"), item);
   } else if (kind === "pdf") {
-    bodyEl.innerHTML = `<iframe class="viewer__pdf" src="${previewUrl}" title="${escapeHtml(item.name)}"></iframe>`;
+    bodyEl.innerHTML = H`<iframe class="viewer__pdf" src="${previewUrl}" title="${escapeHtml(item.name)}"></iframe>`;
     window.setTimeout(hideLoader, 500);
   } else if (kind === "text") {
-    bodyEl.innerHTML = `<pre class="viewer__code" data-code></pre>`;
+    bodyEl.innerHTML = H`<pre class="viewer__code" data-code></pre>`;
     const codeEl = bodyEl.querySelector("[data-code]");
     api
       .get(`/api/nodes/${item.id}/text`)
@@ -1155,7 +1156,7 @@ export function openViewer(item, { onDownload } = {}) {
       })
       .catch((err) => fail(err.message));
   } else if (kind === "markdown") {
-    bodyEl.innerHTML = `<div class="md-wrap"><article class="md-body" data-md></article><pre data-code hidden></pre></div>`;
+    bodyEl.innerHTML = H`<div class="md-wrap"><article class="md-body" data-md></article><pre data-code hidden></pre></div>`;
     const article = bodyEl.querySelector("[data-md]");
     const sourceEl = bodyEl.querySelector("[data-code]");
     api
@@ -1171,7 +1172,7 @@ export function openViewer(item, { onDownload } = {}) {
       })
       .catch((err) => fail(err.message));
   } else if (OFFICE_KINDS.has(kind)) {
-    bodyEl.innerHTML = `<div class="office-host" data-office></div>`;
+    bodyEl.innerHTML = H`<div class="office-host" data-office></div>`;
     mountOffice(bodyEl.querySelector("[data-office]"), item, kind)
       .then((dispose) => {
         cleanup.fn = typeof dispose === "function" ? dispose : null;
@@ -1180,7 +1181,7 @@ export function openViewer(item, { onDownload } = {}) {
       })
       .catch((err) => fail(err.message));
   } else if (kind === "toolarge") {
-    bodyEl.innerHTML = `<div class="viewer__fallback">
+    bodyEl.innerHTML = H`<div class="viewer__fallback">
         <div class="viewer__fallback-art"><svg class="icon"><use href="#i-download"/></svg></div>
         <div class="viewer__fallback-title">文件太大，不在线预览</div>
         <div class="viewer__fallback-desc">${escapeHtml(item.name)} · ${formatBytes(item.size)}<br>超过 ${formatBytes(PREVIEW_MAX_BYTES)} 的文档需要下载到本地打开。</div>
@@ -1190,7 +1191,7 @@ export function openViewer(item, { onDownload } = {}) {
       </div>`;
     hideLoader();
   } else {
-    bodyEl.innerHTML = `<div class="viewer__fallback">
+    bodyEl.innerHTML = H`<div class="viewer__fallback">
         <div class="viewer__fallback-art"><svg class="icon"><use href="#i-file"/></svg></div>
         <div class="viewer__fallback-title">暂不支持此格式</div>
         <div class="viewer__fallback-desc">${escapeHtml(item.name)} · ${formatBytes(item.size)}<br>可以下载到本地后再打开。</div>

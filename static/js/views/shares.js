@@ -2,6 +2,7 @@
  * 我的分享：列出自己创建的链接，复制 / 打开 / 取消。
  */
 import { api, escapeHtml, formatBytes, formatTime } from "../api.js";
+import { H } from "../i18n.js";
 import { Dialog } from "../ui/dialog.js";
 import { Toast } from "../ui/toast.js";
 import { copyText } from "../ui/share.js";
@@ -18,7 +19,7 @@ const STATUS_TEXT = {
 export function renderShares(root) {
   const state = { items: [], loading: false };
 
-  root.innerHTML = `
+  root.innerHTML = H`
     <div class="view-head">
       <div class="view-title">
         <svg class="icon"><use href="#i-share"/></svg>
@@ -39,7 +40,7 @@ export function renderShares(root) {
   const listEl = root.querySelector("[data-list]");
   const summaryEl = root.querySelector("[data-summary]");
 
-  const absUrl = (share) => `${siteOrigin()}${share.url}`;
+  const absUrl = (share) => H`${siteOrigin()}${share.url}`;
 
   async function load() {
     if (state.loading) return;
@@ -49,7 +50,7 @@ export function renderShares(root) {
       state.items = data.items || [];
       render();
     } catch (err) {
-      listEl.innerHTML = `<div class="empty">
+      listEl.innerHTML = H`<div class="empty">
           <div class="empty__art"><svg class="icon"><use href="#i-alert"/></svg></div>
           <div class="empty__title">加载失败</div>
           <div class="empty__desc">${escapeHtml(err.message)}</div>
@@ -62,11 +63,11 @@ export function renderShares(root) {
   function render() {
     const active = state.items.filter((s) => s.status === "active").length;
     summaryEl.textContent = state.items.length
-      ? `${state.items.length} 个链接 · ${active} 个有效`
+      ? H`${state.items.length} 个链接 · ${active} 个有效`
       : "";
 
     if (!state.items.length) {
-      listEl.innerHTML = `<div class="empty">
+      listEl.innerHTML = H`<div class="empty">
           <div class="empty__art"><svg class="icon"><use href="#i-share"/></svg></div>
           <div class="empty__title">还没有分享过文件</div>
           <div class="empty__desc">在「我的文件」里右键任意文件或文件夹，选择「分享链接」即可生成。</div>
@@ -82,7 +83,7 @@ export function renderShares(root) {
         const dead = share.status !== "active";
         const kindLabel =
           share.type === "multi"
-            ? `合集 ${share.itemCount} 项`
+            ? H`合集 ${share.itemCount} 项`
             : share.type === "folder"
               ? "文件夹"
               : formatBytes(share.size);
@@ -90,11 +91,11 @@ export function renderShares(root) {
           kindLabel,
           `创建于 ${formatTime(share.createdAt)}`,
           share.hasCode ? "有提取码" : "免提取码",
-          share.maxDownloads ? `已下载 ${share.downloadCount}/${share.maxDownloads}` : `已下载 ${share.downloadCount} 次`,
-          share.expiresAt ? `到期 ${new Date(share.expiresAt).toLocaleDateString("zh-CN")}` : "永久有效",
+          share.maxDownloads ? H`已下载 ${share.downloadCount}/${share.maxDownloads}` : H`已下载 ${share.downloadCount} 次`,
+          share.expiresAt ? H`到期 ${new Date(share.expiresAt).toLocaleDateString("zh-CN")}` : "永久有效",
         ].join(" · ");
 
-        return `
+        return H`
         <div class="share-row${dead ? " is-dead" : ""}" data-id="${share.id}">
           <span class="share-row__icon"><svg class="icon"><use href="#${share.icon}"/></svg></span>
           <div class="share-row__main">
@@ -134,7 +135,7 @@ export function renderShares(root) {
       row.querySelector('[data-act="revoke"]')?.addEventListener("click", async () => {
         const ok = await Dialog.confirm({
           title: "取消分享",
-          message: `取消后「${escapeHtml(share.name)}」的链接立即失效，已经发出去的链接也打不开了。`,
+          message: H`取消后「${escapeHtml(share.name)}」的链接立即失效，已经发出去的链接也打不开了。`,
           confirmText: "取消分享",
           danger: true,
         });

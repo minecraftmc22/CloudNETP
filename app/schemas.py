@@ -85,6 +85,8 @@ class SettingsIn(CamelModel):
     show_mascot: bool | None = None
     show_petals: bool | None = None
     view_mode: Literal["grid", "list"] | None = None
+    # 界面语言：只收已支持的两个 ID，避免存进乱七八糟的值
+    language: Literal["zh-CN", "en-US"] | None = None
     nav_collapsed: bool | None = None
     share_show_name: bool | None = None
     # 歌词播放器样式（fontSize/hotColor/showTrans），整体覆盖

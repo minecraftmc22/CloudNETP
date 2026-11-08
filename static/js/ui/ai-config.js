@@ -9,6 +9,7 @@
  */
 
 import { api, escapeHtml } from "../api.js";
+import { H, t } from "../i18n.js";
 import { Toast } from "./toast.js";
 
 const TOKEN_CHOICES = [
@@ -38,7 +39,7 @@ const state = {
 function tokenRow(key, title, desc, value) {
   const custom = Number(value) > 0;
   const matched = TOKEN_CHOICES.some((c) => c.value === Number(value));
-  return `
+  return H`
     <div class="setting-row setting-row--stack">
       <div class="setting-row__main">
         <div class="setting-row__label">${title}</div>
@@ -51,7 +52,7 @@ function tokenRow(key, title, desc, value) {
         </label>
         <div class="ai-chips" ${custom ? "" : "hidden"}>
           ${TOKEN_CHOICES.map(
-            (choice) => `<button type="button" class="ai-chip ${matched && choice.value === Number(value) ? "is-active" : ""}"
+            (choice) => H`<button type="button" class="ai-chip ${matched && choice.value === Number(value) ? "is-active" : ""}"
               data-ai-token="${key}" data-value="${choice.value}">${choice.label}</button>`
           ).join("")}
           <span class="ai-token-custom">
@@ -69,7 +70,7 @@ function configMarkup() {
   const model = cfg.model || "";
   const inList = state.models.includes(model);
   const useCustomModel = !state.models.length || (model && !inList);
-  return `
+  return H`
     <div class="setting-row setting-row--stack">
       <div class="setting-row__main">
         <div class="setting-row__label">快速选择</div>
@@ -119,7 +120,7 @@ function configMarkup() {
             ${state.models
               .map(
                 (name) =>
-                  `<option value="${escapeHtml(name)}" ${name === model ? "selected" : ""}>${escapeHtml(name)}</option>`
+                  H`<option value="${escapeHtml(name)}" ${name === model ? "selected" : ""}>${escapeHtml(name)}</option>`
               )
               .join("")}
             <option value="${CUSTOM_MODEL}">自定义…</option>
@@ -131,7 +132,9 @@ function configMarkup() {
                  spellcheck="false" value="${escapeHtml(model)}">
         </span>
         <span class="field__hint" data-ai-model-hint>${
-          state.models.length ? "点「测试连接」可以刷新可选模型" : "填好地址和密钥后点「测试连接」，会自动拉取模型列表"
+          state.models.length
+            ? t("点「测试连接」可以刷新可选模型")
+            : t("填好地址和密钥后点「测试连接」，会自动拉取模型列表")
         }</span>
       </label>
     </div>
@@ -193,7 +196,7 @@ function configMarkup() {
           ${[3, 5, 8, 12, 20]
             .map(
               (n) =>
-                `<button type="button" class="ai-chip ${Number(cfg.maxRounds) === n ? "is-active" : ""}" data-ai-round="${n}">${n} 轮</button>`
+                H`<button type="button" class="ai-chip ${Number(cfg.maxRounds) === n ? "is-active" : ""}" data-ai-round="${n}">${t("{n} 轮", { n })}</button>`
             )
             .join("")}
           <span class="ai-token-custom">
@@ -236,12 +239,12 @@ function configMarkup() {
       </div>
     </div>
 
-    ${tokenRow("maxInput", "输入上限", "历史消息超过这个长度会从最旧的开始丢掉", cfg.maxInput)}
-    ${tokenRow("maxOutput", "输出上限", "单次回答最多生成多少 token", cfg.maxOutput)}
+    ${tokenRow("maxInput", t("输入上限"), t("历史消息超过这个长度会从最旧的开始丢掉"), cfg.maxInput)}
+    ${tokenRow("maxOutput", t("输出上限"), t("单次回答最多生成多少 token"), cfg.maxOutput)}
 
     ${
       state.isAdmin
-        ? `<div class="setting-row setting-row--stack ai-prompt">
+        ? H`<div class="setting-row setting-row--stack ai-prompt">
             <div class="setting-row__main">
               <div class="setting-row__label">系统提示词<span class="chip chip--accent">管理员</span></div>
               <div class="setting-row__desc">决定 CDP娘 的人设和说话方式，全站生效；留空则用内置默认</div>
@@ -584,7 +587,7 @@ function syncModelsToSelect(models, current) {
   if (current && !list.includes(current)) list.unshift(current);
   select.innerHTML =
     list
-      .map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`)
+      .map((name) => H`<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`)
       .join("") + `<option value="${CUSTOM_MODEL}">自定义…</option>`;
   if (current) select.value = current;
   const wrap = document.querySelector("[data-ai-model-wrap]");

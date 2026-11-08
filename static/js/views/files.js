@@ -2,6 +2,7 @@
  * 文件视图：目录树浏览、网格/列表、多选、右键菜单、拖拽上传
  */
 import { api, escapeHtml, formatBytes, formatEta, formatSpeed, formatTime, percent } from "../api.js";
+import { H, t } from "../i18n.js";
 import { store } from "../store.js";
 import { Dialog } from "../ui/dialog.js";
 import { Toast } from "../ui/toast.js";
@@ -31,7 +32,7 @@ export function renderFiles(root) {
     jobs: [],
   };
 
-  root.innerHTML = `
+  root.innerHTML = H`
     <div class="view-head">
       <div class="view-title">
         <svg class="icon"><use href="#i-folder"/></svg>
@@ -55,7 +56,7 @@ export function renderFiles(root) {
       <nav class="crumb" data-crumb aria-label="路径"></nav>
       <div class="grow"></div>
       <button class="sort-btn" type="button" data-act="sort" title="切换排序">
-        <span data-sort-label>名称</span>
+        <span data-sort-label>${t("名称")}</span>
         <svg class="icon"><use href="#i-chevron"/></svg>
       </button>
     </div>
@@ -140,7 +141,7 @@ export function renderFiles(root) {
       state.selected.clear();
       state.cursor = -1;
     } catch (err) {
-      bodyEl.innerHTML = `<div class="empty"><div class="empty__art"><svg class="icon"><use href="#i-alert"/></svg></div>
+      bodyEl.innerHTML = H`<div class="empty"><div class="empty__art"><svg class="icon"><use href="#i-alert"/></svg></div>
         <div class="empty__title">加载失败</div><div class="empty__desc">${escapeHtml(err.message)}</div></div>`;
       state.loading = false;
       return;
@@ -168,14 +169,14 @@ export function renderFiles(root) {
     const quotaEl = root.querySelector("[data-quota]");
     if (user && quotaEl) quotaEl.textContent = `${formatBytes(user.usedBytes)} / ${formatBytes(user.quotaBytes)}`;
     const title = root.querySelector("[data-title]");
-    if (title) title.textContent = state.searchMode ? "搜索结果" : "我的文件";
+    if (title) title.textContent = state.searchMode ? t("搜索结果") : t("我的文件");
     const total = state.items.length;
-    if (quotaEl && state.searchMode) quotaEl.textContent = `找到 ${total} 项`;
+    if (quotaEl && state.searchMode) quotaEl.textContent = t("找到 {n} 项", { n: total });
   }
 
   function renderCrumb() {
     if (state.searchMode) {
-      crumbEl.innerHTML = `<span class="crumb__item is-current">搜索「${escapeHtml(state.keyword)}」</span>`;
+      crumbEl.innerHTML = H`<span class="crumb__item is-current">搜索「${escapeHtml(state.keyword)}」</span>`;
       return;
     }
     // 根目录下面包屑与标题重复，只留排序按钮
@@ -185,9 +186,9 @@ export function renderFiles(root) {
     }
     crumbEl.innerHTML = state.breadcrumb
       .map(
-        (item, index) => `
+        (item, index) => H`
         <button class="crumb__item ${index === state.breadcrumb.length - 1 ? "is-current" : ""}"
-                type="button" data-crumb-id="${item.id ?? ""}">${escapeHtml(item.name)}</button>
+                type="button" data-crumb-id="${item.id ?? ""}">${escapeHtml(item.id == null ? t(item.name) : item.name)}</button>
         ${index < state.breadcrumb.length - 1 ? '<span class="crumb__sep"><svg class="icon"><use href="#i-chevron"/></svg></span>' : ""}`
       )
       .join("");
@@ -212,12 +213,12 @@ export function renderFiles(root) {
 
     if (!state.items.length) {
       bodyEl.innerHTML = state.searchMode
-        ? `<div class="empty">
+        ? H`<div class="empty">
              <div class="empty__art"><svg class="icon"><use href="#i-search"/></svg></div>
              <div class="empty__title">没有匹配的文件</div>
-             <div class="empty__desc">换个关键词试试，搜索会匹配所有文件夹里的名称。</div>
+             <div class="empty__desc">${t("换个关键词试试，搜索会匹配所有文件夹里的名称。")}</div>
            </div>`
-        : `<div class="empty">
+        : H`<div class="empty">
              <div class="empty__art"><svg class="icon"><use href="#i-cloud"/></svg></div>
              <div class="empty__title">这里还空空的</div>
              <div class="empty__desc">把文件拖到窗口里，或点右上角「上传」。<br>相同内容只占一份空间（按 SHA-256 去重）。</div>
@@ -236,16 +237,16 @@ export function renderFiles(root) {
   function metaOf(item) {
     if (item.type === "folder") {
       const count = item.childCount ?? 0;
-      return `${count} 项 · ${formatTime(item.updatedAt)}`;
+      return H`${count} 项 · ${formatTime(item.updatedAt)}`;
     }
-    return `${formatBytes(item.size)} · ${formatTime(item.updatedAt)}`;
+    return H`${formatBytes(item.size)} · ${formatTime(item.updatedAt)}`;
   }
 
   function renderGrid() {
-    return `<div class="file-grid">
+    return H`<div class="file-grid">
       ${state.items
         .map(
-          (item, index) => `
+          (item, index) => H`
         <div class="tile ${state.selected.has(item.id) ? "is-selected" : ""} ${state.cursor === index ? "is-cursor" : ""}"
              data-id="${item.id}" data-type="${item.type}" data-index="${index}" tabindex="0" role="button">
           <div class="tile__icon" data-kind="${(item.icon || "i-file").slice(2)}"><svg class="icon"><use href="#${item.icon || "i-file"}"/></svg></div>
@@ -263,28 +264,28 @@ export function renderFiles(root) {
   function renderList() {
     const arrow = (key) =>
       state.sort === key
-        ? `<svg class="icon"><use href="#i-chevron"/></svg>`
-        : `<svg class="icon" style="opacity:0"><use href="#i-chevron"/></svg>`;
-    return `<div class="file-list">
+        ? H`<svg class="icon"><use href="#i-chevron"/></svg>`
+        : H`<svg class="icon" style="opacity:0"><use href="#i-chevron"/></svg>`;
+    return H`<div class="file-list">
       <div class="frow frow--head">
         <span></span><span></span>
-        <button type="button" data-sort="name" class="${state.sort === "name" ? `is-sorted ${state.order === "desc" ? "is-desc" : ""}` : ""}">名称${arrow("name")}</button>
-        <button type="button" data-sort="size" class="${state.sort === "size" ? `is-sorted ${state.order === "desc" ? "is-desc" : ""}` : ""}">大小${arrow("size")}</button>
-        <button type="button" data-sort="updated" class="${state.sort === "updated" ? `is-sorted ${state.order === "desc" ? "is-desc" : ""}` : ""}">修改时间${arrow("updated")}</button>
+        <button type="button" data-sort="name" class="${state.sort === "name" ? H`is-sorted ${state.order === "desc" ? "is-desc" : ""}` : ""}">${t("名称")}${arrow("name")}</button>
+        <button type="button" data-sort="size" class="${state.sort === "size" ? H`is-sorted ${state.order === "desc" ? "is-desc" : ""}` : ""}">大小${arrow("size")}</button>
+        <button type="button" data-sort="updated" class="${state.sort === "updated" ? H`is-sorted ${state.order === "desc" ? "is-desc" : ""}` : ""}">修改时间${arrow("updated")}</button>
         <span></span>
       </div>
       ${state.items
         .map(
-          (item, index) => `
+          (item, index) => H`
         <div class="frow ${state.selected.has(item.id) ? "is-selected" : ""}"
              data-id="${item.id}" data-type="${item.type}" data-index="${index}" tabindex="0" role="button">
           <span class="frow__check"><input type="checkbox" ${state.selected.has(item.id) ? "checked" : ""} tabindex="-1"></span>
           <span class="frow__icon" data-kind="${(item.icon || "i-file").slice(2)}"><svg class="icon"><use href="#${item.icon || "i-file"}"/></svg></span>
           <span class="frow__name">
             <span title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</span>
-            ${item.path ? `<span class="frow__path">${escapeHtml(item.path)}</span>` : ""}
+            ${item.path ? H`<span class="frow__path">${escapeHtml(item.path)}</span>` : ""}
           </span>
-          <span class="frow__size">${item.type === "folder" ? `${item.childCount ?? 0} 项` : formatBytes(item.size)}</span>
+          <span class="frow__size">${item.type === "folder" ? H`${item.childCount ?? 0} 项` : formatBytes(item.size)}</span>
           <span class="frow__time">${formatTime(item.updatedAt)}</span>
           <button class="frow__more" type="button" data-more="${item.id}" title="更多">
             <svg class="icon"><use href="#i-menu"/></svg>
@@ -344,7 +345,7 @@ export function renderFiles(root) {
   function renderSortLabel() {
     const label = root.querySelector("[data-sort-label]");
     const btn = root.querySelector('[data-act="sort"]');
-    if (label) label.textContent = SORT_LABELS[state.sort] || "名称";
+    if (label) label.textContent = t(SORT_LABELS[state.sort] || "名称");
     if (btn) btn.classList.toggle("is-desc", state.order === "desc");
   }
 
@@ -428,7 +429,7 @@ export function renderFiles(root) {
   async function renameItem(item) {
     const value = await Dialog.prompt({
       title: "重命名",
-      label: "新名称",
+      label: t("新名称"),
       value: item.name,
       confirmText: "保存",
       validate: (text) => {
@@ -454,7 +455,7 @@ export function renderFiles(root) {
     if (!items.length) return;
     const first = items[0];
     const target = await pickFolder({
-      title: items.length > 1 ? `移动 ${items.length} 项到` : "移动到",
+      title: items.length > 1 ? H`移动 ${items.length} 项到` : "移动到",
       excludeId: first.type === "folder" ? first.id : null,
     });
     if (target === undefined) return; // 取消；null 表示移到根目录
@@ -475,7 +476,7 @@ export function renderFiles(root) {
     } else if (result.canceled) {
       Toast.info(`已停止，成功移动 ${result.done} 项`);
     } else {
-      Toast.success(items.length > 1 ? `已移动 ${items.length} 项` : "已移动");
+      Toast.success(items.length > 1 ? H`已移动 ${items.length} 项` : "已移动");
     }
     if (result.done) await load({ keepScroll: true });
   }
@@ -488,10 +489,10 @@ export function renderFiles(root) {
       items.length > 1 ? " 等 " + items.length + " 项" : ""
     }${onlyFolders ? "（含里面的全部内容）" : ""}`;
     const ok = await Dialog.confirm({
-      title: items.length > 1 ? `删除 ${items.length} 项` : "删除文件",
+      title: items.length > 1 ? H`删除 ${items.length} 项` : "删除文件",
       message: trashOn
-        ? `${subject} 会被移到回收站，可以随时还原。`
-        : `${subject} 会被<b>永久删除</b>，无法恢复（你已关闭回收站）。`,
+        ? H`${subject} 会被移到回收站，可以随时还原。`
+        : H`${subject} 会被<b>永久删除</b>，无法恢复（你已关闭回收站）。`,
       confirmText: trashOn ? "移到回收站" : "永久删除",
       danger: true,
     });
@@ -512,11 +513,11 @@ export function renderFiles(root) {
   function openBlankMenu(x, y) {
     const where = state.searchMode
       ? "搜索结果"
-      : state.breadcrumb[state.breadcrumb.length - 1]?.name || "我的文件";
+      : state.breadcrumb[state.breadcrumb.length - 1]?.name || t("我的文件");
     openMenu({
       x,
       y,
-      header: { name: where, meta: state.searchMode ? "新建会放到根目录" : "当前目录" },
+      header: { name: where, meta: state.searchMode ? t("新建会放到根目录") : t("当前目录") },
       items: [
         { label: "新建文件夹", icon: "i-folder", onClick: createFolder },
         { sep: true },
@@ -531,18 +532,18 @@ export function renderFiles(root) {
     const items = multi
       ? [
           {
-            label: `下载 ${state.selected.size} 项`,
+            label: H`下载 ${state.selected.size} 项`,
             icon: "i-download",
             onClick: () => selectedItems().filter((s) => s.type === "file").forEach(downloadItem),
           },
           {
-            label: `分享 ${state.selected.size} 项`,
+            label: H`分享 ${state.selected.size} 项`,
             icon: "i-link",
             onClick: () => shareItems(selectedItems()),
           },
           { label: "移动到…", icon: "i-folder", onClick: () => moveItems(selectedItems()) },
           { sep: true },
-          { label: `删除 ${state.selected.size} 项`, icon: "i-trash", danger: true, onClick: () => deleteItems(selectedItems()) },
+          { label: H`删除 ${state.selected.size} 项`, icon: "i-trash", danger: true, onClick: () => deleteItems(selectedItems()) },
         ]
       : [
           ...(item.type === "folder"
@@ -563,7 +564,7 @@ export function renderFiles(root) {
     openMenu({
       x,
       y,
-      header: { name: multi ? `${state.selected.size} 个项目` : item.name, meta: multi ? "批量操作" : metaOf(item) },
+      header: { name: multi ? H`${state.selected.size} 个项目` : item.name, meta: multi ? "批量操作" : metaOf(item) },
       items,
     });
   }
@@ -571,12 +572,12 @@ export function renderFiles(root) {
   async function createFolder() {
     const name = await Dialog.prompt({
       title: "新建文件夹",
-      label: "文件夹名称",
+      label: t("文件夹名称"),
       placeholder: "例如：2026 秋招资料",
       confirmText: "创建",
       validate: (text) => {
         const value = text.trim();
-        if (!value) return "请填写名称";
+        if (!value) return t("请填写名称");
         if (value.length > 255) return "名称过长";
         if (/[\\/:*?"<>|]/.test(value)) return '不能包含 \\ / : * ? " < > |';
         return null;
@@ -624,7 +625,7 @@ export function renderFiles(root) {
     }
 
     const jobs = items.map(({ file, parentId }) => ({
-      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      id: H`${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       file,
       parentId,
       loaded: 0,
@@ -721,7 +722,7 @@ export function renderFiles(root) {
     if (failed) Toast.error(`${failed} 个文件上传失败`);
     else if (canceled) Toast.info(`已取消 ${canceled} 个，成功上传 ${ok} 个`);
     else if (ok && instant === ok) Toast.success(`${ok} 个文件秒传完成，没有产生新的上传流量`);
-    else Toast.success(`已上传 ${ok} 个文件${instant ? `（其中 ${instant} 个秒传）` : ""}`);
+    else Toast.success(`已上传 ${ok} 个文件${instant ? H`（其中 ${instant} 个秒传）` : ""}`);
 
     await load({ keepScroll: true });
     await refreshUser();
@@ -833,7 +834,7 @@ export function renderFiles(root) {
       let parentId = rootParent;
       let prefix = "";
       for (const part of path.split("/").filter(Boolean)) {
-        prefix = prefix ? `${prefix}/${part}` : part;
+        prefix = prefix ? H`${prefix}/${part}` : part;
         if (dirIds.has(prefix)) {
           parentId = dirIds.get(prefix);
           continue;
@@ -928,8 +929,8 @@ export function renderFiles(root) {
     if (job.status === "canceled") return "已取消";
     if (job.status === "pending") return "排队中";
     if (job.phase === "merge") return "合并中";
-    if (job.phase === "hash") return `校验 ${Math.round((job.ratio || 0) * 100)}%`;
-    return `${jobPercent(job)}%`;
+    if (job.phase === "hash") return H`校验 ${Math.round((job.ratio || 0) * 100)}%`;
+    return H`${jobPercent(job)}%`;
   }
 
   function jobMetaText(job) {
@@ -956,7 +957,7 @@ export function renderFiles(root) {
     if (!panel) {
       panel = document.createElement("div");
       panel.className = "upload-panel";
-      panel.innerHTML = `
+      panel.innerHTML = H`
         <div class="upload-panel__head">
           <svg class="icon icon--s"><use href="#i-upload"/></svg>
           <span class="upload-panel__title" data-upload-title></span>
@@ -988,7 +989,7 @@ export function renderFiles(root) {
       list.dataset.sig = signature;
       list.innerHTML = state.jobs
         .map(
-          (job) => `
+          (job) => H`
         <div class="upload-item" data-job="${job.id}">
           <div class="upload-item__top">
             <span class="upload-item__name" title="${escapeHtml(job.file.name)}">${escapeHtml(job.file.name)}</span>
@@ -1035,7 +1036,7 @@ export function renderFiles(root) {
     const fill = row.querySelector("[data-fill]");
     const indeterminate = job.status === "active" && (job.phase === "hash" || job.phase === "merge");
     if (bar) bar.classList.toggle("is-indeterminate", indeterminate);
-    if (fill) fill.style.width = indeterminate ? "100%" : `${jobPercent(job)}%`;
+    if (fill) fill.style.width = indeterminate ? "100%" : H`${jobPercent(job)}%`;
   }
 
   function renderUploadHeader() {
@@ -1046,7 +1047,7 @@ export function renderFiles(root) {
     const failed = state.jobs.filter((job) => job.status === "error").length;
     if (active.length) {
       const speed = formatSpeed(active.reduce((sum, job) => sum + (job.speed || 0), 0));
-      title.textContent = `正在上传 ${active.length} 个文件${speed ? ` · ${speed}` : ""}`;
+      title.textContent = `正在上传 ${active.length} 个文件${speed ? H` · ${speed}` : ""}`;
     } else if (failed) {
       title.textContent = `${failed} 个失败 · ${done} 个已完成`;
     } else {
@@ -1093,7 +1094,7 @@ export function renderFiles(root) {
       items: Object.entries(SORT_LABELS)
         .filter(([key]) => key !== "created")
         .map(([key, label]) => ({
-          label: `${label}${state.sort === key ? (state.order === "asc" ? " ↑" : " ↓") : ""}`,
+          label: H`${label}${state.sort === key ? (state.order === "asc" ? " ↑" : " ↓") : ""}`,
           icon: state.sort === key ? "i-check" : undefined,
           onClick: () => toggleSort(key),
         })),

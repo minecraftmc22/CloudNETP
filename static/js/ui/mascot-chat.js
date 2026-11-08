@@ -8,6 +8,7 @@
  */
 
 import { escapeHtml } from "../api.js";
+import { H } from "../i18n.js";
 import { renderMarkdown } from "./markdown.js";
 import { Toast } from "./toast.js";
 
@@ -51,7 +52,7 @@ function ensurePanel() {
   panel.className = "mchat";
   panel.id = "mascot-chat";
   panel.setAttribute("aria-label", "和 CDP娘 对话");
-  panel.innerHTML = `
+  panel.innerHTML = H`
     <header class="mchat__head">
       <span class="mchat__avatar"><img src="/assets/brand-avatar.png" alt=""></span>
       <div class="mchat__who">
@@ -279,17 +280,17 @@ function renderGreeting() {
   state.greeting = false;
   const wrap = document.createElement("div");
   wrap.className = "mchat__hello";
-  wrap.innerHTML = `
+  wrap.innerHTML = H`
     <p>${escapeHtml(GREETING)}</p>
     <div class="mchat__chips">
-      ${SUGGESTIONS.map((text) => `<button type="button" class="mchat__chip" data-say="${escapeHtml(text)}">${escapeHtml(text)}</button>`).join("")}
+      ${SUGGESTIONS.map((text) => H`<button type="button" class="mchat__chip" data-say="${escapeHtml(text)}">${escapeHtml(text)}</button>`).join("")}
     </div>`;
   state.feed.appendChild(wrap);
 }
 
 function timeNow() {
   const now = new Date();
-  return `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+  return H`${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
 }
 
 function appendUser(text, images) {
@@ -297,9 +298,9 @@ function appendUser(text, images) {
   const row = document.createElement("div");
   row.className = "mchat__msg is-me";
   const thumbs = (images || [])
-    .map((url) => `<img class="mchat__thumb" src="${url}" alt="附件">`)
+    .map((url) => H`<img class="mchat__thumb" src="${url}" alt="附件">`)
     .join("");
-  row.innerHTML = `
+  row.innerHTML = H`
     ${thumbs ? `<div class="mchat__thumbs">${thumbs}</div>` : ""}
     ${text ? `<div class="mchat__bubble">${escapeHtml(text)}</div>` : ""}
     <time class="mchat__time">${timeNow()}</time>`;
@@ -311,7 +312,7 @@ function appendBot() {
   state.feed.querySelector(".mchat__hello")?.remove();
   const row = document.createElement("div");
   row.className = "mchat__msg is-bot";
-  row.innerHTML = `
+  row.innerHTML = H`
     <details class="mchat__think" hidden>
       <summary class="mchat__think-head">思考过程</summary>
       <div class="mchat__think-body"></div>
@@ -363,7 +364,7 @@ function toolEntry(container, data) {
     node = document.createElement("details");
     node.className = "mchat__tool";
     node.dataset.tool = key;
-    node.innerHTML = `<summary><span class="mchat__dot"></span><span data-tool-label></span></summary><pre data-tool-result></pre>`;
+    node.innerHTML = H`<summary><span class="mchat__dot"></span><span data-tool-label></span></summary><pre data-tool-result></pre>`;
     container.appendChild(node);
   }
   const label = node.querySelector("[data-tool-label]");
@@ -388,7 +389,7 @@ function renderAttach() {
   state.attachEl.hidden = state.images.length === 0;
   state.attachEl.innerHTML = state.images
     .map(
-      (url, index) => `<span class="mchat__attach-item">
+      (url, index) => H`<span class="mchat__attach-item">
         <img src="${url}" alt="">
         <button type="button" data-drop="${index}" aria-label="移除">
           <svg class="icon icon--s"><use href="#i-close"/></svg>

@@ -2,6 +2,7 @@
  * 设置视图：外观 / 装饰 / 账号
  */
 import { api, escapeHtml, formatBytes } from "../api.js";
+import { H, LANGS, getLang, langTag, setLang, t } from "../i18n.js";
 import { passwordProblem } from "../password.js";
 import { store, siteOrigin } from "../store.js";
 import { Toast } from "../ui/toast.js";
@@ -39,7 +40,7 @@ async function persist(patch) {
 function trashDesc(s) {
   const days = Number(store.get().meta?.trashRetentionDays) || 30;
   if (s?.trashEnabled === false) return "已关闭：删除会直接彻底删除，无法恢复";
-  return `开启中：删除的文件先进入回收站，${days} 天后自动清理`;
+  return t("开启中：删除的文件先进入回收站，{days} 天后自动清理", { days });
 }
 
 /* 各模块背景的默认浓度：直接读主题 CSS 变量，换主题/壁纸后默认值自然跟着走 */
@@ -150,7 +151,7 @@ export function renderSettings(root) {
     return { key, name, value: Number.isFinite(saved) ? clampPercent(saved) : surfaceDefault(key) };
   });
 
-  root.innerHTML = `
+  root.innerHTML = H`
     <div class="view-head">
       <div class="view-title"><svg class="icon"><use href="#i-settings"/></svg>设置</div>
       <span class="view-sub">外观与账号</span>
@@ -163,6 +164,19 @@ export function renderSettings(root) {
           <div class="settings-card__body">
             <div class="setting-row">
               <div class="setting-row__main">
+                <div class="setting-row__label">界面语言</div>
+                <div class="setting-row__desc">切换后立即生效，并记到这个账号；换设备会自动跟随</div>
+              </div>
+              <div class="segmented segmented--wide" data-lang-seg>
+                ${LANGS.map(
+                  (l) =>
+                    `<button class="segmented__btn ${l.id === getLang() ? "is-active" : ""}"
+                             type="button" data-lang="${l.id}">${l.label}</button>`
+                ).join("")}
+              </div>
+            </div>
+            <div class="setting-row">
+              <div class="setting-row__main">
                 <div class="setting-row__label">主题模式</div>
                 <div class="setting-row__desc">跟随系统时会随 Windows 深色模式自动切换</div>
               </div>
@@ -170,7 +184,7 @@ export function renderSettings(root) {
                 <div class="segmented__thumb" data-thumb></div>
                 ${THEME_MODES.map(
                   (m) =>
-                    `<button class="segmented__btn ${m.value === mode ? "is-active" : ""}" type="button" data-mode="${m.value}">${m.label}</button>`
+                    H`<button class="segmented__btn ${m.value === mode ? "is-active" : ""}" type="button" data-mode="${m.value}">${t(m.label)}</button>`
                 ).join("")}
               </div>
             </div>
@@ -183,13 +197,13 @@ export function renderSettings(root) {
                 <div class="swatch-row" data-swatches>
                   ${ACCENT_PRESETS.map(
                     (c) =>
-                      `<button class="swatch ${c.value === accent ? "is-active" : ""}"
-                         type="button" data-color="${c.value}" title="${c.name}"
+                      H`<button class="swatch ${c.value === accent ? "is-active" : ""}"
+                         type="button" data-color="${c.value}" title="${t(c.name)}"
                          style="background:${c.value}"></button>`
                   ).join("")}
                   <label class="swatch swatch--pick ${isPreset ? "" : "is-active"}"
                          data-swatch-pick title="自定义颜色"
-                         style="${isPreset ? "" : `background:${escapeHtml(accent)}`}">
+                         style="${isPreset ? "" : H`background:${escapeHtml(accent)}`}">
                     <input type="color" value="${escapeHtml(accent)}" data-color-pick aria-label="自定义主题色">
                   </label>
                 </div>
@@ -207,18 +221,18 @@ export function renderSettings(root) {
               <div class="wallpaper-row" data-wallpapers>
                 ${WALLPAPERS.map(
                   (w) =>
-                    `<button class="wallpaper-opt wp-${w.id} ${w.id === wallpaper ? "is-active" : ""}"
-                       type="button" data-wallpaper="${w.id}">
+                    H`<button class="wallpaper-opt wp-${w.id} ${w.id === wallpaper ? "is-active" : ""}"
+                       type="button" data-wallpaper="${w.id}" title="${t(w.name)}">
                        ${w.id === "plain" ? '<svg class="icon icon--s"><use href="#i-close"/></svg>' : ""}
-                       <span class="wallpaper-opt__name">${w.name}</span>
+                       <span class="wallpaper-opt__name">${t(w.name)}</span>
                      </button>`
                 ).join("")}
                 <button class="wallpaper-opt wp-custom ${wallpaper === "custom" ? "is-active" : ""}"
-                        type="button" data-wallpaper="custom" data-bg-tile title="上传自己的背景图">
+                        type="button" data-wallpaper="custom" data-bg-tile title="${t("上传自己的背景图")}">
                   <span class="wp-custom__thumb" data-bg-thumb
-                        ${s.backgroundImage ? `style="background-image:url('${escapeHtml(s.backgroundImage)}')"` : ""}></span>
+                        ${s.backgroundImage ? H`style="background-image:url('${escapeHtml(s.backgroundImage)}')"` : ""}></span>
                   <svg class="icon icon--s wp-custom__plus" data-bg-plus ${s.backgroundImage ? "hidden" : ""}><use href="#i-plus"/></svg>
-                  <span class="wallpaper-opt__name" data-bg-name>${s.backgroundImage ? "自定义" : "上传图片"}</span>
+                  <span class="wallpaper-opt__name" data-bg-name>${s.backgroundImage ? t("自定义") : t("上传图片")}</span>
                   <span class="wp-custom__busy" data-bg-busy hidden><span class="spinner"></span></span>
                 </button>
               </div>
@@ -237,11 +251,11 @@ export function renderSettings(root) {
               <div class="opacity-list" data-opacity-list>
                 ${opacityRows
                   .map(
-                    (r) => `<label class="opacity-item">
-                      <span class="opacity-item__name">${r.name}</span>
+                    (r) => H`<label class="opacity-item">
+                      <span class="opacity-item__name">${t(r.name)}</span>
                       <input type="range" min="0" max="100" step="1" value="${r.value}"
                              data-opacity="${r.key}" style="--fill:${r.value}%"
-                             aria-label="${r.name}不透明度">
+                             aria-label="${t("{name} 不透明度", { name: t(r.name) })}">
                       <span class="opacity-item__val" data-opacity-val="${r.key}">${r.value}%</span>
                     </label>`
                   )
@@ -367,7 +381,9 @@ export function renderSettings(root) {
               <div class="setting-row__main">
                 <div class="setting-row__label">分享页显示完整昵称</div>
                 <div class="setting-row__desc">
-                  关闭时别人只能看到昵称前两位（当前显示为「${escapeHtml(maskedPreview)}」），头像也不会外露
+                  ${t("关闭时别人只能看到昵称前两位（当前显示为「{name}」），头像也不会外露", {
+                    name: escapeHtml(maskedPreview),
+                  })}
                 </div>
               </div>
               <label class="switch">
@@ -407,8 +423,11 @@ export function renderSettings(root) {
                   </span>
                 </label>
                 <div class="profile__foot">
-                  <span class="muted">登录名 <b>${escapeHtml(user?.username || "—")}</b> 不可修改 ·
-                    已用 ${formatBytes(user?.usedBytes || 0)} / ${formatBytes(user?.quotaBytes || 0)}</span>
+                  <span class="muted">${t("登录名 <b>{name}</b> 不可修改 · 已用 {used} / {quota}", {
+                    name: escapeHtml(user?.username || "—"),
+                    used: formatBytes(user?.usedBytes || 0),
+                    quota: formatBytes(user?.quotaBytes || 0),
+                  })}</span>
                   <span style="flex:1"></span>
                   <button class="btn btn--subtle" type="button" data-act="avatar-clear"
                           ${user?.avatarUrl ? "" : "hidden"}>移除头像</button>
@@ -423,11 +442,11 @@ export function renderSettings(root) {
                 <div class="setting-row__label">邮箱</div>
                 <div class="setting-row__desc" data-email-desc>${
                   user?.email
-                    ? `${escapeHtml(user.email)}${user.emailVerified ? "" : "（未验证）"} · 可用于登录和找回密码`
-                    : "还没有绑定 · 忘记密码时只能联系管理员"
+                    ? H`${escapeHtml(user.email)}${user.emailVerified ? "" : "（未验证）"} · 可用于登录和找回密码`
+                    : t("还没有绑定 · 忘记密码时只能联系管理员")
                 }</div>
               </div>
-              <button class="btn" type="button" data-act="email">${user?.email ? "换绑" : "绑定邮箱"}</button>
+              <button class="btn" type="button" data-act="email">${user?.email ? t("换绑") : t("绑定邮箱")}</button>
             </div>
             <div class="setting-row">
               <div class="setting-row__main">
@@ -441,7 +460,7 @@ export function renderSettings(root) {
                 <div class="setting-row__label">关于</div>
                 <div class="setting-row__desc" data-version>CloudNETP</div>
               </div>
-              <span class="chip">${user?.role === 1 ? "管理员" : "普通用户"}</span>
+              <span class="chip">${user?.role === 1 ? t("管理员") : t("普通用户")}</span>
               <svg class="icon icon--s setting-row__chevron"><use href="#i-chevron"/></svg>
             </a>
           </div>
@@ -462,7 +481,7 @@ export function renderSettings(root) {
     try {
       const url = new URL(davUrl);
       const port = url.port || (url.protocol === "https:" ? 443 : 80);
-      return `\\\\${url.hostname}@${port}\\dav`;
+      return H`\\\\${url.hostname}@${port}\\dav`;
     } catch {
       return davHost;
     }
@@ -507,7 +526,7 @@ export function renderSettings(root) {
   /* --- 绑定邮箱 --- */
   root.querySelector('[data-act="email"]')?.addEventListener("click", async () => {
     const values = await Dialog.form({
-      title: user?.email ? "换绑邮箱" : "绑定邮箱",
+      title: user?.email ? t("换绑邮箱") : t("绑定邮箱"),
       message:
         "邮箱用来登录和找回密码。邮件服务还没接入，现在绑定的邮箱会标记为「未验证」。",
       confirmText: "保存",
@@ -540,7 +559,7 @@ export function renderSettings(root) {
       title: "连接 WebDAV",
       tone: "info",
       confirmText: "知道了",
-      message: `
+      message: H`
         <div class="dav-help">
           <div class="dav-help__row"><b>Windows</b>资源管理器右键「此电脑」→ 映射网络驱动器 →
             文件夹填 <code>${davUrl}</code>，或直接写 <code>${davUnc}</code>；
@@ -552,6 +571,22 @@ export function renderSettings(root) {
             明文 Basic 密码（会报 <code>0x80070043</code>），本站已改用 Digest 认证，<b>不需要改注册表</b>。
             公网使用仍建议套 HTTPS；通过 WebDAV 删除的文件同样会进回收站。</div>
         </div>`,
+    });
+  });
+
+  /* --- 界面语言：立即生效 + 记到账号 --- */
+  root.querySelectorAll("[data-lang]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const id = btn.dataset.lang;
+      if (!id || id === getLang()) return;
+      // 先改本地（重绘时读的是 store 里的设置），再派发 i18n:change 重画整个视图
+      patchSettingsLocal({ language: id });
+      setLang(id);
+      try {
+        await api.patch("/api/me/settings", { language: id });
+      } catch {
+        Toast.error(t("语言设置没同步到服务器，本次已切换"));
+      }
     });
   });
 
@@ -669,10 +704,10 @@ export function renderSettings(root) {
   /** 上传成功后就地刷新这块 UI（不整页重渲染，免得滚动位置跳走） */
   function refreshBackgroundUi(settings) {
     const url = settings?.backgroundImage || "";
-    if (bgThumb) bgThumb.style.backgroundImage = url ? `url("${url}")` : "";
+    if (bgThumb) bgThumb.style.backgroundImage = url ? H`url("${url}")` : "";
     const plus = root.querySelector("[data-bg-plus]");
     if (plus) plus.hidden = !!url;
-    if (bgName) bgName.textContent = url ? "自定义" : "上传图片";
+    if (bgName) bgName.textContent = url ? t("自定义") : t("上传图片");
     if (bgActions) bgActions.hidden = !url;
     if (pickFromBg) pickFromBg.disabled = !url;
   }
@@ -817,8 +852,11 @@ export function renderSettings(root) {
       const data = await api.get("/api/live2d/models");
       const names = (data.models || []).map((m) => m.name);
       hint.textContent = names.length
-        ? ` · 已发现 ${names.length} 个：${names.join("、")}`
-        : " · 目录里还没有模型，先用云朵兜底";
+        ? t(" · 已发现 {n} 个：{names}", {
+            n: names.length,
+            names: names.join(langTag() === "zh-CN" ? "、" : ", "),
+          })
+        : t(" · 目录里还没有模型，先用云朵兜底");
     } catch {
       /* 拿不到就不提示，不影响设置项本身 */
     }
@@ -876,7 +914,7 @@ export function renderSettings(root) {
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const code = await Dialog.prompt({
         title: "关闭回收站",
-        message: `
+        message: H`
           关闭后删除的文件<b>不会</b>进入回收站，而是直接彻底删除，无法恢复。<br>
           请把下面这串验证码原样输入到输入框，完成确认：
           <div class="code-display" data-code>${challenge.code}</div>

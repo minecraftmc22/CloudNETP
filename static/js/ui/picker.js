@@ -5,6 +5,7 @@
  */
 import { api } from "../api.js";
 
+import { H } from "../i18n.js";
 const ROOT = { id: null, name: "我的文件" };
 
 export function pickFolder({ title = "移动到", excludeId = null, confirmText = "移到这里" } = {}) {
@@ -14,7 +15,7 @@ export function pickFolder({ title = "移动到", excludeId = null, confirmText 
 
     const backdrop = document.createElement("div");
     backdrop.className = "picker-backdrop";
-    backdrop.innerHTML = `
+    backdrop.innerHTML = H`
       <div class="picker" role="dialog" aria-modal="true">
         <div class="picker__head">
           <svg class="icon icon--s"><use href="#i-folder"/></svg>
@@ -65,7 +66,7 @@ export function pickFolder({ title = "移动到", excludeId = null, confirmText 
       crumbEl.innerHTML = trail
         .map(
           (item, index) =>
-            `<button type="button" data-index="${index}">${item.name}</button>${
+            H`<button type="button" data-index="${index}">${item.name}</button>${
               index < trail.length - 1 ? '<svg class="icon" style="width:11px;height:11px"><use href="#i-chevron"/></svg>' : ""
             }`
         )
@@ -89,7 +90,7 @@ export function pickFolder({ title = "移动到", excludeId = null, confirmText 
         if (current !== null && current !== undefined) params.set("parentId", String(current));
         data = await api.get(`/api/nodes?${params.toString()}`);
       } catch (err) {
-        listEl.innerHTML = `<div class="picker__empty">${err.message}</div>`;
+        listEl.innerHTML = H`<div class="picker__empty">${err.message}</div>`;
         return;
       }
       const folders = (data.items || []).filter(
@@ -101,7 +102,7 @@ export function pickFolder({ title = "移动到", excludeId = null, confirmText 
       }
       listEl.innerHTML = folders
         .map(
-          (item) => `
+          (item) => H`
           <button class="picker__row" type="button" data-id="${item.id}" data-name="${item.name}">
             <svg class="icon"><use href="#i-folder"/></svg>
             <span>${item.name}</span>

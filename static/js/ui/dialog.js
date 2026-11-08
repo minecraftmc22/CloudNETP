@@ -1,10 +1,11 @@
+import { H } from "../i18n.js";
 /**
  * 全站唯一的模态对话框实现（禁止使用原生 alert / confirm / prompt）
  */
 
 const ICONS = { info: "i-info", warn: "i-alert", danger: "i-alert", success: "i-check" };
 const host = () => document.getElementById("dialog-host");
-const icon = (name) => `<svg class="icon"><use href="#${name}"/></svg>`;
+const icon = (name) => H`<svg class="icon"><use href="#${name}"/></svg>`;
 const esc = (v) =>
   String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 
@@ -38,7 +39,7 @@ function closeDialog(result) {
 }
 
 function buildMarkup({ title, message, tone, fields, confirmText, cancelText, showCancel }) {
-  return `
+  return H`
     <div class="dialog-backdrop"></div>
     <div class="dialog" role="dialog" aria-modal="true" aria-label="${title || "对话框"}">
       <div class="dialog__title ${tone === "danger" ? "is-danger" : ""}">
@@ -57,7 +58,7 @@ function buildMarkup({ title, message, tone, fields, confirmText, cancelText, sh
               ${(f.options || [])
                 .map(
                   (o) =>
-                    `<option value="${esc(o.value)}"${String(o.value) === String(f.value ?? "") ? " selected" : ""}>${esc(
+                    H`<option value="${esc(o.value)}"${String(o.value) === String(f.value ?? "") ? " selected" : ""}>${esc(
                       o.label
                     )}</option>`
                 )

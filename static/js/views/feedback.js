@@ -2,6 +2,7 @@
  * 意见反馈：提交建议 / 问题，查看自己的历史反馈与处理状态。
  */
 import { api, escapeHtml, formatTime } from "../api.js";
+import { H } from "../i18n.js";
 import { store } from "../store.js";
 import { Toast } from "../ui/toast.js";
 
@@ -15,9 +16,9 @@ const STATUS_CLASS = { 0: "is-pending", 1: "is-done" };
 
 function itemHtml(item) {
   const title = item.title
-    ? `<div class="fb-item__title">${escapeHtml(item.title)}</div>`
+    ? H`<div class="fb-item__title">${escapeHtml(item.title)}</div>`
     : "";
-  return `
+  return H`
     <article class="fb-item">
       <div class="fb-item__top">
         <span class="fb-tag fb-tag--${escapeHtml(item.kind)}">${escapeHtml(item.kindLabel)}</span>
@@ -28,7 +29,7 @@ function itemHtml(item) {
       <p class="fb-item__content">${escapeHtml(item.content)}</p>
       ${
         item.contact
-          ? `<div class="fb-item__meta">联系方式：${escapeHtml(item.contact)}</div>`
+          ? H`<div class="fb-item__meta">联系方式：${escapeHtml(item.contact)}</div>`
           : ""
       }
     </article>`;
@@ -39,7 +40,7 @@ export function renderFeedback(root) {
   let kind = "suggestion";
   let submitting = false;
 
-  root.innerHTML = `
+  root.innerHTML = H`
     <div class="view-head">
       <div class="view-title"><svg class="icon"><use href="#i-mail"/></svg>意见反馈</div>
       <span class="view-sub">问题、建议或想要的功能，都可以写在这里</span>
@@ -55,10 +56,10 @@ export function renderFeedback(root) {
             反馈只有管理员能看到；如果是登录或上传问题，附上大致时间和操作步骤会更容易定位。
             ${
               meta?.contactEmail || meta?.contactQq
-                ? `<span class="feedback-intro__contact">也可以直接联系管理员：${
+                ? H`<span class="feedback-intro__contact">也可以直接联系管理员：${
                     meta.contactEmail ? escapeHtml(meta.contactEmail) : ""
                   }${meta.contactEmail && meta.contactQq ? " / " : ""}${
-                    meta.contactQq ? `QQ ${escapeHtml(meta.contactQq)}` : ""
+                    meta.contactQq ? H`QQ ${escapeHtml(meta.contactQq)}` : ""
                   }</span>`
                 : ""
             }
@@ -67,7 +68,7 @@ export function renderFeedback(root) {
             <div class="fb-kinds" data-kinds>
               ${KINDS.map(
                 (k) =>
-                  `<button class="fb-kind ${k.id === kind ? "is-active" : ""}" type="button" data-kind="${k.id}">${k.label}</button>`
+                  H`<button class="fb-kind ${k.id === kind ? "is-active" : ""}" type="button" data-kind="${k.id}">${k.label}</button>`
               ).join("")}
             </div>
             <label class="field">
@@ -126,9 +127,9 @@ export function renderFeedback(root) {
     try {
       const data = await api.get("/api/feedback");
       const items = data.items || [];
-      totalEl.textContent = items.length ? `最近 ${items.length} 条` : "";
+      totalEl.textContent = items.length ? H`最近 ${items.length} 条` : "";
       if (!items.length) {
-        listEl.innerHTML = `<div class="feedback-empty">
+        listEl.innerHTML = H`<div class="feedback-empty">
           <svg class="icon"><use href="#i-mail"/></svg>
           <span>还没有提交过反馈</span>
         </div>`;
@@ -136,7 +137,7 @@ export function renderFeedback(root) {
       }
       listEl.innerHTML = items.map(itemHtml).join("");
     } catch (err) {
-      listEl.innerHTML = `<div class="feedback-empty is-error">${escapeHtml(err.message)}</div>`;
+      listEl.innerHTML = H`<div class="feedback-empty is-error">${escapeHtml(err.message)}</div>`;
     }
   }
 

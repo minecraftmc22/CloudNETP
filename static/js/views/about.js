@@ -2,6 +2,7 @@
  * 关于视图：版本信息 / 主要能力 / 技术栈 / 更新记录
  */
 import { escapeHtml } from "../api.js";
+import { H } from "../i18n.js";
 import { store, siteOrigin } from "../store.js";
 import { Toast } from "../ui/toast.js";
 import { copyText } from "../ui/share.js";
@@ -66,6 +67,17 @@ const AUTHOR = {
 };
 
 const CHANGELOG = [
+  {
+    version: "0.3.44",
+    title: "界面可以切英文了",
+    items: [
+      "新增 简体中文 / English 两套界面：设置 → 外观 → 界面语言，登录页右上角也能直接切",
+      "语言存在账号里（user_settings.language），换设备自动跟随；未登录时按本机记忆 → 浏览器语言 → 中文的顺序兜底",
+      "翻译只作用于界面文案：模板里的静态文字走 H 标记，JS 里的句子走 t()，插值进来的文件名、昵称等用户数据永远原样保留",
+      "已覆盖：导航与顶栏、文件列表、设置页（含看板娘 · 对话设置）、回收站、分享、关于、登录/注册/找回密码",
+      "管理后台与部分二级弹窗仍是中文，补字典即可（scripts/i18n_harvest.py 会列出还没翻的条目）",
+    ],
+  },
   {
     version: "0.3.43",
     title: "管理页能直接看库、换库了",
@@ -439,7 +451,7 @@ export function renderAbout(root) {
   const host = origin.replace(/^https?:\/\//, "");
   const fallback = meta.dbMode === "fallback";
 
-  root.innerHTML = `
+  root.innerHTML = H`
     <div class="view-head">
       <div class="view-title"><svg class="icon"><use href="#i-info"/></svg>关于</div>
       <span class="view-sub">版本、能力与更新记录</span>
@@ -482,7 +494,7 @@ export function renderAbout(root) {
           <div class="about-card__head"><svg class="icon icon--s"><use href="#i-star"/></svg>主要能力</div>
           <div class="about-feats">
             ${FEATURES.map(
-              (f) => `
+              (f) => H`
               <div class="about-feat" style="--tone:${f.tone}">
                 <span class="about-feat__icon"><svg class="icon"><use href="#${f.icon}"/></svg></span>
                 <div>
@@ -498,7 +510,7 @@ export function renderAbout(root) {
           <div class="about-card__head"><svg class="icon icon--s"><use href="#i-code"/></svg>技术栈</div>
           <div class="about-stack">
             ${STACK.map(
-              ([name, role]) => `
+              ([name, role]) => H`
               <div class="about-stack__item">
                 <span class="about-stack__name">${name}</span>
                 <span class="about-stack__role">${role}</span>
@@ -562,7 +574,7 @@ export function renderAbout(root) {
           </div>
           <ol class="about-log">
             ${CHANGELOG.map(
-              (c, i) => `
+              (c, i) => H`
               <li class="about-log__item ${i >= VISIBLE ? "is-extra" : ""} ${i === 0 ? "is-latest" : ""}">
                 <span class="about-log__dot"></span>
                 <div class="about-log__body">
@@ -571,7 +583,7 @@ export function renderAbout(root) {
                     <span class="about-log__title">${c.title}</span>
                   </div>
                   <ul class="about-log__items">
-                    ${c.items.map((t) => `<li>${t}</li>`).join("")}
+                    ${c.items.map((t) => H`<li>${t}</li>`).join("")}
                   </ul>
                 </div>
               </li>`
@@ -605,14 +617,14 @@ export function renderAbout(root) {
     checkBtn.disabled = true;
     if (updateStatus) {
       updateStatus.hidden = false;
-      updateStatus.innerHTML = `<span class="update-state">正在检查 GitHub…</span>`;
+      updateStatus.innerHTML = H`<span class="update-state">正在检查 GitHub…</span>`;
     }
     try {
       const data = await checkForUpdates(true);
       if (updateStatus) updateStatus.innerHTML = updateResultHtml(data);
     } catch (err) {
       if (updateStatus) {
-        updateStatus.innerHTML = `<span class="update-state is-error">检查失败：${escapeHtml(
+        updateStatus.innerHTML = H`<span class="update-state is-error">检查失败：${escapeHtml(
           err.message || "网络不可达"
         )}</span>`;
       }
@@ -628,7 +640,7 @@ export function renderAbout(root) {
     const open = !list.classList.contains("is-open");
     list.classList.toggle("is-open", open);
     more.classList.toggle("is-open", open);
-    moreText.textContent = open ? "收起" : `展开全部 ${CHANGELOG.length} 个版本`;
+    moreText.textContent = open ? "收起" : H`展开全部 ${CHANGELOG.length} 个版本`;
     if (!open) more.scrollIntoView({ block: "nearest", behavior: "smooth" });
   });
 }

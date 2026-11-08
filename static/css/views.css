@@ -14,6 +14,48 @@
   padding: var(--sp-6);
 }
 
+/* 设置页的语言切换：没配 .segmented__thumb，自己给选中项上底色 */
+.settings [data-lang-seg] .segmented__btn.is-active {
+  background: var(--acrylic-strong);
+  box-shadow: inset 0 0 0 1px var(--stroke-hair);
+}
+
+/* 登录页右上角的语言切换（未登录时也能切） */
+.auth-lang {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 20;
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: var(--radius-pill);
+  background: var(--fill-subtle);
+  border: 1px solid var(--stroke-hair);
+  backdrop-filter: blur(16px);
+}
+.auth-lang__btn {
+  min-width: 36px;
+  height: 26px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-3);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-fluent), color var(--dur-fast) var(--ease-fluent);
+}
+.auth-lang__btn:hover {
+  color: var(--text-1);
+  background: var(--fill-subtle);
+}
+.auth-lang__btn.is-active {
+  color: #fff;
+  background: var(--accent);
+}
+
 .auth-stage {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 400px;
@@ -599,9 +641,12 @@ a.setting-row--link:hover .setting-row__chevron {
 .wallpaper-opt__name {
   position: absolute;
   inset: auto 0 0;
-  padding: 2px 0;
+  padding: 2px 4px;
   font-size: 10px;
   text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   color: #fff;
   background: rgba(20, 10, 30, 0.42);
   backdrop-filter: blur(4px);
@@ -701,7 +746,8 @@ a.setting-row--link:hover .setting-row__chevron {
 }
 .opacity-item {
   display: grid;
-  grid-template-columns: 58px 1fr 40px;
+  /* 第一列按英文标签留宽（Content panel），中文仍是 4 个字，不浪费太多 */
+  grid-template-columns: 96px 1fr 40px;
   align-items: center;
   gap: 10px;
   font-size: 12.5px;
@@ -710,6 +756,8 @@ a.setting-row--link:hover .setting-row__chevron {
 }
 .opacity-item__name {
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .opacity-item__val {
   text-align: right;

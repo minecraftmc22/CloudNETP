@@ -7,10 +7,19 @@
  * - 用户名是否可用、密码强度只是即时反馈，最终以提交时的服务端校验为准
  */
 import { api, ApiError } from "../api.js";
+import { H, LANGS, getLang, setLang, t } from "../i18n.js";
 import { PASSWORD_MAX, passwordProblem, strengthOf } from "../password.js";
 
-const TEMPLATE = `
+// 注意是函数：模块加载时语言还没初始化，模板必须在渲染时现算
+const template = () => H`
   <div class="auth-stage">
+    <div class="auth-lang">
+      ${LANGS.map(
+        (l) =>
+          `<button class="auth-lang__btn ${l.id === getLang() ? "is-active" : ""}"
+                   type="button" data-auth-lang="${l.id}" title="${l.label}">${l.short}</button>`
+      ).join("")}
+    </div>
     <div class="auth-art">
       <div class="auth-art__figure">
         <img src="/assets/brand-avatar-256.png" alt="" width="256" height="256" draggable="false">
@@ -186,7 +195,7 @@ const TEMPLATE = `
 `;
 
 export function renderAuth(root, { meta = {}, onSuccess }) {
-  root.innerHTML = TEMPLATE;
+  root.innerHTML = template();
 
   const el = (sel) => root.querySelector(sel);
   const form = el("[data-form]");
@@ -217,6 +226,16 @@ export function renderAuth(root, { meta = {}, onSuccess }) {
   const forgotConfirmField = el("[data-f-fconfirm]");
   const forgotHelp = el("[data-fhelp]");
   const forgotSubmit = el("[data-fsubmit]");
+
+  root.querySelectorAll("[data-auth-lang]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.authLang;
+      if (!id || id === getLang()) return;
+      setLang(id);
+      // 登录页没有全局重绘（i18n:change 只重画已登录界面），这里自己来一次
+      renderAuth(root, { meta, onSuccess });
+    });
+  });
 
   versionEl.textContent = `${meta.appName || "CloudNETP"} v${meta.version || "0.1.0"}`;
   if (meta.announcement) announcementEl.textContent = meta.announcement;
@@ -267,14 +286,14 @@ export function renderAuth(root, { meta = {}, onSuccess }) {
     segButtons.forEach((b) => b.classList.toggle("is-active", b.dataset.mode === next));
     confirmField.hidden = next !== "register";
     emailField.hidden = next !== "register";
-    accountLabel.textContent = next === "login" ? "用户名 / 邮箱" : "用户名";
+    accountLabel.textContent = next === "login" ? t("用户名 / 邮箱") : t("用户名");
     accountInput.placeholder =
-      next === "login" ? "用户名或邮箱" : "至少 4 位，中英文/数字";
+      next === "login" ? t("用户名或邮箱") : t("至少 4 位，中英文/数字");
     accountInput.autocomplete = next === "login" ? "username" : "username";
-    titleEl.textContent = next === "login" ? "欢迎回来" : "创建你的空间";
+    titleEl.textContent = next === "login" ? t("欢迎回来") : t("创建你的空间");
     subEl.textContent =
-      next === "login" ? "登录后继续管理你的文件" : "首个注册账号会自动成为管理员";
-    submit.querySelector("span").textContent = next === "login" ? "登录" : "注册并进入";
+      next === "login" ? t("登录后继续管理你的文件") : t("首个注册账号会自动成为管理员");
+    submit.querySelector("span").textContent = next === "login" ? t("登录") : t("注册并进入");
     passwordInput.autocomplete = next === "login" ? "current-password" : "new-password";
     strengthBox.hidden = next !== "register";
     if (next === "register") {
@@ -419,7 +438,7 @@ export function renderAuth(root, { meta = {}, onSuccess }) {
     submit.dataset.busy = "1";
     submit.disabled = true;
     const original = submit.innerHTML;
-    submit.innerHTML = `<span class="spinner" style="width:15px;height:15px;border-width:2px"></span>`;
+    submit.innerHTML = H`<span class="spinner" style="width:15px;height:15px;border-width:2px"></span>`;
     msg.textContent = "";
     msg.classList.remove("is-ok");
 
@@ -533,7 +552,7 @@ export function renderAuth(root, { meta = {}, onSuccess }) {
 
   function forgotHelpBox(text) {
     forgotHelp.hidden = false;
-    forgotHelp.innerHTML = `<p>${text}</p>${contactHtml}`;
+    forgotHelp.innerHTML = H`<p>${text}</p>${contactHtml}`;
   }
 
   forgotForm.addEventListener("submit", async (event) => {
@@ -548,7 +567,7 @@ export function renderAuth(root, { meta = {}, onSuccess }) {
     forgotSubmit.dataset.busy = "1";
     forgotSubmit.disabled = true;
     const original = forgotSubmit.innerHTML;
-    forgotSubmit.innerHTML = `<span class="spinner" style="width:15px;height:15px;border-width:2px"></span>`;
+    forgotSubmit.innerHTML = H`<span class="spinner" style="width:15px;height:15px;border-width:2px"></span>`;
 
     try {
       if (forgotStep === 1) {

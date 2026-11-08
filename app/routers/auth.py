@@ -703,6 +703,7 @@ def update_settings(
         "show_mascot",
         "show_petals",
         "view_mode",
+        "language",
         "nav_collapsed",
         "share_show_name",
         "lyrics_style",

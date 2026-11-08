@@ -2,6 +2,7 @@
  * 回收站视图：列表/网格浏览、搜索、多选、还原、彻底删除、清空
  */
 import { api, escapeHtml, formatBytes, formatTime } from "../api.js";
+import { H, t } from "../i18n.js";
 import { store } from "../store.js";
 import { Dialog } from "../ui/dialog.js";
 import { Toast } from "../ui/toast.js";
@@ -22,7 +23,7 @@ export function renderTrash(root) {
   const retention = Number(store.get().meta?.trashRetentionDays) || RETENTION_FALLBACK;
   const trashOn = () => store.get().user?.settings?.trashEnabled !== false;
 
-  root.innerHTML = `
+  root.innerHTML = H`
     <div class="view-head">
       <div class="view-title">
         <svg class="icon"><use href="#i-trash"/></svg>
@@ -124,18 +125,18 @@ export function renderTrash(root) {
     const items = visibleItems();
     if (!items.length) {
       bodyEl.innerHTML = state.keyword
-        ? `<div class="empty">
+        ? H`<div class="empty">
              <div class="empty__art"><svg class="icon"><use href="#i-search"/></svg></div>
              <div class="empty__title">没有匹配的项目</div>
              <div class="empty__desc">换个关键词试试。</div>
            </div>`
         : trashOn()
-        ? `<div class="empty">
+        ? H`<div class="empty">
              <div class="empty__art"><svg class="icon"><use href="#i-trash"/></svg></div>
              <div class="empty__title">回收站是空的</div>
-             <div class="empty__desc">删除的文件会先放到这里，可以随时还原。<br>超过 ${retention} 天会自动彻底删除。</div>
+             <div class="empty__desc">${t("删除的文件会先放到这里，可以随时还原。")}<br>${t("超过 {days} 天会自动彻底删除。", { days: retention })}</div>
            </div>`
-        : `<div class="empty">
+        : H`<div class="empty">
              <div class="empty__art"><svg class="icon"><use href="#i-alert"/></svg></div>
              <div class="empty__title">回收站已关闭</div>
              <div class="empty__desc">现在删除文件会直接彻底删除，不经过回收站。<br>需要恢复保护的话，可以在设置里重新开启。</div>
@@ -160,9 +161,9 @@ export function renderTrash(root) {
     const total = state.items.length;
     const bytes = state.items.reduce((sum, item) => (item.type === "file" ? sum + (item.size || 0) : sum), 0);
     summary.textContent = total
-      ? `${trashOn() ? "" : "已关闭 · "}${total} 项${bytes ? ` · 约 ${formatBytes(bytes)}` : ""}`
+      ? H`${trashOn() ? "" : "已关闭 · "}${total} 项${bytes ? H` · 约 ${formatBytes(bytes)}` : ""}`
       : trashOn()
-      ? "暂无内容"
+      ? t("暂无内容")
       : "已关闭";
     emptyBtn.disabled = !total;
   }
@@ -175,14 +176,14 @@ export function renderTrash(root) {
 
   function metaOf(item) {
     const head = item.type === "folder" ? "文件夹" : formatBytes(item.size);
-    return `${head} · ${formatTime(item.deletedAt)}删除`;
+    return H`${head} · ${formatTime(item.deletedAt)}删除`;
   }
 
   function renderGrid(items) {
-    return `<div class="file-grid">
+    return H`<div class="file-grid">
       ${items
         .map(
-          (item, index) => `
+          (item, index) => H`
         <div class="tile ${state.selected.has(item.id) ? "is-selected" : ""} ${
           state.cursor === index ? "is-cursor" : ""
         }" data-id="${item.id}" data-type="${item.type}" data-index="${index}" tabindex="0" role="button">
@@ -199,7 +200,7 @@ export function renderTrash(root) {
   }
 
   function renderList(items) {
-    return `<div class="file-list">
+    return H`<div class="file-list">
       <div class="frow frow--head">
         <span></span><span></span>
         <span>名称</span>
@@ -209,7 +210,7 @@ export function renderTrash(root) {
       </div>
       ${items
         .map(
-          (item, index) => `
+          (item, index) => H`
         <div class="frow ${state.selected.has(item.id) ? "is-selected" : ""}"
              data-id="${item.id}" data-type="${item.type}" data-index="${index}" tabindex="0" role="button">
           <span class="frow__check"><input type="checkbox" ${
@@ -344,10 +345,10 @@ export function renderTrash(root) {
     const multi = state.selected.size > 1;
     const items = multi
       ? [
-          { label: `还原 ${state.selected.size} 项`, icon: "i-restore", onClick: () => restoreItems(selectedItems()) },
+          { label: H`还原 ${state.selected.size} 项`, icon: "i-restore", onClick: () => restoreItems(selectedItems()) },
           { sep: true },
           {
-            label: `彻底删除 ${state.selected.size} 项`,
+            label: H`彻底删除 ${state.selected.size} 项`,
             icon: "i-trash",
             danger: true,
             onClick: () => purgeItems(selectedItems()),
@@ -363,7 +364,7 @@ export function renderTrash(root) {
       x,
       y,
       header: {
-        name: multi ? `${state.selected.size} 个项目` : item.name,
+        name: multi ? H`${state.selected.size} 个项目` : item.name,
         meta: multi ? "批量操作" : metaOf(item),
       },
       items,
@@ -377,7 +378,7 @@ export function renderTrash(root) {
       for (const item of items) {
         await api.post(`/api/nodes/${item.id}/restore`);
       }
-      Toast.success(single ? `已还原「${items[0].name}」` : `已还原 ${items.length} 项`);
+      Toast.success(single ? H`已还原「${items[0].name}」` : H`已还原 ${items.length} 项`);
       state.selected.clear();
       await load();
       await refreshUser();
@@ -390,12 +391,12 @@ export function renderTrash(root) {
     if (!items.length) return;
     const single = items.length === 1;
     const ok = await Dialog.confirm({
-      title: single ? "彻底删除" : `彻底删除 ${items.length} 项`,
+      title: single ? "彻底删除" : H`彻底删除 ${items.length} 项`,
       message: single
-        ? `「${escapeHtml(items[0].name)}」将被永久删除，无法恢复。${
+        ? H`「${escapeHtml(items[0].name)}」将被永久删除，无法恢复。${
             items[0].type === "folder" ? "文件夹里的内容会一起删除。" : ""
           }`
-        : `${items.length} 个项目将被永久删除，无法恢复。文件夹里的内容会一起删除。`,
+        : H`${items.length} 个项目将被永久删除，无法恢复。文件夹里的内容会一起删除。`,
       confirmText: "彻底删除",
       danger: true,
     });
@@ -404,7 +405,7 @@ export function renderTrash(root) {
       for (const item of items) {
         await api.del(`/api/nodes/${item.id}/purge`);
       }
-      Toast.success(single ? "已彻底删除" : `已彻底删除 ${items.length} 项`);
+      Toast.success(single ? "已彻底删除" : H`已彻底删除 ${items.length} 项`);
       state.selected.clear();
       await load();
       await refreshUser();
@@ -418,7 +419,7 @@ export function renderTrash(root) {
     const bytes = state.items.reduce((sum, item) => (item.type === "file" ? sum + (item.size || 0) : sum), 0);
     const ok = await Dialog.confirm({
       title: "清空回收站",
-      message: `回收站里的 ${state.items.length} 个项目${bytes ? `（约 ${formatBytes(bytes)}）` : ""}将被永久删除，无法恢复。`,
+      message: H`回收站里的 ${state.items.length} 个项目${bytes ? H`（约 ${formatBytes(bytes)}）` : ""}将被永久删除，无法恢复。`,
       confirmText: "清空",
       danger: true,
     });
