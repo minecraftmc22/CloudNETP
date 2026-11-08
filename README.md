@@ -59,7 +59,6 @@ Python 3.14 + FastAPI 后端，零构建原生 ES Module 前端；分片秒传�
   <sub><b>手机端</b> · 三列网格 + 底部图标导航</sub>
 </p>
 
-> 截图由 `scripts/make_readme_shots.py` 生成：临时库 + 临时存储里的演示数据，跑完自动清理。
 
 ## 特性
 
