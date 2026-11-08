@@ -1,5 +1,11 @@
 name: Deploy Wiki to GitHub Pages
 
+# 前置条件（只需做一次，在网页上点，不需要命令行）：
+#   Settings → Pages → Build and deployment → Source 选「GitHub Actions」
+# 如果还留在「Deploy from a branch」，仓库自带的 pages-build-deployment 会在每次 push 后
+# 用 Jekyll 重建仓库根目录并把这里发布的站点覆盖掉（表现为首页变成 404）。
+# GITHUB_TOKEN 没有改仓库设置的权限，所以这一步没法由工作流自己完成。
+
 # 只在 Wiki/ 或本工作流本身变动时构建，改代码不会触发文档部署
 on:
   push:
