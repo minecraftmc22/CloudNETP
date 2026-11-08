@@ -194,12 +194,19 @@ def main() -> None:
             page.wait_for_selector("[data-ai-save]", timeout=15000)
             page.locator("[data-ai-save]").scroll_into_view_if_needed()
             page.wait_for_timeout(300)
+            # 只改 DOM 不触发 change：只有按钮自己收集才能把这个值提交上去
+            page.evaluate("() => { document.querySelector('[data-ai-rounds-input]').value = '6'; }")
             page.click("[data-ai-save]")
             page.wait_for_timeout(1200)
             status = page.locator("[data-ai-save-status]").inner_text()
             check("保存后显示时间戳", "已保存" in status, status)
             toast = page.locator(".toast").last.inner_text()
             check("保存有成功提示", "已保存" in toast or "配置" in toast, toast)
+
+            cfg = page.evaluate(
+                "async () => (await fetch('/api/ai/config', { credentials: 'same-origin' })).json()"
+            )
+            check("按钮真的把页面上的值提交上去了", cfg.get("config", {}).get("maxRounds") == 6, str(cfg.get("config", {}).get("maxRounds")))
 
             # 按钮必须贴右且不溢出卡片（之前设置页踩过宽度压不回去的坑）
             geo = page.evaluate(
