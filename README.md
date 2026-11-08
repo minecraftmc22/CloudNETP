@@ -15,6 +15,7 @@
   <img alt="i18n" src="https://img.shields.io/badge/i18n-%E4%B8%AD%E6%96%87%20%2F%20English-f9a8d4">
   <img alt="License" src="https://img.shields.io/badge/License-PolyForm%20Noncommercial-c084fc">
   <a href="https://minecraftmc22.github.io/CloudNETP/"><img alt="文档" src="https://img.shields.io/badge/%E6%96%87%E6%A1%A3-GitHub%20Pages-f472b6?logo=readthedocs&logoColor=white"></a>
+  <a href="https://github.com/minecraftmc22/CloudNETP/actions/workflows/deploy-wiki.yml"><img alt="Deploy Wiki" src="https://github.com/minecraftmc22/CloudNETP/actions/workflows/deploy-wiki.yml/badge.svg"></a>
 </p>
 
 Python 3.14 + FastAPI 后端，零构建原生 ES Module 前端；分片秒传、在线预览、分享链接、WebDAV、管理后台与看板娘 AI 助手一应俱全，多用户各占独立空间与配额。
