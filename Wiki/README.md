@@ -45,19 +45,21 @@ ES Module 前端，界面按 WinUI 3 / Fluent Design 的风格做，右下角常
 
 | 你想做的事 | 看这一篇 |
 | --- | --- |
-| 第一次把项目跑起来 | [快速开始](/guide/start.html) |
-| 注册账号、登录、找回密码 | [注册与登录](/guide/account.html) |
-| 传文件、整理目录、找回删除的文件 | [文件管理](/guide/files.html) |
-| 在浏览器里看图片、听歌、看文档 | [在线预览](/guide/preview.html) |
-| 把文件分享给同学 | [分享链接](/guide/share.html) |
-| 把网盘挂成本地盘符 | [WebDAV 挂载](/guide/webdav.html) |
-| 和看板娘聊天、让它帮忙找文件 | [看板娘与 AI 对话](/guide/mascot.html) |
-| 换主题、壁纸、界面语言 | [外观与个性化](/guide/appearance.html) |
-| 管理用户、看审计日志 | [管理后台](/guide/admin.html) |
-| 换成 MySQL、做主备容灾 | [数据库容灾](/guide/database.html) |
-| 绑域名、开 HTTPS、跑在服务器上 | [部署与运维](/guide/deploy.html) |
+| 第一次把项目跑起来 | [快速开始](/guide/start.md) |
+| 注册账号、登录、找回密码 | [注册与登录](/guide/account.md) |
+| 传文件、整理目录、找回删除的文件 | [文件管理](/guide/files.md) |
+| 在浏览器里看图片、听歌、看文档 | [在线预览](/guide/preview.md) |
+| 把文件分享给同学 | [分享链接](/guide/share.md) |
+| 把网盘挂成本地盘符 | [WebDAV 挂载](/guide/webdav.md) |
+| 和看板娘聊天、让它帮忙找文件 | [看板娘与 AI 对话](/guide/mascot.md) |
+| 换主题、壁纸、界面语言 | [外观与个性化](/guide/appearance.md) |
+| 管理用户、看审计日志 | [管理后台](/guide/admin.md) |
+| 换成 MySQL、做主备容灾 | [数据库容灾](/guide/database.md) |
+| 绑域名、开 HTTPS、跑在服务器上 | [部署与运维](/guide/deploy.md) |
 
 ## 本 Wiki 怎么跑起来
+
+在线阅读：<https://minecraftmc22.github.io/CloudNETP/>
 
 文档用 [VuePress 2](https://v2.vuepress.vuejs.org/) + [vuepress-theme-hope](https://theme-hope.vuejs.press/)
 编写，源文件就在仓库的 `Wiki/` 目录：
@@ -65,9 +67,17 @@ ES Module 前端，界面按 WinUI 3 / Fluent Design 的风格做，右下角常
 ```bash
 cd Wiki
 pnpm install        # 或 npm install
-pnpm docs:dev       # 本地预览，默认 http://localhost:8080
+pnpm docs:dev       # 本地预览：http://localhost:8080/CloudNETP/
 pnpm docs:build     # 产出静态站点到 .vuepress/dist
 ```
+
+本地预览地址带 `/CloudNETP/` 前缀，是因为 `base` 必须和 GitHub Pages 的仓库路径一致 ——
+这样本地看到的样子就是线上看到的样子，不会出现「本地好、线上图片 404」。
+
+::: important 文档站怎么发布
+改了 `Wiki/` 下的任何文件，push 到 `main` 就会自动重新构建并发布，不需要手动跑 `docs:build`。
+工作流在 `.github/workflows/deploy-wiki.yml`，也可以到 Actions 页面点 `Run workflow` 手动触发。
+:::
 
 ::: tip 截图怎么来的
 文档里的界面图由 `scripts/make_wiki_shots.py` 生成：脚本会建一套临时数据库与临时存储，

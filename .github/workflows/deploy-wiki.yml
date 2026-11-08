@@ -1,0 +1,76 @@
+name: Deploy Wiki to GitHub Pages
+
+# 只在 Wiki/ 或本工作流本身变动时构建，改代码不会触发文档部署
+on:
+  push:
+    branches: [main]
+    paths:
+      - "Wiki/**"
+      - ".github/workflows/deploy-wiki.yml"
+  workflow_dispatch:
+
+# GitHub Pages 部署需要的三项权限：读仓库、写 Pages、用 OIDC 令牌
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 同一时间只跑一个部署；不取消进行中的任务，避免线上站点被中断成半成品
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: 构建文档
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v4
+
+      - name: 安装 pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: 安装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: Wiki/pnpm-lock.yaml
+
+      - name: 首次部署时自动开启 Pages
+        # 仓库还没在 Settings → Pages 里选过 Source 时，这一步会直接用 API 建站；
+        # 如果 token 没有管理权限而失败，手动把 Source 选成 GitHub Actions 再重跑即可。
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - name: 安装依赖
+        working-directory: Wiki
+        run: pnpm install --frozen-lockfile
+
+      - name: 构建静态站点
+        working-directory: Wiki
+        run: pnpm docs:build
+        env:
+          # 仓库站点固定在 /CloudNETP/ 子路径下，config.ts 的 BASE 会读这个变量
+          WIKI_BASE: /CloudNETP/
+
+      - name: 上传构建产物
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: Wiki/.vuepress/dist
+
+  deploy:
+    name: 发布到 Pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: 部署
+        id: deployment
+        uses: actions/deploy-pages@v4

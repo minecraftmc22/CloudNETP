@@ -140,6 +140,6 @@ DATABASE_URL=mysql+pymysql://用户名:密码@主机:3306/库名?charset=utf8mb4
 
 ## 下一步
 
-- 建好号之后：[文件管理](/guide/files.html) —— 先把东西传上来
-- 想挂成本地盘符：[WebDAV 挂载](/guide/webdav.html)
-- 想放到服务器上跑：[部署与运维](/guide/deploy.html)
+- 建好号之后：[文件管理](/guide/files.md) —— 先把东西传上来
+- 想挂成本地盘符：[WebDAV 挂载](/guide/webdav.md)
+- 想放到服务器上跑：[部署与运维](/guide/deploy.md)
