@@ -155,11 +155,14 @@ def main() -> None:
                         const out = [];
                         const pick = ['#nav', '.view-head', '.settings', '.empty', '.toolbar', '.titlebar',
                                       '.admin-tabs', '.settings-card', '.admin-facts', '.stat-card',
-                                      '.admin-toolbar', '.admin-hint', '.admin-pager'];
+                                      '.admin-toolbar', '.admin-hint', '.admin-pager',
+                                      '.about', '.share-page'];
                         document.querySelectorAll(pick.join(',')).forEach((root) => {
                             const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
                             let n;
                             while ((n = walker.nextNode())) {
+                                // 更新记录正文按设计只提供中文原文，不算残留
+                                if (n.parentElement && n.parentElement.closest('.about-log')) continue;
                                 const t = (n.textContent || '').trim();
                                 if (t) out.push(t);
                             }

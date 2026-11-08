@@ -27,6 +27,16 @@ def dict_keys() -> set[str]:
     }
 
 
+def dict_duplicates() -> list[str]:
+    """同一个 key 写了两次：后一条会静默盖掉前一条，是补字典时最常见的坑。"""
+    src = DICT.read_text(encoding="utf-8")
+    seen: dict[str, int] = {}
+    for m in re.finditer(r'^\s*"((?:[^"\\]|\\.)*)"\s*:', src, re.M):
+        key = json.loads('"' + m.group(1) + '"')
+        seen[key] = seen.get(key, 0) + 1
+    return sorted(k for k, n in seen.items() if n > 1)
+
+
 def t_keys(path: Path):
     src = path.read_text(encoding="utf-8")
     for m in CALL.finditer(src):
@@ -51,6 +61,11 @@ def main() -> None:
             print(f"\n== {path.relative_to(ROOT)} 缺 {len(miss)} 条 ==")
             for line, key in miss:
                 print(f"  {line:5d}  {key}")
+    dups = dict_duplicates()
+    if dups:
+        print(f"\n== 字典里重复的 key {len(dups)} 条 ==")
+        for key in dups:
+            print("  " + key)
     print(f"\n合计缺译 {missing_total} 条，字典 {len(keys)} 条")
 
 

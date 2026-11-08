@@ -1,0 +1,100 @@
+﻿# 分享页 /s/… 与预览器零散文案（v0.3.46）
+# 一行一条「中文<TAB>English」；脚本会自动跳过字典里已有的 key
+{date} 到期	Expires {date}
+好的	OK
+这 {n} 个项目	These {n} items
+转存 {n} 项	Save {n} items
+转存失败（{status}）	Save failed ({status})
+{what}已保存到你的网盘根目录。	{what} was saved to the root of your drive.
+分享者只公开昵称的前两位	The sharer only reveals the first two characters of their name
+由 {name} 分享	Shared by {name}
+需要提取码	Access code required
+「{name}」受提取码保护，请输入提取码。	“{name}” is protected by an access code. Please enter it.
+请输入提取码	Enter the access code
+请先输入提取码	Enter the access code first
+提取码不正确	Incorrect access code
+加载中…	Loading…
+正在解析文档…	Parsing document…
+文件较大（{size}），超过 50 MB 的文档不在线预览，请下载到本地后打开。	Large file ({size}). Documents over 50 MB are not previewed online — please download and open it locally.
+仅显示前 1 MB 内容	Only the first 1 MB is shown
+无法预览文本：{msg}	Can't preview text: {msg}
+无法预览 Markdown：{msg}	Can't preview Markdown: {msg}
+文档解析失败：{msg}，可以下载后查看。	Failed to parse the document: {msg}. You can download it to view.
+转存到我的网盘	Save to my drive
+转存	Save
+举报该分享	Report this share
+举报	Report
+这类文件暂不支持在线预览，请下载后查看。	This file type can't be previewed online. Please download it to view.
+剩余可下载 {n} 次	{n} downloads left
+文件预览	File preview
+关闭预览	Close preview
+选择这一项	Select this item
+预览	Preview
+打开文件夹	Open folder
+全选	Select all
+转存选中	Save selected
+已选 {n} 项	{n} selected
+共 {n} 项 · {size}	{n} items · {size}
+勾选项目后转存到自己网盘	Select items to save them to your drive
+返回上一级	Back to parent folder
+共 {n} 项	{n} items
+转存整个文件夹到我的网盘	Save this whole folder to my drive
+转存此文件夹	Save this folder
+{name} · 分享	{name} · Shared
+CloudNETP 分享	CloudNETP Share
+如果该分享包含违规内容，请提交举报。管理员审核确认后会禁止该文件的分享，你的举报会匿名处理。	If this share contains content that breaks the rules, please report it. Once a moderator confirms it, sharing of this file will be disabled. Your report is handled anonymously.
+举报理由（选填）	Reason (optional)
+例如：包含违法违规内容 / 侵权 / 垃圾广告	e.g. illegal content / copyright infringement / spam
+感谢你的反馈，管理员会尽快审核处理。	Thanks for your feedback — a moderator will review it soon.
+转存到我的网盘需要先登录账号。	You need to sign in to save items to your drive.
+去登录	Sign in
+举报分享	Report share
+提交举报	Submit report
+举报已提交	Report submitted
+需要登录	Sign-in required
+转存成功	Saved
+打开	Open
+文件	File
+全部取消	Cancel all
+取消这个文件	Cancel this file
+指定歌曲	Selected song
+当前：{name}，重新搜索可更换	Current: {name}. Search again to change it.
+超过 {size} 的文档需要下载到本地打开。	Documents over {size} must be downloaded and opened locally.
+表格较大，仅显示前 {n} 行，完整内容请下载查看。	Large table — only the first {n} rows are shown. Download it to see everything.
+图片	Image
+表格较大，仅显示前 {rows} 行 / {cols} 列，完整内容请下载查看。	Large table — only the first {rows} rows / {cols} columns are shown. Download it to see everything.
+{n} 个版本	{n} versions
+展开全部 {n} 个版本	Show all {n} versions
+{n} 个项目	{n} items
+分享的内容都已被删除。	Everything in this share has been deleted.
+这个文件夹是空的。	This folder is empty.
+© 2026 {app} · 数据存放在你自己的服务器上	© 2026 {app} · Your data stays on your own server
+网络不可达	Network unreachable
+正在打开分享…	Opening share…
+由 CloudNETP 提供分享服务	Sharing powered by CloudNETP
+搜索「{q}」	Search “{q}”
+收起	Collapse
+更新记录的正文只提供中文原文。	Release notes are written in Chinese only.
+分段上传 · 断点续传	Chunked upload · resume
+大文件按 5MB 切片，断网或关页面后从已传的块继续	Large files are split into 5 MB chunks; after a dropped connection or a closed tab, the upload resumes from the last chunk
+内容寻址 · 秒传	Content-addressed · instant upload
+以 SHA-256 识别文件，同一份内容只占一份空间	Files are identified by SHA-256, so identical content only takes space once
+全屏歌词播放器	Full-screen lyrics player
+内嵌 / 在线歌词逐词高亮，对唱自动左右分边	Embedded or online lyrics highlighted word by word; duets split automatically into left and right sides
+WebDAV 挂载	WebDAV mount
+资源管理器、Finder 直接当网络驱动器用	Use it from Explorer or Finder as a network drive
+分享与审核	Sharing & moderation
+提取码、转存、举报与哈希黑名单一条链路	Access codes, saving, reporting and hash blocklists in one flow
+PWA 离线外壳	PWA offline shell
+装到桌面，断网时也能打开界面看缓存	Install it to your desktop; the cached UI still opens when the network is down
+后端语言	Backend
+HTTP 框架	HTTP framework
+主库	Primary DB
+容灾兜底	Failover fallback
+前端，零构建	Frontend, no build step
+离线与缓存	Offline & caching
+头像与图标处理	Avatars & icons
+主库 · MySQL	Primary DB · MySQL
+降级运行 · SQLite	Running degraded · SQLite
+原生 ES Module	Vanilla ES Modules
+配置读取失败，刷新页面再试	Could not load the configuration — refresh the page and try again
