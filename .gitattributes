@@ -4,4 +4,8 @@
 *.ps1  text eol=crlf
 *.bat  text eol=crlf
 
+# GitHub Actions 的工作流固定 LF，避免 Windows 上提交时被转成 CRLF
+*.yml  text eol=lf
+*.yaml text eol=lf
+
 # 其余源码按 Git 默认的自动转换处理
