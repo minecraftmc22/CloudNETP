@@ -1,0 +1,7 @@
+# 启动脚本的行尾：sh 必须是 LF（否则 Linux 上的 shebang 会带 ^M），
+# Windows 的 ps1 / bat 用 CRLF 更符合习惯。
+*.sh   text eol=lf
+*.ps1  text eol=crlf
+*.bat  text eol=crlf
+
+# 其余源码按 Git 默认的自动转换处理

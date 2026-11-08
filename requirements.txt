@@ -1,5 +1,5 @@
-# 安装提示：本机网络走 PyPI 官方源会卡死，请使用国内镜像，例如：
-#   .venv\Scripts\python -m pip install -r requirements.txt -i https://mirrors.aliyun.com/pypi/simple/
+# 安装提示：国内直连 PyPI 官方源容易卡，建议用镜像（start.sh / start.ps1 已默认走阿里云）：
+#   python -m pip install -r requirements.txt -i https://mirrors.aliyun.com/pypi/simple/
 fastapi>=0.162.0
 uvicorn>=0.54.0
 SQLAlchemy>=2.0.44,<2.1

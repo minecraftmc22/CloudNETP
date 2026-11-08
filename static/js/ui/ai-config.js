@@ -9,7 +9,7 @@
  */
 
 import { api, escapeHtml } from "../api.js";
-import { H, t } from "../i18n.js";
+import { H, getLang, t } from "../i18n.js";
 import { Toast } from "./toast.js";
 
 const TOKEN_CHOICES = [
@@ -282,7 +282,8 @@ export async function mountAiSettings(card) {
   state.card = card;
 
   try {
-    const data = await api.get("/api/ai/config");
+    // 带上当前界面语言：内置系统提示词要按它取中文版 / 英文版
+    const data = await api.get(`/api/ai/config?lang=${encodeURIComponent(getLang())}`);
     state.cfg = data.config || {};
     state.isAdmin = Boolean(data.isAdmin);
     state.prompt = data.systemPrompt || "";

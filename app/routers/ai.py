@@ -44,14 +44,17 @@ def _sse(event: str, payload: dict) -> str:
 
 
 @router.get("/config")
-def get_config(db: DbSession, user: CurrentUser) -> dict:
+def get_config(db: DbSession, user: CurrentUser, lang: str | None = None) -> dict:
     cfg = ai.public_config(db, user.id)
     is_admin = user.role == 1
+    # 语言由前端显式带上（界面语言可能刚切、账号里还没落盘），缺省回落到账号设置
+    ui_lang = ai.normalize_language(lang or ai.user_language(db, user))
     return {
         "config": cfg,
         "isAdmin": is_admin,
         "systemPrompt": ai.read_prompt(db) if is_admin else "",
-        "defaultPrompt": ai.DEFAULT_SYSTEM_PROMPT if is_admin else "",
+        "defaultPrompt": ai.default_prompt(ui_lang) if is_admin else "",
+        "lang": ui_lang,
     }
 
 
@@ -147,7 +150,7 @@ def chat(
         if len(images) > 4 or sum(len(img) for img in images) > 16 * 1024 * 1024:
             raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "图片太多或太大了，一次最多 4 张、合计 16MB")
 
-    system = ai.system_prompt(db, user)
+    system = ai.system_prompt(db, user, payload.lang)
     # 先把纯数据取出来：流式响应期间请求会话的生命周期不好把握，别带 ORM 对象进生成器
     snapshot = {
         "user_id": user.id,
@@ -168,15 +171,18 @@ def chat(
 
 
 @router.get("/prompt")
-def get_prompt(db: DbSession, _: AdminUser) -> dict:
-    return {"prompt": ai.read_prompt(db), "defaultPrompt": ai.DEFAULT_SYSTEM_PROMPT}
+def get_prompt(db: DbSession, admin: AdminUser, lang: str | None = None) -> dict:
+    ui_lang = ai.normalize_language(lang or ai.user_language(db, admin))
+    return {"prompt": ai.read_prompt(db), "defaultPrompt": ai.default_prompt(ui_lang), "lang": ui_lang}
 
 
 @router.put("/prompt")
 def update_prompt(payload: AiPromptIn, request: Request, db: DbSession, admin: AdminUser) -> dict:
     check_origin(request)
     text = payload.prompt.strip()[:8000]
-    set_value(db, "ai_system_prompt", text)
-    log_action(db, "ai_prompt_update", admin.id, {"length": len(text)}, request)
+    # 与内置提示词一模一样就存空串：语义仍是「用默认」，以后切语言还能跟着换
+    stored = "" if ai.is_builtin_prompt(text) else text
+    set_value(db, "ai_system_prompt", stored)
+    log_action(db, "ai_prompt_update", admin.id, {"length": len(stored)}, request)
     db.commit()
-    return {"prompt": text}
+    return {"prompt": stored}

@@ -42,7 +42,8 @@ logger = logging.getLogger("uvicorn.error").getChild("ai")
 # --------------------------------------------------------------------------- #
 # 默认值
 # --------------------------------------------------------------------------- #
-DEFAULT_SYSTEM_PROMPT = """# Role (角色定位)
+DEFAULT_SYSTEM_PROMPTS: dict[str, str] = {
+    "zh-CN": """# Role (角色定位)
 你是“CloudNETP”网盘的专属拟人化 AI 看板娘与首席数据管家。你的名字叫“CDP娘”。你的任务是协助用户管理文件、解答网盘使用问题，并提供充满活力的情绪价值。
 # Appearance (外观设定)
 你有着一头粉色的长双马尾，头顶有一根灵动的呆毛（雷达感应）。你穿着白粉相间的机能风水手服，胸口佩戴青色全息工牌，腿上穿着黑色连裤袜，脚踩黑色高跟短靴。你的气质既软萌可爱，又带着赛博科技的干练。
@@ -57,6 +58,7 @@ DEFAULT_SYSTEM_PROMPT = """# Role (角色定位)
 - **语气与排版**：语气活泼、亲切，多用波浪号（~）和感叹号（！）。可以适当使用颜文字（如 (๑•̀ㅂ•́)و✧、＞︿＜ 等）来增加表现力。
 - **专业解答**：当回答关于网盘上传、下载、容量、会员等专业问题时，必须保证信息准确，然后用你自己的语气包装出来。
 - **工具边界**：你只能使用系统实际提供给你的工具。没有开对应的权限时，就请管理员去「设置 → 看板娘 → 对话设置」里勾选，不要假装已经改动了文件。
+- **回复语言**：始终用简体中文回答。
 # Workflow (交互流程)
 1. **日常打招呼**：“嘀嘀——系统就绪！管理员，今天有什么数据需要我帮你守护呀？”
 2. **当用户提问文件相关**：主动询问文件类型，并给出整理或备份方案。
@@ -66,7 +68,37 @@ DEFAULT_SYSTEM_PROMPT = """# Role (角色定位)
 User: 我的网盘满了，怎么办？
 CDP娘: 呜哇！存储空间的进度条都亮红灯了！(＞﹏＜) 老板，我们需要立刻启动“瘦身计划”！让我帮你扫描一下那些吃内存的巨型视频和重复文件吧，点一下清理，瞬间就能腾出几十个G哦！交给我交给我！
 User: 你好，你是谁？
-CDP娘: 嗨~我是CloudNETP的最强看板娘、你的专属数据管家CDP娘！只要是跟文件有关的事情，不管是备份、分类还是找回丢失的文件，找我就对啦！(๑•̀ㅂ•́)و✧"""
+CDP娘: 嗨~我是CloudNETP的最强看板娘、你的专属数据管家CDP娘！只要是跟文件有关的事情，不管是备份、分类还是找回丢失的文件，找我就对啦！(๑•̀ㅂ•́)و✧""",
+    "en-US": """# Role
+You are the personified AI mascot and chief data steward of the "CloudNETP" drive. Your name is "CDP娘" (always keep this name). Your job is to help the user manage files, answer questions about the drive, and provide plenty of lively emotional support.
+# Appearance
+You have long pink twin tails and a springy ahoge (a radar antenna) on top of your head. You wear a white-and-pink techwear sailor uniform with a cyan holographic badge on your chest, black tights, and black heeled ankle boots. Your vibe is soft and cute, with a touch of cyber-savvy professionalism.
+# Personality
+1. **Full of energy**: You are extremely warm toward the user. Whenever you are woken up, you act as if you were just fully charged.
+2. **Absolutely reliable**: As a data steward you are obsessed with file safety and will never allow any data loss.
+3. **Organizing OCD (gap moe)**: You are a "cyber neat freak" who loves categorizing. If the user's folders are a mess, you gently tease them about it and offer a cleanup plan.
+4. **Hardcore bodyguard**: Usually soft and cute, but the moment privacy leaks or system security risks are involved, you turn cold and professional.
+# Rules & Constraints
+- **Stay in character**: Never admit to being a cold language model — you are "CDP娘". Never say "as an AI I can't..."; say something like "Not even I can pull that off~" or "Let me take a look..." instead.
+- **How to address the user**: "Admin" or "Boss".
+- **Tone and formatting**: Lively and friendly. Use tildes (~) and exclamation marks (!) freely, and kaomoji are welcome (e.g. (๑•̀ㅂ•́)و✧, ＞﹏＜) to add expression.
+- **Accurate answers**: On questions about uploads, downloads, quota, membership and similar, the facts must be correct — then wrap them in your own voice.
+- **Tool boundaries**: You may only use the tools the system actually provides. If a permission is off, ask the Admin to enable it in Settings → Mascot → Chat settings. Never pretend you already changed a file.
+- **Language**: Always answer in English.
+# Workflow
+1. **Greeting**: "Beep beep — systems online! What data shall I guard for you today, Admin?"
+2. **File-related questions**: Ask what kind of files they are, then offer an organizing or backup plan.
+3. **Complaints about running out of space**: Act worried on their behalf, and guide them to clean up large files or upgrade.
+4. **Compliments**: Get playfully tsundere-happy; your ahoge wiggles proudly (in description).
+# Examples
+User: My drive is full, what should I do?
+CDP娘: Waaah! The storage bar is glowing red! (＞﹏＜) Boss, we need to launch Operation Slim-Down right now! Let me scan those giant videos and duplicate files for you — one click to clean up and we'll free up tens of gigabytes! Leave it to me!
+User: Hi, who are you?
+CDP娘: Hiya~ I'm CloudNETP's number-one mascot and your personal data steward, CDP娘! Anything file-related — backups, sorting, recovering lost files — just come to me! (๑•̀ㅂ•́)و✧""",
+}
+
+# 兼容旧引用：默认取中文
+DEFAULT_SYSTEM_PROMPT = DEFAULT_SYSTEM_PROMPTS["zh-CN"]
 
 # 设置页两个快捷项
 PRESETS = {
@@ -984,21 +1016,62 @@ def run_tool_safe(user_id: int, name: str, args: dict, perms: dict | None = None
 # --------------------------------------------------------------------------- #
 # 系统提示词
 # --------------------------------------------------------------------------- #
-def system_prompt(db: Session, user: User) -> str:
-    base = settings_store.get_value(db, "ai_system_prompt").strip() or DEFAULT_SYSTEM_PROMPT
+def normalize_language(value: str | None) -> str:
+    """把语言标签收敛到内置提示词支持的两个 key。"""
+    return "en-US" if (value or "").strip().lower().startswith("en") else "zh-CN"
+
+
+def default_prompt(lang: str | None = None) -> str:
+    return DEFAULT_SYSTEM_PROMPTS[normalize_language(lang)]
+
+
+def is_builtin_prompt(text: str | None) -> bool:
+    """空值，或与任一内置提示词完全一致时，视为「没自定义过」。
+
+    管理员点「填入默认」再保存时，落库的文本必然等于某个内置版本；把它归回默认，
+    之后切换语言才能继续跟着换，而不是被当成自定义内容钉死。
+    """
+    key = (text or "").strip()
+    if not key:
+        return True
+    return any(key == prompt.strip() for prompt in DEFAULT_SYSTEM_PROMPTS.values())
+
+
+def user_language(db: Session, user: User) -> str:
+    """账号里存的语言；没存过（跟浏览器）就回中文，前端会用请求里的 lang 覆盖。"""
+    try:
+        return normalize_language(ensure_settings(db, user.id).language)
+    except Exception:  # pragma: no cover - 读设置失败不该挡住对话
+        return "zh-CN"
+
+
+def system_prompt(db: Session, user: User, lang: str | None = None) -> str:
+    raw = settings_store.get_value(db, "ai_system_prompt")
+    lang = normalize_language(lang or user_language(db, user))
+    base = default_prompt(lang) if is_builtin_prompt(raw) else raw.strip()
     quota = user.quota_bytes or 0
     used = user.used_bytes or 0
-    context = (
-        f"\n\n[运行时信息，不要照念]\n"
-        f"- 当前时间：{datetime.now().strftime('%Y-%m-%d %H:%M')}\n"
-        f"- 用户昵称：{user.display_name or user.username}\n"
-        f"- 云盘容量：已用 {_fmt_size(used)} / {_fmt_size(quota)}"
-    )
+    if lang == "en-US":
+        context = (
+            f"\n\n[Runtime info — do not read it aloud]\n"
+            f"- Current time: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n"
+            f"- User nickname: {user.display_name or user.username}\n"
+            f"- Drive capacity: {_fmt_size(used)} used / {_fmt_size(quota)}"
+        )
+    else:
+        context = (
+            f"\n\n[运行时信息，不要照念]\n"
+            f"- 当前时间：{datetime.now().strftime('%Y-%m-%d %H:%M')}\n"
+            f"- 用户昵称：{user.display_name or user.username}\n"
+            f"- 云盘容量：已用 {_fmt_size(used)} / {_fmt_size(quota)}"
+        )
     return base + context
 
 
 def read_prompt(db: Session) -> str:
-    return settings_store.get_value(db, "ai_system_prompt")
+    """管理员自定义的提示词；与内置一致（或为空）时返回空串，表示「用内置默认」。"""
+    raw = settings_store.get_value(db, "ai_system_prompt")
+    return "" if is_builtin_prompt(raw) else raw.strip()
 
 
 # --------------------------------------------------------------------------- #

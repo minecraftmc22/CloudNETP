@@ -8,7 +8,7 @@
  */
 
 import { escapeHtml } from "../api.js";
-import { H } from "../i18n.js";
+import { H, getLang } from "../i18n.js";
 import { renderMarkdown } from "./markdown.js";
 import { Toast } from "./toast.js";
 
@@ -508,7 +508,7 @@ async function streamReply() {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
       credentials: "same-origin",
-      body: JSON.stringify({ messages: historyPayload() }),
+      body: JSON.stringify({ messages: historyPayload(), lang: getLang() }),
       signal: ctrl.signal,
     });
 

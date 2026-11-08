@@ -27,6 +27,16 @@ CJK = re.compile(r"[\u4e00-\u9fa5]")
 TEMPLATE = re.compile(r"`((?:\\.|[^`\\])*)`", re.S)
 TEXT_RE = re.compile(r">([^<>]*[\u4e00-\u9fa5][^<>]*)<")
 ATTR_RE = re.compile(r'\b(title|aria-label|placeholder|alt)="([^"]*[\u4e00-\u9fa5][^"]*)"')
+# 注释里的示例代码（如 i18n.js 的 `H\`<div>中文</div>\``）会被当成模板扫出来，
+# 这里只记录注释区间，命中区间的模板直接跳过（不删内容，免得把字符串里的反引号一起吃掉）
+BLOCK_COMMENT = re.compile(r"/\*.*?\*/", re.S)
+LINE_COMMENT = re.compile(r"(?m)^[ \t]*//.*$")
+
+
+def comment_ranges(src: str) -> list[tuple[int, int]]:
+    return [m.span() for m in BLOCK_COMMENT.finditer(src)] + [
+        m.span() for m in LINE_COMMENT.finditer(src)
+    ]
 
 
 def strip_interp(body: str) -> str:
@@ -81,8 +91,11 @@ def norm(text: str) -> str:
 
 def scan(path: Path, keys: set[str]) -> int:
     src = path.read_text(encoding="utf-8")
+    ranges = comment_ranges(src)
     hits = 0
     for tpl in TEMPLATE.finditer(src):
+        if any(start <= tpl.start() < end for start, end in ranges):
+            continue
         body = tpl.group(1)
         if not CJK.search(body):
             continue

@@ -68,6 +68,18 @@ const AUTHOR = {
 
 const CHANGELOG = [
   {
+    version: "0.3.47",
+    title: "一条命令启动，提示词跟着语言走",
+    items: [
+      "新增 start.sh（Linux / Ubuntu / macOS）与 start.ps1 / start.bat（Windows）：首次运行自动建 .venv、装依赖、从 .env.example 生成 .env 并补一个随机 SECRET_KEY，之后一条命令启动",
+      "依赖只在 requirements.txt 变化时重装（按 sha256 打标记）；默认走阿里云 PyPI 镜像，可用 PIP_INDEX_URL 覆盖",
+      "start.sh --dev 与 start.ps1 -Dev 走开发入口：热重载，只监视 app/ 与 static/，上传文件不会触发重启",
+      "内置系统提示词拆成中英两版，跟着界面语言切换：管理员在设置里看到的默认提示词、以及实际发给模型的人设与运行时信息都会切",
+      "「填入默认」后原样保存会被认作默认（不写入自定义内容），之后切语言仍然跟着换；管理员自己改过的提示词属于用户内容，保持原样不翻译",
+      "README 的快速开始改成「脚本」+「手动」两条路径，修正原来 .venv/Scripts/python 在 Linux 下不可用、以及建了 venv 却仍用系统 python 的问题",
+    ],
+  },
+  {
     version: "0.3.46",
     title: "分享页也会说英文了",
     items: [

@@ -23,12 +23,54 @@ WinUI3 / Fluent Design 风格的二次元个人网盘，Python 3.14 + FastAPI �
 
 ## 快速开始
 
+需要 **Python 3.10+**（推荐 3.13 / 3.14）。仓库自带启动脚本，首次运行会自动建 `.venv`、
+装依赖、从 `.env.example` 生成 `.env` 并补一个随机 `SECRET_KEY`；之后每次启动直接跑脚本即可。
+
+**Windows**（PowerShell，或直接双击 `start.bat`）：
+
+```powershell
+.\start.ps1          # 生产启动：读 .env，不热重载
+.\start.ps1 -Dev     # 开发模式：监视 app/ 与 static/，改代码自动重启
+```
+
+若提示「在此系统上禁止运行脚本」，改用
+`powershell -ExecutionPolicy Bypass -File .\start.ps1`（`start.bat` 已经这么做了）。
+
+**Linux / Ubuntu**：
+
 ```bash
-python -m venv .venv
-.venv/Scripts/python -m pip install -i https://mirrors.aliyun.com/pypi/simple/ -r requirements.txt
-cp .env.example .env        # 填 DATABASE_URL 与 SECRET_KEY
-python run.py               # 监听地址/端口/对外地址/SSL 全部读 .env
-python main.py              # 开发用：同样读 .env，另外默认开热重载
+chmod +x start.sh    # 只需一次
+./start.sh           # 生产启动
+./start.sh --dev     # 开发模式
+```
+
+Ubuntu 缺 `venv` 时先装：`sudo apt install -y python3 python3-venv python3-pip`。
+脚本默认用阿里云 PyPI 镜像，要换源：
+
+```bash
+# Linux
+PIP_INDEX_URL=https://pypi.org/simple ./start.sh
+# Windows PowerShell
+$env:PIP_INDEX_URL = "https://pypi.org/simple"; .\start.ps1
+```
+
+**手动启动**（不用脚本时，注意用虚拟环境里的解释器；直接 `python run.py` 是系统 Python，
+没装依赖会报 `ModuleNotFoundError`）：
+
+```bash
+python3 -m venv .venv
+
+# Linux / Ubuntu
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python scripts/bootstrap.py   # 生成 .env + SECRET_KEY
+.venv/bin/python run.py                 # 生产
+.venv/bin/python main.py                # 开发（热重载）
+
+# Windows（PowerShell / cmd）
+.venv\Scripts\python.exe -m pip install -r requirements.txt
+.venv\Scripts\python.exe scripts\bootstrap.py
+.venv\Scripts\python.exe run.py
+.venv\Scripts\python.exe main.py
 ```
 
 > ⚠️ `uvicorn app.main:app --reload` 这类**直接调用 uvicorn 的启动方式不会读 .env**，
@@ -40,9 +82,11 @@ python main.py              # 开发用：同样读 .env，另外默认开热重
 > - **`0.0.0.0` 只能用于监听，不能填进浏览器**。它表示「本机所有网卡」，不是一个可路由的目的地址，
 >   Chrome 124+ 会直接拦掉。本机请开 `http://localhost:8000`，别的设备用 `http://<本机局域网IP>:8000`。
 > - **`uvicorn main:app --reload` 会监视整个项目根目录**（日志第一行的 `Will watch for changes in these directories`），
->   上传文件写 `storage/` 也会触发重启。开发请用 `python main.py`，它只监视 `app/` 与 `static/`。
+>   上传文件写 `storage/` 也会触发重启。开发请用 `main.py` 入口（`start.sh --dev` / `start.ps1 -Dev` 就是它），
+>   它只监视 `app/` 与 `static/`。
 
-启动脚本会打印实际监听地址与 WebDAV 地址。想改端口或绑域名改 `.env` 即可：
+首次启动默认用 SQLite（项目根目录的 `dev.db`），要接 MySQL 改 `.env` 里的 `DATABASE_URL`
+再重启即可。启动脚本会打印实际监听地址与 WebDAV 地址。想改端口或绑域名改 `.env` 即可：
 
 | 变量 | 说明 |
 | --- | --- |
@@ -61,6 +105,9 @@ python main.py              # 开发用：同样读 .env，另外默认开热重
 ## 目录结构
 
 ```
+start.sh / start.ps1 / start.bat   一键启动（Linux / Windows）
+run.py               生产入口：读 .env，热重载看 RELOAD
+main.py              开发入口：读 .env + 强制热重载
 app/
   config.py          .env 解析与配置
   db.py              引擎 / 会话 / 建表
@@ -72,10 +119,12 @@ app/
   share_service.py   分享链接与访问控制
   admin_service.py   管理后台统计与维护
   dav_service.py     WebDAV 路径解析、multistatus 拼装、内存锁、子树复制
-  routers/           auth / nodes / uploads / shares / admin / dav
+  ai_service.py      看板娘 AI：配置、模型探测、SSE 流式、工具调用、系统提示词
+  routers/           auth / nodes / uploads / shares / admin / dav / ai / live2d
 static/
   css/               theme / layout / components / views / files / viewer / admin / share
-  js/                api / store / theme / uploader / sha256 / views / ui
+  js/                api / store / theme / uploader / sha256 / i18n / views / ui
+scripts/bootstrap.py 首次启动：生成 .env 与随机 SECRET_KEY
 sql/schema.sql       MySQL 建表参考
 ```
 
@@ -90,7 +139,7 @@ sql/schema.sql       MySQL 建表参考
 | 变量 | 说明 |
 | --- | --- |
 | `DATABASE_URL` | `mysql+pymysql://user:pass@host:3306/db?charset=utf8mb4` 或 `sqlite:///./dev.db` |
-| `SECRET_KEY` | 会话签名密钥，留空会生成临时密钥（重启即失效） |
+| `SECRET_KEY` | 会话签名密钥。`start.sh` / `start.ps1` 首次运行会自动生成并写进 `.env`；留空则用临时密钥（重启即失效） |
 | `STORAGE_DIR` | 文件落盘目录，默认 `./storage` |
 | `DEFAULT_QUOTA_GB` | 新用户默认配额 |
 | `MAX_FILE_SIZE_MB` | 单文件大小上限 |
@@ -143,20 +192,26 @@ sql/schema.sql       MySQL 建表参考
   插值进去的文件名、昵称、分享标题等用户数据永远原样输出，不会被误翻。
 - 字典是「中文原文 → 译文」的普通对象（`static/js/i18n/en-US.js`）。漏翻的句子会原样显示中文，不会出现空白或占位符。
 - 新增语言：在 `static/js/i18n.js` 的 `LANGS` 里加一项，再建 `static/js/i18n/<id>.js` 字典即可（服务端 `language` 白名单也要加）。
-- 检查还差哪些没翻：
+- 检查还差哪些没翻（Windows 把 `.venv/bin/python` 换成 `.venv\Scripts\python.exe`）：
 
   ```bash
-  ./.venv/Scripts/python.exe scripts/i18n_harvest.py --missing
+  .venv/bin/python scripts/i18n_check.py
+  .venv/bin/python scripts/i18n_html_check.py
   ```
 
 - 端到端冒烟（起独立实例、中英各跑一遍并统计残留中文）：
 
   ```bash
-  ./.venv/Scripts/python.exe scripts/i18n_shot.py --lang en-US
+  .venv/bin/python scripts/i18n_shot.py --lang en-US
+  .venv/bin/python scripts/i18n_share_shot.py --lang en-US
   ```
 
-当前覆盖：导航与顶栏、文件列表、设置页（含看板娘对话设置）、回收站、分享、关于、登录/注册/找回密码。
-管理后台与部分二级弹窗仍为中文，按上面的脚本补字典即可。
+内置系统提示词（CDP娘的人设）也有中英两版，跟着**界面语言**走：管理员在「设置 → 看板娘 →
+对话设置」里看到和保存的默认提示词、以及实际发给模型的提示词，都会随语言切换。管理员
+自定义过的提示词属于用户内容，不会被翻译；点「填入默认」后原样保存也会被认作默认，继续跟着语言换。
+
+当前覆盖：导航与顶栏、文件列表、设置页（含看板娘对话设置）、回收站、分享、公开分享页、
+关于、登录/注册/找回密码、管理后台全部页签。仅「关于 → 更新记录」的历史条目只保留中文原文。
 
 ## 路线图
 

@@ -150,8 +150,9 @@ class AiMessageIn(CamelModel):
 
 class AiChatIn(CamelModel):
     messages: list[AiMessageIn] = Field(default_factory=list, max_length=60)
-    # 管理员维护的系统提示词只读预览用不到，这里留给将来扩展
     stream: bool = True
+    # 当前界面语言：内置系统提示词按它选中文版 / 英文版（账号里没存语言时尤其需要）
+    lang: Literal["zh-CN", "en-US"] | None = None
 
 
 class AiPromptIn(CamelModel):
