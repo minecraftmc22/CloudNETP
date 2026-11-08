@@ -2,7 +2,7 @@
  * 我的分享：列出自己创建的链接，复制 / 打开 / 取消。
  */
 import { api, escapeHtml, formatBytes, formatTime } from "../api.js";
-import { H } from "../i18n.js";
+import { H, t } from "../i18n.js";
 import { Dialog } from "../ui/dialog.js";
 import { Toast } from "../ui/toast.js";
 import { copyText } from "../ui/share.js";
@@ -63,7 +63,7 @@ export function renderShares(root) {
   function render() {
     const active = state.items.filter((s) => s.status === "active").length;
     summaryEl.textContent = state.items.length
-      ? H`${state.items.length} 个链接 · ${active} 个有效`
+      ? t("{total} 个链接 · {active} 个有效", { total: state.items.length, active })
       : "";
 
     if (!state.items.length) {
@@ -83,16 +83,20 @@ export function renderShares(root) {
         const dead = share.status !== "active";
         const kindLabel =
           share.type === "multi"
-            ? H`合集 ${share.itemCount} 项`
+            ? t("合集 {n} 项", { n: share.itemCount })
             : share.type === "folder"
-              ? "文件夹"
+              ? t("文件夹")
               : formatBytes(share.size);
         const meta = [
           kindLabel,
-          `创建于 ${formatTime(share.createdAt)}`,
-          share.hasCode ? "有提取码" : "免提取码",
-          share.maxDownloads ? H`已下载 ${share.downloadCount}/${share.maxDownloads}` : H`已下载 ${share.downloadCount} 次`,
-          share.expiresAt ? H`到期 ${new Date(share.expiresAt).toLocaleDateString("zh-CN")}` : "永久有效",
+          t("创建于 {when}", { when: formatTime(share.createdAt) }),
+          share.hasCode ? t("有提取码") : t("免提取码"),
+          share.maxDownloads
+            ? t("已下载 {n}/{max}", { n: share.downloadCount, max: share.maxDownloads })
+            : t("已下载 {n} 次", { n: share.downloadCount }),
+          share.expiresAt
+            ? t("到期 {date}", { date: new Date(share.expiresAt).toLocaleDateString(document.documentElement.lang || "zh-CN") })
+            : t("永久有效"),
         ].join(" · ");
 
         return H`
@@ -102,7 +106,7 @@ export function renderShares(root) {
             <div class="share-row__name" title="${escapeHtml(share.name)}">${escapeHtml(share.name)}</div>
             <div class="share-row__meta">${meta}</div>
           </div>
-          <span class="share-row__status is-${share.status}">${STATUS_TEXT[share.status] || share.status}</span>
+          <span class="share-row__status is-${share.status}">${t(STATUS_TEXT[share.status] || share.status)}</span>
           <div class="share-row__actions">
             <button class="btn btn--subtle" type="button" data-act="copy" ${dead ? "disabled" : ""}>
               <svg class="icon icon--s"><use href="#i-link"/></svg>复制链接
@@ -135,7 +139,9 @@ export function renderShares(root) {
       row.querySelector('[data-act="revoke"]')?.addEventListener("click", async () => {
         const ok = await Dialog.confirm({
           title: "取消分享",
-          message: H`取消后「${escapeHtml(share.name)}」的链接立即失效，已经发出去的链接也打不开了。`,
+          message: t("取消后「{name}」的链接立即失效，已经发出去的链接也打不开了。", {
+            name: escapeHtml(share.name),
+          }),
           confirmText: "取消分享",
           danger: true,
         });

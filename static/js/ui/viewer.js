@@ -4,7 +4,7 @@
  * 只负责展示，不修改任何文件。
  */
 import { api, escapeHtml, formatBytes } from "../api.js";
-import { H } from "../i18n.js";
+import { H, t } from "../i18n.js";
 import { store } from "../store.js";
 import { renderMarkdown } from "./markdown.js";
 import { mountOffice, OFFICE_KINDS } from "./office.js";
@@ -1219,8 +1219,8 @@ export function openViewer(item, { onDownload } = {}) {
     try {
       await navigator.clipboard.writeText(codeEl.textContent || "");
       const btn = event.currentTarget;
-      btn.textContent = "已复制";
-      window.setTimeout(() => (btn.textContent = "复制"), 1400);
+      btn.textContent = t("已复制");
+      window.setTimeout(() => (btn.textContent = t("复制")), 1400);
     } catch {
       /* 剪贴板被拒时静默失败，用户可以手动选中 */
     }

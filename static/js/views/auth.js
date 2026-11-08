@@ -322,12 +322,12 @@ export function renderAuth(root, { meta = {}, onSuccess }) {
 
   /* ---------- 提示 ---------- */
   function showError(text, target = msg) {
-    target.textContent = text;
+    target.textContent = t(text);
     target.classList.remove("is-ok");
   }
 
   function showOk(text, target = msg) {
-    target.textContent = text;
+    target.textContent = t(text);
     target.classList.add("is-ok");
   }
 
@@ -338,7 +338,7 @@ export function renderAuth(root, { meta = {}, onSuccess }) {
     const { level, label, rules } = strengthOf(value);
     box.dataset.level = String(level);
     const labelEl = box.querySelector(".pwd__label");
-    if (labelEl) labelEl.textContent = value ? `密码强度：${label}` : "密码强度";
+    if (labelEl) labelEl.textContent = value ? t("密码强度：{label}", { label }) : t("密码强度");
     box.querySelectorAll(".pwd__cell").forEach((cell, index) => {
       cell.classList.toggle("is-on", index < level);
     });
@@ -492,7 +492,7 @@ export function renderAuth(root, { meta = {}, onSuccess }) {
   if (meta.contactEmail) contactLine.push(`邮箱 ${meta.contactEmail}`);
   if (meta.contactQq) contactLine.push(`QQ ${meta.contactQq}`);
   const contactHtml = contactLine.length
-    ? `<p>也可以直接联系站点管理员：<strong>${contactLine.join(" · ")}</strong></p>`
+    ? `<p>${t("也可以直接联系站点管理员：")}<strong>${contactLine.join(" · ")}</strong></p>`
     : "";
 
   let forgotStep = 1;
@@ -516,8 +516,8 @@ export function renderAuth(root, { meta = {}, onSuccess }) {
     el("[data-links]").hidden = true;
     forgotForm.hidden = false;
     links.hidden = true;
-    titleEl.textContent = "找回密码";
-    subEl.textContent = "两种方式：用户名 + 绑定邮箱，或邮箱链接（未开通）";
+    titleEl.textContent = t("找回密码");
+    subEl.textContent = t("两种方式：用户名 + 绑定邮箱，或邮箱链接（未开通）");
     fmsg.textContent = "";
     fmsg.classList.remove("is-ok");
     forgotHelp.hidden = true;
@@ -552,7 +552,7 @@ export function renderAuth(root, { meta = {}, onSuccess }) {
 
   function forgotHelpBox(text) {
     forgotHelp.hidden = false;
-    forgotHelp.innerHTML = H`<p>${text}</p>${contactHtml}`;
+    forgotHelp.innerHTML = H`<p>${t(text)}</p>${contactHtml}`;
   }
 
   forgotForm.addEventListener("submit", async (event) => {
@@ -576,7 +576,7 @@ export function renderAuth(root, { meta = {}, onSuccess }) {
         forgotAccount = account;
 
         if (data.mode === "email") {
-          forgotSub.textContent = "邮箱找回";
+          forgotSub.textContent = t("邮箱找回");
           if (!data.mailReady) {
             showError("邮件服务还没开通，暂时无法通过邮箱链接重置。", fmsg);
             forgotHelpBox("请改用「用户名」方式：输入用户名，再填注册时绑定的邮箱。");
@@ -597,7 +597,10 @@ export function renderAuth(root, { meta = {}, onSuccess }) {
           forgotHelpBox("请把用户名和注册时间发给站点管理员，核验身份后由管理员帮你重置密码。");
           return;
         }
-        forgotSub.textContent = `账号 ${account} 已绑定邮箱 ${data.maskedEmail || ""}，请补全邮箱完成验证`;
+        forgotSub.textContent = t("账号 {account} 已绑定邮箱 {email}，请补全邮箱完成验证", {
+          account,
+          email: data.maskedEmail || "",
+        });
         setForgotStep(2);
         fmsg.textContent = "";
         forgotHelp.hidden = true;
@@ -606,7 +609,7 @@ export function renderAuth(root, { meta = {}, onSuccess }) {
         if (!email) throw new ApiError("请输入绑定的邮箱", 0);
         const data = await api.post("/api/auth/forgot/email", { account: forgotAccount, email });
         resetToken = data.token;
-        forgotSub.textContent = "邮箱对上了，设置一个新密码即可";
+        forgotSub.textContent = t("邮箱对上了，设置一个新密码即可");
         setForgotStep(3);
         fmsg.textContent = "";
         forgotHelp.hidden = true;
@@ -618,7 +621,7 @@ export function renderAuth(root, { meta = {}, onSuccess }) {
         if (newPassword !== confirmNew) throw new ApiError("两次输入的新密码不一致", 0);
         const data = await api.post("/api/auth/reset", { token: resetToken, password: newPassword });
         backToLogin();
-        showOk(`@${data.username} 的密码已重置，请用新密码登录。`);
+        showOk(t("@{name} 的密码已重置，请用新密码登录。", { name: data.username }));
         accountInput.value = data.username;
       }
     } catch (err) {

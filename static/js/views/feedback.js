@@ -2,7 +2,7 @@
  * 意见反馈：提交建议 / 问题，查看自己的历史反馈与处理状态。
  */
 import { api, escapeHtml, formatTime } from "../api.js";
-import { H } from "../i18n.js";
+import { H, t } from "../i18n.js";
 import { store } from "../store.js";
 import { Toast } from "../ui/toast.js";
 
@@ -21,15 +21,15 @@ function itemHtml(item) {
   return H`
     <article class="fb-item">
       <div class="fb-item__top">
-        <span class="fb-tag fb-tag--${escapeHtml(item.kind)}">${escapeHtml(item.kindLabel)}</span>
-        <span class="fb-status ${STATUS_CLASS[item.status] || "is-pending"}">${escapeHtml(item.statusLabel)}</span>
+        <span class="fb-tag fb-tag--${escapeHtml(item.kind)}">${escapeHtml(t(item.kindLabel))}</span>
+        <span class="fb-status ${STATUS_CLASS[item.status] || "is-pending"}">${escapeHtml(t(item.statusLabel))}</span>
         <span class="fb-item__time">${escapeHtml(formatTime(item.createdAt))}</span>
       </div>
       ${title}
       <p class="fb-item__content">${escapeHtml(item.content)}</p>
       ${
         item.contact
-          ? H`<div class="fb-item__meta">联系方式：${escapeHtml(item.contact)}</div>`
+          ? H`<div class="fb-item__meta">${t("联系方式：{value}", { value: escapeHtml(item.contact) })}</div>`
           : ""
       }
     </article>`;
@@ -53,14 +53,14 @@ export function renderFeedback(root) {
         <section class="settings-card">
           <div class="settings-card__head"><svg class="icon icon--s"><use href="#i-mail"/></svg>写一条反馈</div>
           <div class="feedback-intro">
-            反馈只有管理员能看到；如果是登录或上传问题，附上大致时间和操作步骤会更容易定位。
+            ${t("反馈只有管理员能看到；如果是登录或上传问题，附上大致时间和操作步骤会更容易定位。")}
             ${
               meta?.contactEmail || meta?.contactQq
-                ? H`<span class="feedback-intro__contact">也可以直接联系管理员：${
-                    meta.contactEmail ? escapeHtml(meta.contactEmail) : ""
-                  }${meta.contactEmail && meta.contactQq ? " / " : ""}${
-                    meta.contactQq ? H`QQ ${escapeHtml(meta.contactQq)}` : ""
-                  }</span>`
+                ? H`<span class="feedback-intro__contact">${t("也可以直接联系管理员：{contacts}", {
+                    contacts: `${meta.contactEmail ? escapeHtml(meta.contactEmail) : ""}${
+                      meta.contactEmail && meta.contactQq ? " / " : ""
+                    }${meta.contactQq ? `QQ ${escapeHtml(meta.contactQq)}` : ""}`,
+                  })}</span>`
                 : ""
             }
           </div>
@@ -68,7 +68,7 @@ export function renderFeedback(root) {
             <div class="fb-kinds" data-kinds>
               ${KINDS.map(
                 (k) =>
-                  H`<button class="fb-kind ${k.id === kind ? "is-active" : ""}" type="button" data-kind="${k.id}">${k.label}</button>`
+                  H`<button class="fb-kind ${k.id === kind ? "is-active" : ""}" type="button" data-kind="${k.id}">${t(k.label)}</button>`
               ).join("")}
             </div>
             <label class="field">
@@ -152,7 +152,7 @@ export function renderFeedback(root) {
     }
     submitting = true;
     submitBtn.disabled = true;
-    submitBtn.textContent = "提交中…";
+    submitBtn.textContent = t("提交中…");
     try {
       await api.post("/api/feedback", {
         kind,
@@ -170,7 +170,7 @@ export function renderFeedback(root) {
     } finally {
       submitting = false;
       submitBtn.disabled = false;
-      submitBtn.textContent = "提交反馈";
+      submitBtn.textContent = t("提交反馈");
     }
   });
 

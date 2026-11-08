@@ -1,4 +1,4 @@
-import { H } from "../i18n.js";
+import { H, t } from "../i18n.js";
 /**
  * 轻量弹出菜单（右键菜单 / 用户菜单共用）
  */
@@ -38,7 +38,7 @@ export function openMenu({ x = 0, y = 0, items = [], header = null, anchor = nul
     btn.className = `menu-item ${item.danger ? "menu-item--danger" : ""}`;
     btn.setAttribute("role", "menuitem");
     btn.innerHTML = H`${item.icon ? `<svg class="icon icon--s"><use href="#${item.icon}"/></svg>` : ""}<span></span>`;
-    btn.querySelector("span").textContent = item.label;
+    btn.querySelector("span").textContent = t(item.label);
     if (item.disabled) {
       btn.disabled = true;
       btn.style.opacity = "0.45";

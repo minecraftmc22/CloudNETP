@@ -442,7 +442,9 @@ export function renderSettings(root) {
                 <div class="setting-row__label">邮箱</div>
                 <div class="setting-row__desc" data-email-desc>${
                   user?.email
-                    ? H`${escapeHtml(user.email)}${user.emailVerified ? "" : "（未验证）"} · 可用于登录和找回密码`
+                    ? `${escapeHtml(user.email)}${
+                        user.emailVerified ? "" : t("（未验证）")
+                      } · ${t("可用于登录和找回密码")}`
                     : t("还没有绑定 · 忘记密码时只能联系管理员")
                 }</div>
               </div>
@@ -545,9 +547,11 @@ export function renderSettings(root) {
       const res = await api.patch("/api/me/email", { email: values.email.trim() });
       store.set({ user: res.user });
       window.dispatchEvent(new CustomEvent("user:refresh", { detail: res.user }));
-      root.querySelector("[data-email-desc]").textContent = `${res.user.email}（未验证） · 可用于登录和找回密码`;
+      root.querySelector("[data-email-desc]").textContent = `${res.user.email}${t("（未验证）")} · ${t(
+        "可用于登录和找回密码"
+      )}`;
       const btn = root.querySelector('[data-act="email"]');
-      if (btn) btn.textContent = "换绑";
+      if (btn) btn.textContent = t("换绑");
       Toast.success("邮箱已保存");
     } catch (err) {
       Toast.error(err.message);
@@ -559,17 +563,23 @@ export function renderSettings(root) {
       title: "连接 WebDAV",
       tone: "info",
       confirmText: "知道了",
-      message: H`
+      message: `
         <div class="dav-help">
-          <div class="dav-help__row"><b>Windows</b>资源管理器右键「此电脑」→ 映射网络驱动器 →
-            文件夹填 <code>${davUrl}</code>，或直接写 <code>${davUnc}</code>；
-            勾选「使用其他凭据连接」，账号密码见上一行。</div>
-          <div class="dav-help__row"><b>macOS</b>Finder → 前往 → 连接服务器（⌘K）→
-            输入 <code>${davUrl}</code> → 以「注册用户」登录。</div>
-          <div class="dav-help__row"><b>手机</b>Documents / RaiDrive / ES 文件浏览器里新增 WebDAV 连接，地址同上。</div>
-          <div class="dav-help__row dav-help__note">Windows 的 WebDAV 客户端默认不允许在 HTTP 上发送
-            明文 Basic 密码（会报 <code>0x80070043</code>），本站已改用 Digest 认证，<b>不需要改注册表</b>。
-            公网使用仍建议套 HTTPS；通过 WebDAV 删除的文件同样会进回收站。</div>
+          <div class="dav-help__row"><b>Windows</b>${t(
+            "资源管理器右键「此电脑」→ 映射网络驱动器 → 文件夹填 {url}，或直接写 {unc}；勾选「使用其他凭据连接」，账号密码见上一行。",
+            { url: `<code>${davUrl}</code>`, unc: `<code>${davUnc}</code>` }
+          )}</div>
+          <div class="dav-help__row"><b>macOS</b>${t(
+            "Finder → 前往 → 连接服务器（⌘K）→ 输入 {url} → 以「注册用户」登录。",
+            { url: `<code>${davUrl}</code>` }
+          )}</div>
+          <div class="dav-help__row"><b>${t("手机")}</b>${t(
+            "Documents / RaiDrive / ES 文件浏览器里新增 WebDAV 连接，地址同上。"
+          )}</div>
+          <div class="dav-help__row dav-help__note">${t(
+            "Windows 的 WebDAV 客户端默认不允许在 HTTP 上发送明文 Basic 密码（会报 {code}），本站已改用 Digest 认证，{noRegistry}。公网使用仍建议套 HTTPS；通过 WebDAV 删除的文件同样会进回收站。",
+            { code: `<code>0x80070043</code>`, noRegistry: `<b>${t("不需要改注册表")}</b>` }
+          )}</div>
         </div>`,
     });
   });
@@ -663,7 +673,7 @@ export function renderSettings(root) {
         return;
       }
       applyAccent(color);
-      Toast.success(`已取到 ${color}，也可以自己挑一个`);
+      Toast.success(t("已取到 {color}，也可以自己挑一个", { color }));
     } catch {
       Toast.error("背景图读取失败，请重新上传");
     } finally {
@@ -744,7 +754,7 @@ export function renderSettings(root) {
       const color = bitmap ? dominantColor(bitmap) : null;
       if (color) {
         applyAccent(color);
-        Toast.success(`背景已更新，主题色取自图片 ${color}`);
+        Toast.success(t("背景已更新，主题色取自图片 {color}", { color }));
       } else {
         Toast.success("背景已更新");
       }
@@ -914,11 +924,10 @@ export function renderSettings(root) {
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const code = await Dialog.prompt({
         title: "关闭回收站",
-        message: H`
-          关闭后删除的文件<b>不会</b>进入回收站，而是直接彻底删除，无法恢复。<br>
-          请把下面这串验证码原样输入到输入框，完成确认：
+        message: `${t("关闭后删除的文件<b>不会</b>进入回收站，而是直接彻底删除，无法恢复。")}<br>
+          ${t("请把下面这串验证码原样输入到输入框，完成确认：")}
           <div class="code-display" data-code>${challenge.code}</div>
-          <div class="dialog__hint">由服务器生成，${minutes} 分钟内有效，验证一次即作废</div>`,
+          <div class="dialog__hint">${t("由服务器生成，{n} 分钟内有效，验证一次即作废", { n: minutes })}</div>`,
         label: "验证码",
         placeholder: "输入上方 6 位字符",
         confirmText: "确认关闭",

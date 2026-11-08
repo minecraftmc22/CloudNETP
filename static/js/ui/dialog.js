@@ -1,4 +1,4 @@
-import { H } from "../i18n.js";
+import { H, t } from "../i18n.js";
 /**
  * 全站唯一的模态对话框实现（禁止使用原生 alert / confirm / prompt）
  */
@@ -39,27 +39,34 @@ function closeDialog(result) {
 }
 
 function buildMarkup({ title, message, tone, fields, confirmText, cancelText, showCancel }) {
+  // 入口统一过一遍 t()：调用方写的都是中文原文，字典里有就翻、没有就原样返回，
+  // 所以这里不需要每个调用点自己包一层
+  const T = t(title || "");
+  const cancel = t(cancelText || "");
+  // 正文可能是调用方用 H 拼好的 HTML（已经翻过，查不到 key 就原样返回），
+  // 也可能是一句纯中文，这里统一过一遍 t()
+  const body = message ? t(message) : "";
   return H`
     <div class="dialog-backdrop"></div>
-    <div class="dialog" role="dialog" aria-modal="true" aria-label="${title || "对话框"}">
+    <div class="dialog" role="dialog" aria-modal="true" aria-label="${T || "对话框"}">
       <div class="dialog__title ${tone === "danger" ? "is-danger" : ""}">
         ${icon(ICONS[tone] || ICONS.info)}
-        <span>${title || ""}</span>
+        <span>${T}</span>
       </div>
-      ${message ? `<div class="dialog__body">${message}</div>` : ""}
+      ${body ? `<div class="dialog__body">${body}</div>` : ""}
       ${fields
         .map((f) =>
           f.type === "select"
             ? `
         <label class="field" data-field="${f.name}">
-          ${f.label ? `<span class="field__label">${f.label}</span>` : ""}
+          ${f.label ? `<span class="field__label">${t(f.label)}</span>` : ""}
           <span class="selectbox">
             <select name="${f.name}">
               ${(f.options || [])
                 .map(
                   (o) =>
                     H`<option value="${esc(o.value)}"${String(o.value) === String(f.value ?? "") ? " selected" : ""}>${esc(
-                      o.label
+                      t(o.label)
                     )}</option>`
                 )
                 .join("")}
@@ -70,18 +77,20 @@ function buildMarkup({ title, message, tone, fields, confirmText, cancelText, sh
         </label>`
             : `
         <label class="field" data-field="${f.name}">
-          ${f.label ? `<span class="field__label">${f.label}</span>` : ""}
+          ${f.label ? `<span class="field__label">${t(f.label)}</span>` : ""}
           <span class="textbox">
             <input type="${f.type || "text"}" name="${f.name}" value="${esc(f.value)}"
-                   placeholder="${esc(f.placeholder)}" autocomplete="off" spellcheck="false">
+                   placeholder="${esc(t(f.placeholder || ""))}" autocomplete="off" spellcheck="false">
           </span>
           <span class="field__error" data-error hidden></span>
         </label>`
         )
         .join("")}
       <div class="dialog__actions">
-        ${showCancel ? `<button class="btn btn--subtle" data-act="cancel" type="button">${cancelText}</button>` : ""}
-        <button class="btn ${tone === "danger" ? "btn--danger" : "btn--accent"}" data-act="ok" type="button">${confirmText}</button>
+        ${showCancel ? `<button class="btn btn--subtle" data-act="cancel" type="button">${cancel}</button>` : ""}
+        <button class="btn ${tone === "danger" ? "btn--danger" : "btn--accent"}" data-act="ok" type="button">${t(
+          confirmText
+        )}</button>
       </div>
     </div>`;
 }
@@ -109,7 +118,7 @@ function open(options) {
         const problem = field?.validate ? field.validate(input.value) : null;
         if (problem) {
           if (errEl) {
-            errEl.textContent = problem;
+            errEl.textContent = t(problem);
             errEl.hidden = false;
           }
           firstInvalid = firstInvalid || input;

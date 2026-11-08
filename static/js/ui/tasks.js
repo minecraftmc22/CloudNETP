@@ -10,7 +10,7 @@
  */
 import { escapeHtml } from "../api.js";
 
-import { H } from "../i18n.js";
+import { H, t } from "../i18n.js";
 const MIN_VISIBLE_MS = 900; // 再快也要停留这么久，否则用户看不到"正在移动"
 const HOLD_MS = 1200; // 完成后的停留时间
 const sleep = (ms) => new Promise((done) => window.setTimeout(done, ms));
@@ -104,7 +104,7 @@ export async function runTask({
   cancelBtn?.addEventListener("click", () => {
     canceled = true;
     cancelBtn.disabled = true;
-    cancelBtn.textContent = "正在停下…";
+    cancelBtn.textContent = t("正在停下…");
   });
 
   paintHeader();

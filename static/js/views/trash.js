@@ -161,7 +161,9 @@ export function renderTrash(root) {
     const total = state.items.length;
     const bytes = state.items.reduce((sum, item) => (item.type === "file" ? sum + (item.size || 0) : sum), 0);
     summary.textContent = total
-      ? H`${trashOn() ? "" : "已关闭 · "}${total} 项${bytes ? H` · 约 ${formatBytes(bytes)}` : ""}`
+      ? `${trashOn() ? "" : t("已关闭 · ")}${t("{n} 项", { n: total })}${
+          bytes ? t(" · 约 {size}", { size: formatBytes(bytes) }) : ""
+        }`
       : trashOn()
       ? t("暂无内容")
       : "已关闭";
@@ -364,8 +366,8 @@ export function renderTrash(root) {
       x,
       y,
       header: {
-        name: multi ? H`${state.selected.size} 个项目` : item.name,
-        meta: multi ? "批量操作" : metaOf(item),
+        name: multi ? t("{n} 个项目", { n: state.selected.size }) : item.name,
+        meta: multi ? t("批量操作") : metaOf(item),
       },
       items,
     });
@@ -378,7 +380,11 @@ export function renderTrash(root) {
       for (const item of items) {
         await api.post(`/api/nodes/${item.id}/restore`);
       }
-      Toast.success(single ? H`已还原「${items[0].name}」` : H`已还原 ${items.length} 项`);
+      Toast.success(
+        single
+          ? t("已还原「{name}」", { name: items[0].name })
+          : t("已还原 {n} 项", { n: items.length })
+      );
       state.selected.clear();
       await load();
       await refreshUser();
@@ -391,12 +397,12 @@ export function renderTrash(root) {
     if (!items.length) return;
     const single = items.length === 1;
     const ok = await Dialog.confirm({
-      title: single ? "彻底删除" : H`彻底删除 ${items.length} 项`,
+      title: single ? "彻底删除" : t("彻底删除 {n} 项", { n: items.length }),
       message: single
-        ? H`「${escapeHtml(items[0].name)}」将被永久删除，无法恢复。${
-            items[0].type === "folder" ? "文件夹里的内容会一起删除。" : ""
+        ? `${t("「{name}」将被永久删除，无法恢复。", { name: escapeHtml(items[0].name) })}${
+            items[0].type === "folder" ? t("文件夹里的内容会一起删除。") : ""
           }`
-        : H`${items.length} 个项目将被永久删除，无法恢复。文件夹里的内容会一起删除。`,
+        : t("{n} 个项目将被永久删除，无法恢复。文件夹里的内容会一起删除。", { n: items.length }),
       confirmText: "彻底删除",
       danger: true,
     });
@@ -405,7 +411,7 @@ export function renderTrash(root) {
       for (const item of items) {
         await api.del(`/api/nodes/${item.id}/purge`);
       }
-      Toast.success(single ? "已彻底删除" : H`已彻底删除 ${items.length} 项`);
+      Toast.success(single ? "已彻底删除" : t("已彻底删除 {n} 项", { n: items.length }));
       state.selected.clear();
       await load();
       await refreshUser();
@@ -419,14 +425,17 @@ export function renderTrash(root) {
     const bytes = state.items.reduce((sum, item) => (item.type === "file" ? sum + (item.size || 0) : sum), 0);
     const ok = await Dialog.confirm({
       title: "清空回收站",
-      message: H`回收站里的 ${state.items.length} 个项目${bytes ? H`（约 ${formatBytes(bytes)}）` : ""}将被永久删除，无法恢复。`,
+      message: t("回收站里的 {n} 个项目{size}将被永久删除，无法恢复。", {
+        n: state.items.length,
+        size: bytes ? t("（约 {size}）", { size: formatBytes(bytes) }) : "",
+      }),
       confirmText: "清空",
       danger: true,
     });
     if (!ok) return;
     try {
       const result = await api.post("/api/trash/empty");
-      Toast.success(`已彻底删除 ${result?.removed ?? 0} 项`);
+      Toast.success(t("已彻底删除 {n} 项", { n: result?.removed ?? 0 }));
       state.selected.clear();
       await load();
       await refreshUser();

@@ -3,6 +3,7 @@
  * 只用页内 Dialog，不碰原生 prompt。
  */
 import { api, escapeHtml } from "../api.js";
+import { t } from "../i18n.js";
 import { Dialog } from "./dialog.js";
 import { Toast } from "./toast.js";
 import { siteOrigin } from "../store.js";
@@ -76,12 +77,14 @@ async function createShare(items) {
   const total = items.length;
 
   const values = await Dialog.form({
-    title: single ? `分享「${single.name}」` : `分享 ${total} 个项目`,
+    title: single
+      ? t("分享「{name}」", { name: single.name })
+      : t("分享 {n} 个项目", { n: total }),
     message: single
       ? single.type === "folder"
-        ? "任何人打开链接都能浏览这个文件夹里的内容，你可以随时取消分享。"
-        : "任何人打开链接都能在线预览或下载这个文件，你可以随时取消分享。"
-      : `这 ${total} 个项目会合并成一条链接，打开后是一个列表，可逐个预览或下载。`,
+        ? t("任何人打开链接都能浏览这个文件夹里的内容，你可以随时取消分享。")
+        : t("任何人打开链接都能在线预览或下载这个文件，你可以随时取消分享。")
+      : t("这 {n} 个项目会合并成一条链接，打开后是一个列表，可逐个预览或下载。", { n: total }),
     confirmText: "创建链接",
     fields: SHARE_FIELDS,
   });

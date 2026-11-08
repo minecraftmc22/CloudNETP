@@ -1,6 +1,7 @@
 /**
  * 后端接口封装 + 通用格式化工具
  */
+import { t } from "./i18n.js";
 
 export class ApiError extends Error {
   constructor(message, status = 0, code = 0, payload = null) {
@@ -34,7 +35,7 @@ async function request(path, { method = "GET", body, headers = {}, raw = false }
   try {
     res = await fetch(path, opts);
   } catch {
-    throw new ApiError("网络连接失败，请检查服务是否在运行", 0);
+    throw new ApiError(t("网络连接失败，请检查服务是否在运行"), 0);
   }
 
   const ct = res.headers.get("content-type") || "";
@@ -57,10 +58,10 @@ function errorText(data, status) {
     const parts = detail
       .map((item) => (typeof item === "string" ? item : item?.msg || item?.loc?.join(".") || ""))
       .filter(Boolean);
-    if (parts.length) return `参数有误：${parts.join("；")}`;
+    if (parts.length) return t("参数有误：{parts}", { parts: parts.join(t("；")) });
   }
   if (detail && typeof detail === "object") return JSON.stringify(detail);
-  return `请求失败（${status}）`;
+  return t("请求失败（{status}）", { status });
 }
 
 export const api = {
@@ -104,11 +105,11 @@ export function formatEta(remainingBytes, bytesPerSecond) {
   const speed = Number(bytesPerSecond) || 0;
   if (speed < 1 || remainingBytes <= 0) return "";
   const seconds = Math.round(remainingBytes / speed);
-  if (seconds < 60) return `剩 ${seconds} 秒`;
+  if (seconds < 60) return t("剩 {n} 秒", { n: seconds });
   const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `剩 ${minutes} 分钟`;
+  if (minutes < 60) return t("剩 {n} 分钟", { n: minutes });
   const hours = Math.floor(minutes / 60);
-  return `剩 ${hours} 小时 ${minutes % 60} 分`;
+  return t("剩 {h} 小时 {m} 分", { h: hours, m: minutes % 60 });
 }
 
 export function formatTime(value) {
@@ -117,10 +118,10 @@ export function formatTime(value) {
   if (Number.isNaN(d.getTime())) return "—";
   const diff = Date.now() - d.getTime();
   const minute = 60_000;
-  if (diff < minute) return "刚刚";
-  if (diff < 60 * minute) return `${Math.floor(diff / minute)} 分钟前`;
-  if (diff < 24 * 60 * minute) return `${Math.floor(diff / (60 * minute))} 小时前`;
-  if (diff < 7 * 24 * 60 * minute) return `${Math.floor(diff / (24 * 60 * minute))} 天前`;
+  if (diff < minute) return t("刚刚");
+  if (diff < 60 * minute) return t("{n} 分钟前", { n: Math.floor(diff / minute) });
+  if (diff < 24 * 60 * minute) return t("{n} 小时前", { n: Math.floor(diff / (60 * minute)) });
+  if (diff < 7 * 24 * 60 * minute) return t("{n} 天前", { n: Math.floor(diff / (24 * 60 * minute)) });
   const pad = (n) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }

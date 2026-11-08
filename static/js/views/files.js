@@ -82,7 +82,7 @@ export function renderFiles(root) {
     <div class="view-body" data-body></div>
 
     <div class="selbar" data-selbar>
-      <span class="selbar__count">已选 <b data-sel-count>0</b> 项</span>
+      <span class="selbar__count">${t("已选")} <b data-sel-count>0</b> ${t("项")}</span>
       <button class="btn btn--subtle" type="button" data-act="sel-download">
         <svg class="icon icon--s"><use href="#i-download"/></svg>下载
       </button>
@@ -271,7 +271,7 @@ export function renderFiles(root) {
         <span></span><span></span>
         <button type="button" data-sort="name" class="${state.sort === "name" ? H`is-sorted ${state.order === "desc" ? "is-desc" : ""}` : ""}">${t("名称")}${arrow("name")}</button>
         <button type="button" data-sort="size" class="${state.sort === "size" ? H`is-sorted ${state.order === "desc" ? "is-desc" : ""}` : ""}">大小${arrow("size")}</button>
-        <button type="button" data-sort="updated" class="${state.sort === "updated" ? H`is-sorted ${state.order === "desc" ? "is-desc" : ""}` : ""}">修改时间${arrow("updated")}</button>
+        <button type="button" data-sort="updated" class="${state.sort === "updated" ? H`is-sorted ${state.order === "desc" ? "is-desc" : ""}` : ""}">${t("修改时间")}${arrow("updated")}</button>
         <span></span>
       </div>
       ${state.items
@@ -512,8 +512,10 @@ export function renderFiles(root) {
   /** 空白处右键：新建文件夹 / 上传 / 刷新 */
   function openBlankMenu(x, y) {
     const where = state.searchMode
-      ? "搜索结果"
-      : state.breadcrumb[state.breadcrumb.length - 1]?.name || t("我的文件");
+      ? t("搜索结果")
+      : (state.breadcrumb[state.breadcrumb.length - 1]?.id == null
+          ? t(state.breadcrumb[state.breadcrumb.length - 1]?.name || "我的文件")
+          : state.breadcrumb[state.breadcrumb.length - 1]?.name) || t("我的文件");
     openMenu({
       x,
       y,

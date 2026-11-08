@@ -13,6 +13,8 @@
  * 既能跟随视线、点到身体还能播动作，又不影响底下任何操作。
  */
 
+import { t } from "../i18n.js";
+
 const LIBS = [
   "/static/vendor/live2d/pixi.min.js",
   "/static/vendor/live2d/live2dcubismcore.min.js",
@@ -315,7 +317,7 @@ export function initLive2DMascot({ stage, host, bubble, pick, pickLabel, onPoke,
     host?.classList.remove("is-live");
     state.current = null;
     state.trim = null;
-    if (pickLabel) pickLabel.textContent = "换一个";
+    if (pickLabel) pickLabel.textContent = t("换一个");
     if (state.model && state.app) {
       state.app.stage.removeChild(state.model);
       state.model.destroy();

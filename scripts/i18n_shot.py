@@ -38,7 +38,11 @@ def free_port() -> int:
 
 
 def snapshot_db(dst: Path) -> None:
-    src = sqlite3.connect(str(ROOT / "dev.db"))
+    # dev.db 是早先单独跑的开发库；现在默认库是容灾副本 storage/db/fallback.db
+    src_path = ROOT / "dev.db"
+    if not src_path.is_file():
+        src_path = ROOT / "storage" / "db" / "fallback.db"
+    src = sqlite3.connect(f"file:{src_path.as_posix()}?mode=ro", uri=True)
     out = sqlite3.connect(str(dst))
     try:
         src.backup(out)
@@ -138,6 +142,8 @@ def main() -> None:
                 ("shares", "#/shares", ".view-head"),
                 ("about", "#/about", ".view-head"),
                 ("trash", "#/trash", ".view-head"),
+                ("feedback", "#/feedback", ".view-head"),
+                ("admin", "#/admin", ".admin-tabs"),
             ]:
                 page.goto(f"{base}/{route}", wait_until="domcontentloaded")
                 page.wait_for_selector(sel, timeout=15000)
@@ -147,7 +153,9 @@ def main() -> None:
                 texts = page.evaluate(
                     """() => {
                         const out = [];
-                        const pick = ['#nav', '.view-head', '.settings', '.empty', '.toolbar', '.titlebar'];
+                        const pick = ['#nav', '.view-head', '.settings', '.empty', '.toolbar', '.titlebar',
+                                      '.admin-tabs', '.settings-card', '.admin-facts', '.stat-card',
+                                      '.admin-toolbar', '.admin-hint', '.admin-pager'];
                         document.querySelectorAll(pick.join(',')).forEach((root) => {
                             const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
                             let n;
@@ -167,6 +175,54 @@ def main() -> None:
                 )
                 leftover = [t for t in texts if CJK.search(t)]
                 report[name] = leftover
+
+            # 管理后台的「系统设置」页最长（一整页卡片 + 数据库卡），单独进去截一张
+            page.goto(f"{base}/#/admin", wait_until="domcontentloaded")
+            page.wait_for_selector(".admin-tabs", timeout=15000)
+            page.click('[data-tab="settings"]')
+            page.wait_for_selector('[data-card="db"]', timeout=15000)
+            page.wait_for_timeout(800)
+            page.screenshot(path=str(OUT / "i18n_admin_settings.png"), full_page=True)
+            admin_texts = page.evaluate(
+                """() => {
+                    const out = [];
+                    document.querySelectorAll('.admin-body').forEach((root) => {
+                        const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+                        let n;
+                        while ((n = walker.nextNode())) {
+                            const t = (n.textContent || '').trim();
+                            if (t) out.push(t);
+                        }
+                    });
+                    return [...new Set(out)];
+                }"""
+            )
+            report["admin-settings"] = [t for t in admin_texts if CJK.search(t)]
+
+            # 其余四个页签（用户 / 举报 / 反馈 / 审计）只收文案，不截图
+            for tab, label in [
+                ("users", "admin-users"),
+                ("reports", "admin-reports"),
+                ("feedback", "admin-feedback"),
+                ("logs", "admin-logs"),
+            ]:
+                page.click(f'[data-tab="{tab}"]')
+                page.wait_for_timeout(900)
+                texts = page.evaluate(
+                    """() => {
+                        const out = [];
+                        document.querySelectorAll('.admin-body').forEach((root) => {
+                            const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+                            let n;
+                            while ((n = walker.nextNode())) {
+                                const t = (n.textContent || '').trim();
+                                if (t) out.push(t);
+                            }
+                        });
+                        return [...new Set(out)];
+                    }"""
+                )
+                report[label] = [t for t in texts if CJK.search(t)]
 
             # 登录页（无 Cookie）
             guest = browser.new_context(viewport={"width": 1440, "height": 1000}, device_scale_factor=2)

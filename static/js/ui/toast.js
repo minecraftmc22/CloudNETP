@@ -1,6 +1,8 @@
 /**
  * 右上角 Toast（InfoBar 风格）
  */
+import { t } from "../i18n.js";
+
 const HOST_ID = "toast-host";
 
 const ICON = {
@@ -19,7 +21,7 @@ export function showToast(message, { type = "info", duration = 3200 } = {}) {
   el.innerHTML = `
     <span class="toast__icon"><svg class="icon icon--s"><use href="#${ICON[type] || ICON.info}"/></svg></span>
     <span class="toast__text"></span>`;
-  el.querySelector(".toast__text").textContent = message;
+  el.querySelector(".toast__text").textContent = t(message);
   host.appendChild(el);
 
   let timer = 0;
