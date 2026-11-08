@@ -103,7 +103,7 @@ def _compose_database_url() -> str:
 class Settings:
     # ---- 应用 ----
     APP_NAME: str = _get("APP_NAME", "CloudNETP")
-    VERSION: str = "0.3.50"
+    VERSION: str = "0.3.51"
     DEBUG: bool = _get_bool("DEBUG", True)
 
     # ---- 监听与对外地址 ----
@@ -170,7 +170,12 @@ class Settings:
     SQLITE_TIMEOUT: int = _get_int("SQLITE_TIMEOUT", 30)
 
     # ---- 歌词 API（音频预览的逐词歌词）----
-    # 密钥只放服务端，前端通过 /api/lyrics 代理访问，避免密钥泄露
+    # provider = netease：直连网易云接口，免密钥即可搜索 + 逐行歌词；
+    #   配置 NETEASE_COOKIE（网页版 Cookie 里的 MUSIC_U=...）后可拿逐字歌词（yrc）。
+    # provider = lyriclib：走自建歌词库（LYRICS_API_BASE + KEY），即 0.2.x 的行为。
+    # 密钥/Cookie 只放服务端，前端通过 /api/lyrics 代理访问，避免泄露。
+    LYRICS_PROVIDER: str = _get("LYRICS_PROVIDER", "netease").strip().lower()
+    NETEASE_COOKIE: str = _get("NETEASE_COOKIE")
     LYRICS_API_BASE: str = _get("LYRICS_API_BASE", "https://minecraftmc22.top/lyric/api/v1").rstrip("/")
     LYRICS_API_KEY: str = _get("LYRICS_API_KEY")
 

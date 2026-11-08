@@ -668,6 +668,27 @@
   font-weight: 600;
   color: var(--text-1);
 }
+/* 标题行：歌名 + 来源标签（网易云 / 歌词库） */
+.lyr__result-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.lyr__result-top .lyr__result-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lyr__result-tag {
+  flex: none;
+  padding: 1px 7px;
+  border-radius: var(--radius-pill);
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
 .lyr__result-artist {
   font-size: 12px;
   color: var(--text-2);

@@ -717,6 +717,7 @@ export function openViewer(item, { onDownload } = {}) {
     metaEl.textContent = [artist || null, meta?.duration ? fmt(meta.duration) : formatBytes(node.size)]
       .filter(Boolean)
       .join(" · ");
+    const metaBase = metaEl.textContent; // 歌词加载后要追加来源标签，先留底
     if (meta?.hasCover) showCover();
 
     // SMTC 元数据：标题 / 歌手 / 专辑 / 封面（Windows 媒体浮窗直接显示）
@@ -768,6 +769,15 @@ export function openViewer(item, { onDownload } = {}) {
       }
       if (data.unsynced) root.classList.add("is-static"); // 纯文本歌词：不高亮不跟随
       renderLines(data);
+
+      // 来源标签：内嵌 / 自定义 / 网易云·逐字 / 网易云·逐行 / 歌词库
+      let badge = "";
+      if (data.source === "embedded") badge = t("内嵌歌词");
+      else if (data.source === "custom") badge = t("自定义歌词");
+      else if (data.provider === "netease") {
+        badge = `${t("网易云")} · ${data.granularity === "word" ? t("逐字") : t("逐行")}`;
+      } else if (data.provider === "lyriclib") badge = t("歌词库");
+      metaEl.textContent = badge ? `${metaBase} · ${badge}` : metaBase;
     };
 
     /* --- 歌词设置面板：来源（每首歌） + 样式（跟随账号） --- */
@@ -789,8 +799,8 @@ export function openViewer(item, { onDownload } = {}) {
     root.querySelectorAll("[data-srcpane]").forEach((el) => (panes[el.dataset.srcpane] = el));
 
     const SRC_HINT = {
-      auto: "按优先级自动匹配：音频内嵌歌词 → 在线搜索 → 无歌词",
-      song: "到歌词库手动挑这首歌用的歌词，点结果即启用",
+      auto: "按优先级自动匹配：音频内嵌歌词 → 网易云搜索 → 无歌词",
+      song: "搜索网易云曲库并点选结果即启用；逐字歌词（yrc）需要服务端配置网易云登录 Cookie，未配置时返回逐行歌词",
       custom: "直接使用自己粘贴的歌词文本（支持 LRC）",
       none: "播放时不显示歌词",
     };
@@ -885,7 +895,7 @@ export function openViewer(item, { onDownload } = {}) {
         thumbEl.style.transform = `translateX(${btn.offsetLeft - 3}px)`;
       }
       Object.entries(panes).forEach(([key, el]) => (el.hidden = key !== mode));
-      segHintEl.textContent = SRC_HINT[mode] || "";
+      segHintEl.textContent = t(SRC_HINT[mode] || "");
     };
     const status = (msg) => {
       statusEl.textContent = msg;
@@ -919,11 +929,23 @@ export function openViewer(item, { onDownload } = {}) {
           const btn = document.createElement("button");
           btn.type = "button";
           btn.className = "lyr__result";
+          const tag =
+            it.provider === "netease"
+              ? H`<span class="lyr__result-tag">${t("网易云")}</span>`
+              : it.provider === "lyriclib"
+                ? H`<span class="lyr__result-tag">${t("歌词库")}</span>`
+                : "";
           btn.innerHTML =
-            H`<span class="lyr__result-title">${escapeHtml(it.title || "未知标题")}</span>` +
+            H`<span class="lyr__result-top"><span class="lyr__result-title">${escapeHtml(it.title || "未知标题")}</span>${tag}</span>` +
             `<span class="lyr__result-artist">${escapeHtml([it.artist, it.album].filter(Boolean).join(" · "))}</span>`;
           btn.addEventListener("click", () =>
-            applyPref({ mode: "song", songId: it.id, songTitle: it.title || "", songArtist: it.artist || "" })
+            applyPref({
+              mode: "song",
+              songId: it.id,
+              songTitle: it.title || "",
+              songArtist: it.artist || "",
+              provider: it.provider || "",
+            })
           );
           resultsEl.appendChild(btn);
         });

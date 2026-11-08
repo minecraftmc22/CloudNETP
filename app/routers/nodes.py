@@ -333,7 +333,12 @@ def _pref_payload(pref: AudioPref | None) -> dict:
     return {
         "mode": pref.mode if pref else "auto",
         "song": (
-            {"id": pref.song_id, "title": pref.song_title, "artist": pref.song_artist}
+            {
+                "id": pref.song_id,
+                "title": pref.song_title,
+                "artist": pref.song_artist,
+                "provider": pref.provider or "lyriclib",
+            }
             if pref and pref.song_id
             else None
         ),
@@ -369,9 +374,13 @@ def set_lyrics_pref(
     if payload.mode == "song":
         if not payload.song_id:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "指定歌曲需要 songId")
-        # 先取一次歌词校验 id 有效，顺便预热缓存
+        provider = (payload.provider or "").strip().lower()
+        if provider not in {"netease", "lyriclib"}:
+            # 缺省按老行为算 lyriclib（旧前端不会带 provider 字段）
+            provider = "lyriclib"
+        # 先取一次歌词校验 id 在该来源里有效，顺便预热缓存
         try:
-            lyrics_service.fetch_lyrics(payload.song_id)
+            lyrics_service.fetch_lyrics(payload.song_id, provider)
         except lyrics_service.LyricsApiError as exc:
             http_status = (
                 status.HTTP_404_NOT_FOUND
@@ -379,6 +388,7 @@ def set_lyrics_pref(
                 else status.HTTP_503_SERVICE_UNAVAILABLE
             )
             raise HTTPException(http_status, exc.message or "该歌曲歌词不可用") from None
+        pref.provider = provider
         pref.song_id = payload.song_id
         pref.song_title = (payload.song_title or "").strip()[:200]
         pref.song_artist = (payload.song_artist or "").strip()[:200]
@@ -390,6 +400,7 @@ def set_lyrics_pref(
         pref.song_id = None
         pref.song_title = ""
         pref.song_artist = ""
+        pref.provider = ""
     db.commit()
     log_action(db, "lyrics_pref", user.id, {"nodeId": node.id, "mode": payload.mode}, request)
     db.refresh(pref)

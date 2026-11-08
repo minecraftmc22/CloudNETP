@@ -184,6 +184,7 @@ class LyricsPrefIn(CamelModel):
     """每首歌的歌词来源偏好。mode 决定哪些字段有效。"""
 
     mode: Literal["auto", "song", "custom", "none"]
+    provider: str | None = Field(default=None, max_length=16)
     song_id: int | None = None
     song_title: str | None = Field(default=None, max_length=200)
     song_artist: str | None = Field(default=None, max_length=200)

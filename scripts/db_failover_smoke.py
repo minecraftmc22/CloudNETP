@@ -256,9 +256,14 @@ def part_b() -> None:
         check("meta 可用", code == 200)
         check("meta.dbMode = fallback", meta.get("dbMode") == "fallback", str(meta.get("dbMode")))
 
-        # 注册接口强制图形验证码：不带码必须被拦（0.3.18+ 的行为，顺带回归一次）
+        # 注册接口先查协议同意（0.3.50+），再强制图形验证码：两条都要被拦住
         code, body, _ = request("POST", f"{BASE}/api/auth/register",
                                 {"username": "fbprobe2", "password": "FbProbe#2026"})
+        check("降级模式下注册仍要协议同意",
+              code == 400 and "同意" in str(body.get("detail", "")), f"{code} {body}")
+        code, body, _ = request("POST", f"{BASE}/api/auth/register",
+                                {"username": "fbprobe2", "password": "FbProbe#2026",
+                                 "agree": True})
         check("降级模式下注册仍要验证码",
               code == 400 and "验证码" in str(body.get("detail", "")), f"{code} {body}")
 

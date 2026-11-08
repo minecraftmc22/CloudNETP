@@ -95,6 +95,8 @@ class AudioPref(Base):
 
     node_id: Mapped[int] = mapped_column(ForeignKey("nodes.id", ondelete="CASCADE"), primary_key=True)
     mode: Mapped[str] = mapped_column(String(8), nullable=False, default="auto")
+    # 歌词来源（netease / lyriclib）：song_id 只在对应来源里有效
+    provider: Mapped[str] = mapped_column(String(16), nullable=False, default="")
     song_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     song_title: Mapped[str] = mapped_column(String(200), nullable=False, default="")
     song_artist: Mapped[str] = mapped_column(String(200), nullable=False, default="")

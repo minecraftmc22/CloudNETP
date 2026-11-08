@@ -148,6 +148,10 @@ _COLUMN_PATCHES: dict[str, dict[str, str]] = {
         # 合集分享：根节点 id 的 JSON 数组；NULL = 单节点分享
         "node_ids": "TEXT NULL",
     },
+    "audio_prefs": {
+        # 歌词来源（netease / lyriclib）：老库的 song_id 都是 lyriclib 的
+        "provider": "VARCHAR(16) NOT NULL DEFAULT ''",
+    },
 }
 
 # 需要改类型/长度的老列：{表名: {列名: 新定义}}

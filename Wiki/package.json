@@ -1,7 +1,7 @@
 {
   "name": "cloudnetp-wiki",
   "private": true,
-  "version": "0.3.50",
+  "version": "0.3.51",
   "description": "CloudNETP 使用文档（VuePress 2 + vuepress-theme-hope）",
   "scripts": {
     "docs:dev": "vuepress dev .",

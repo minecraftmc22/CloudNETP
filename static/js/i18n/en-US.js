@@ -930,4 +930,12 @@ export default {
   "原生 ES Module": "Vanilla ES Modules",
   "配置读取失败，刷新页面再试": "Could not load the configuration — refresh the page and try again",
   "决定 CDP娘 的人设和说话方式，全站生效；留空则用内置默认提示词（跟随界面语言）": "Defines CDP娘's persona and tone site-wide; leave empty to use the built-in default prompt, which follows the UI language",
+  "按优先级自动匹配：音频内嵌歌词 → 网易云搜索 → 无歌词": "Auto match by priority: embedded lyrics → NetEase Cloud Music search → none",
+  "搜索网易云曲库并点选结果即启用；逐字歌词（yrc）需要服务端配置网易云登录 Cookie，未配置时返回逐行歌词": "Search NetEase Cloud Music and click a result to use it; word-level (yrc) lyrics need a NetEase login cookie configured on the server, otherwise line-level lyrics are returned",
+  "网易云": "NetEase",
+  "歌词库": "Lyrics library",
+  "逐字": "Word-by-word",
+  "逐行": "Line-by-line",
+  "内嵌歌词": "Embedded lyrics",
+  "自定义歌词": "Custom lyrics",
 };

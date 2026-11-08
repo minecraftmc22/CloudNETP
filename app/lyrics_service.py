@@ -1,9 +1,11 @@
 """音频元数据解析（mutagen）与歌词 API 代理。
 
-歌词数据来自歌词库开发者 API（滚动逐词歌词 + 搜索）：
-- 基址与密钥放在服务端（LYRICS_API_BASE / LYRICS_API_KEY），前端只访问本站代理，
-  密钥绝不进前端代码（接口文档的最佳实践）。
-- 歌词是静态内容，按 song id 缓存；搜索结果按查询词缓存，避免刷爆每日额度。
+歌词来源按 LYRICS_PROVIDER 分发：
+- netease（默认）：直连网易云接口，免密钥即可搜索 + 逐行歌词（lrc）；
+  配置 NETEASE_COOKIE（网页版 Cookie 里的 MUSIC_U=...）后可拿逐字歌词（yrc）。
+- lyriclib：自建歌词库开发者 API（LYRICS_API_BASE / LYRICS_API_KEY），即 0.2.x 的行为。
+
+密钥/Cookie 只放服务端，前端只访问本站代理。
 
 本模块对上游的全部请求都直连（不走系统代理）：本机代理对 TLS 上游会超时。
 """
@@ -31,7 +33,8 @@ _CACHE_MAX = 300
 _opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 _lock = threading.Lock()
 _search_cache: OrderedDict[str, tuple[float, list[dict]]] = OrderedDict()
-_lyrics_cache: OrderedDict[int, tuple[float, dict]] = OrderedDict()
+# 键 = (provider, song_id)：同一个数字 id 在两个来源里是两首不同的歌
+_lyrics_cache: OrderedDict[tuple[str, int], tuple[float, dict]] = OrderedDict()
 
 
 class LyricsApiError(RuntimeError):
@@ -325,8 +328,18 @@ def _cache_put(cache: OrderedDict, key, value) -> None:
             cache.popitem(last=False)
 
 
+def _use_netease() -> bool:
+    """当前默认来源是否为网易云（LYRICS_PROVIDER != lyriclib）。"""
+    from .config import settings
+
+    return (settings.LYRICS_PROVIDER or "netease") != "lyriclib"
+
+
 def search_songs(query: str, limit: int = 8) -> list[dict]:
-    """搜索歌曲，返回 items（title/artist/album/id/duration_ms/cover_url...）。"""
+    """搜索歌曲，返回 items（id/title/artist/album/duration_ms/cover_url/provider）。"""
+    if _use_netease():
+        return netease_search(query, limit)
+
     from .config import settings
 
     if not settings.LYRICS_API_KEY:
@@ -345,27 +358,40 @@ def search_songs(query: str, limit: int = 8) -> list[dict]:
     if not body.get("ok"):
         raise LyricsApiError("歌词搜索失败", code="upstream")
     items = body.get("data", {}).get("items") or []
+    for item in items:
+        item.setdefault("provider", "lyriclib")
     _cache_put(_search_cache, cache_key, items)
     return items
 
 
-def fetch_lyrics(song_id: int) -> dict:
-    """按歌曲 id 取逐词歌词（lang=both 双语，gran=auto 跟随版本）。"""
+def fetch_lyrics(song_id: int, provider: str = "") -> dict:
+    """按 (来源, 歌曲 id) 取歌词，返回 {lines, granularity?, ...}。
+
+    provider 为空时用当前配置的默认来源；歌单里已保存的偏好会带上
+    当时的来源，避免两个来源的数字 id 撞车。
+    """
     from .config import settings
 
-    if not settings.LYRICS_API_KEY:
-        raise LyricsApiError("未配置歌词接口密钥（LYRICS_API_KEY）", code="no_key")
-    if (hit := _cache_get(_lyrics_cache, song_id, LYRICS_TTL)) is not None:
+    prov = (provider or settings.LYRICS_PROVIDER or "netease").strip().lower()
+    cache_key = (prov, song_id)
+    if (hit := _cache_get(_lyrics_cache, cache_key, LYRICS_TTL)) is not None:
         return hit
-    url = (
-        f"{settings.LYRICS_API_BASE}/lyrics.php?"
-        + urllib.parse.urlencode({"song": song_id, "lang": "both", "gran": "auto"})
-    )
-    body = _get(url, settings.LYRICS_API_KEY)
-    if not body.get("ok"):
-        raise LyricsApiError("歌词获取失败", code="upstream")
-    data = body.get("data") or {}
-    _cache_put(_lyrics_cache, song_id, data)
+    if prov == "netease":
+        data = netease_lyrics(song_id, settings.NETEASE_COOKIE)
+        data["provider"] = "netease"
+    else:
+        if not settings.LYRICS_API_KEY:
+            raise LyricsApiError("未配置歌词接口密钥（LYRICS_API_KEY）", code="no_key")
+        url = (
+            f"{settings.LYRICS_API_BASE}/lyrics.php?"
+            + urllib.parse.urlencode({"song": song_id, "lang": "both", "gran": "auto"})
+        )
+        body = _get(url, settings.LYRICS_API_KEY)
+        if not body.get("ok"):
+            raise LyricsApiError("歌词获取失败", code="upstream")
+        data = body.get("data") or {}
+        data["provider"] = "lyriclib"
+    _cache_put(_lyrics_cache, cache_key, data)
     return data
 
 
@@ -373,7 +399,7 @@ def find_and_fetch(title: str, artist: str = "") -> dict:
     """按「标题 歌手」搜索并取最匹配歌曲的歌词。
 
     匹配策略：先「标题 + 歌手」，没结果退回仅标题；命中后取第一条。
-    返回 {song: {...}, matched: bool, lines: [...], granularity, ...}。
+    返回 {provider, granularity?, lines: [...], matched: {...}}。
     """
     q_parts = [part for part in (title.strip(), artist.strip()) if part]
     if not q_parts:
@@ -382,11 +408,207 @@ def find_and_fetch(title: str, artist: str = "") -> dict:
     if not items and artist.strip() and title.strip():
         items = search_songs(title.strip())
     if not items:
-        raise LyricsApiError("歌词库里没有找到这首歌", code="song_not_found", status=404)
+        raise LyricsApiError("没有找到这首歌", code="song_not_found", status=404)
     best = items[0]
-    data = fetch_lyrics(best["id"])
-    data["matched"] = {"id": best["id"], **{k: best.get(k, "") for k in ("title", "artist", "album")}}
+    data = fetch_lyrics(best["id"], best.get("provider", ""))
+    data["matched"] = {
+        "id": best["id"],
+        "provider": best.get("provider", ""),
+        **{k: best.get(k, "") for k in ("title", "artist", "album")},
+    }
     return data
+
+
+# --------------------------------------------------------------------------- #
+# 网易云 provider：免密钥搜索 + 逐字（yrc）/逐行（lrc）歌词
+# --------------------------------------------------------------------------- #
+_NETEASE_SEARCH_URL = "https://music.163.com/api/search/get/web"
+_NETEASE_LYRIC_URL = "https://interface.music.163.com/api/song/lyric/v1"
+# 网页版同款 UA / Referer / Cookie：缺了会被当成脚本请求，拿不到翻译等完整数据
+_NETEASE_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+    ),
+    "Referer": "https://music.163.com/",
+    "Cookie": "os=pc; appver=2.10.13",
+}
+_YRC_HEAD_RE = re.compile(r"^\[(\d+),(\d+)\]")
+_YRC_TOKEN_RE = re.compile(r"\((\d+),(\d+)(?:,(\d+))?\)")
+# 元数据行两种写法都收：键带引号的 "t":16000 与不带引号的 t:16000
+_YRC_T_RE = re.compile(r'["\']?t["\']?\s*[:=]\s*(\d+)')
+_YRC_TX_RE = re.compile(r'["\']?tx["\']?\s*[:=]\s*"((?:[^"\\]|\\.)*)"')
+
+
+def _netease_get(url: str, extra_cookie: str = "") -> dict:
+    headers = dict(_NETEASE_HEADERS)
+    if extra_cookie.strip():
+        # NETEASE_COOKIE 允许填完整的网页版 Cookie，也允许只填 MUSIC_U=...
+        headers["Cookie"] = headers["Cookie"] + "; " + extra_cookie.strip().strip(";")
+    req = urllib.request.Request(url, headers=headers)
+    try:
+        with _opener.open(req, timeout=12.0) as resp:
+            return json.loads(resp.read())
+    except urllib.error.HTTPError as exc:
+        raise LyricsApiError(
+            f"网易云接口返回 HTTP {exc.code}",
+            code="upstream",
+            status=exc.code,
+        ) from None
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+        raise LyricsApiError("网易云服务暂时不可用", code="network") from exc
+
+
+def netease_search(query: str, limit: int = 8) -> list[dict]:
+    """网易云单曲搜索（type=1），返回归一化条目，免密钥可用。"""
+    query = query.strip()
+    if not query:
+        return []
+    cache_key = f"netease|{limit}|{query}"
+    if (hit := _cache_get(_search_cache, cache_key, SEARCH_TTL)) is not None:
+        return hit
+    url = _NETEASE_SEARCH_URL + "?" + urllib.parse.urlencode({"s": query, "type": 1, "limit": limit})
+    body = _netease_get(url)
+    if body.get("code") != 200:
+        raise LyricsApiError(f"网易云搜索失败（code {body.get('code')}）", code="upstream")
+    items: list[dict] = []
+    for song in (body.get("result") or {}).get("songs") or []:
+        album = song.get("album") or {}
+        items.append(
+            {
+                "id": int(song["id"]),
+                "title": (song.get("name") or "").strip(),
+                "artist": "/".join(a.get("name", "") for a in song.get("artists") or []).strip(),
+                "album": (album.get("name") or "").strip(),
+                "duration_ms": int(song.get("duration") or 0),
+                "cover_url": album.get("picUrl") or "",
+                "provider": "netease",
+            }
+        )
+    _cache_put(_search_cache, cache_key, items)
+    return items
+
+
+def _parse_yrc_json_line(raw: str) -> dict | None:
+    """yrc 里的元数据行（`[{t:8120,c:[{tx:"作词 : …"}]}]`）→ 无字块的普通行。
+
+    这种行不是标准 JSON（键没有引号），用正则取时间与文本即可。
+    """
+    m = _YRC_T_RE.search(raw)
+    texts = _YRC_TX_RE.findall(raw)
+    if m is None or not texts:
+        return None
+    start = int(m.group(1))
+    text = "".join(texts).strip()
+    if not text:
+        return None
+    return {"start": start, "end": start + 4000, "text": text}
+
+
+def _parse_yrc(text: str) -> list[dict]:
+    """网易云逐字歌词（yrc）→ 行数组。
+
+    行格式：`[起始ms,时长ms](起始ms,时长ms,0)字(起始ms,时长ms,0)字…`；
+    间奏行只有头部、没有字块，保留为空文本行（前端会跳过渲染）。
+    """
+    lines: list[dict] = []
+    for raw in (text or "").splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        head = _YRC_HEAD_RE.match(line)
+        if head is None:
+            row = _parse_yrc_json_line(line)
+            if row is not None:
+                lines.append(row)
+            continue
+        start, dur = int(head.group(1)), int(head.group(2))
+        tokens = list(_YRC_TOKEN_RE.finditer(line))
+        words: list[dict] = []
+        for i, tk in enumerate(tokens):
+            seg = line[tk.end(): tokens[i + 1].start() if i + 1 < len(tokens) else len(line)]
+            seg = seg.strip()
+            if not seg:
+                continue  # 间奏占位块（空文本）
+            w_start, w_dur = int(tk.group(1)), int(tk.group(2))
+            words.append({"start": w_start, "end": w_start + w_dur, "text": seg})
+        row = {
+            "start": start,
+            "end": max(start + dur, start + 1),
+            "text": "".join(w["text"] for w in words),
+        }
+        if words:
+            row["words"] = words
+        lines.append(row)
+    lines.sort(key=lambda r: r["start"])
+    return lines
+
+
+def _tlyric_map(text: str) -> dict[int, str]:
+    """LRC 形式的翻译行（tlyric）→ {起始ms: 翻译文本}。"""
+    out: dict[int, str] = {}
+    for raw in (text or "").splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        stamps = [_lrc_ms(m) for m in _TIME_RE.finditer(line)]
+        if not stamps:
+            continue
+        content = _TIME_RE.sub("", line).strip()
+        if content:
+            out.setdefault(stamps[0], content)
+    return out
+
+
+def _merge_trans(lines: list[dict], tmap: dict[int, str]) -> None:
+    """把翻译按起始时间贴回行数组（不覆盖已有翻译）。
+
+    yrc 行与 tlyric 行的起始时间严格相等；lrc 百分秒与 yrc 毫秒之间
+    可能有 10ms 级舍入差，做一次 ±10/±20 的就近匹配。
+    """
+    for row in lines:
+        if row.get("trans"):
+            continue
+        trans = tmap.get(row["start"])
+        if not trans:
+            for off in (-10, 10, -20, 20):
+                trans = tmap.get(row["start"] + off)
+                if trans:
+                    break
+        if trans:
+            row["trans"] = trans
+
+
+def netease_lyrics(song_id: int, cookie: str = "") -> dict:
+    """取网易云歌词：有逐字（yrc，需登录 Cookie）用逐字，否则逐行（lrc）。
+
+    返回 {lines, granularity: "word"|"line"}；两种都没有时按 404 报错。
+    """
+    url = _NETEASE_LYRIC_URL + "?" + urllib.parse.urlencode(
+        {"id": song_id, "cv": 4747474, "lv": 0, "kv": 0, "tv": 0, "rv": 0}
+    )
+    body = _netease_get(url, cookie)
+    if body.get("code") != 200:
+        raise LyricsApiError(
+            f"网易云歌词获取失败（code {body.get('code')}）", code="upstream"
+        )
+
+    yrc = ((body.get("yrc") or {}).get("lyric") or "").strip()
+    lrc = ((body.get("lrc") or {}).get("lyric") or "").strip()
+    tmap = _tlyric_map(((body.get("tlyric") or {}).get("lyric") or ""))
+
+    if yrc:
+        lines = _parse_yrc(yrc)
+        _merge_trans(lines, tmap)
+        return {"lines": lines, "granularity": "word"}
+    if lrc:
+        lines, unsynced = parse_lrc(lrc)
+        _merge_trans(lines, tmap)
+        result: dict = {"lines": lines, "granularity": "line"}
+        if unsynced:
+            result["unsynced"] = True
+        return result
+    raise LyricsApiError("这首歌在网易云没有歌词", code="song_not_found", status=404)
 
 
 # --------------------------------------------------------------------------- #
@@ -529,7 +751,12 @@ def parse_lrc(text: str) -> tuple[list[dict], bool]:
 def _pref_song(pref) -> dict | None:
     if pref is None or not pref.song_id:
         return None
-    return {"id": pref.song_id, "title": pref.song_title, "artist": pref.song_artist}
+    return {
+        "id": pref.song_id,
+        "title": pref.song_title,
+        "artist": pref.song_artist,
+        "provider": pref.provider or "lyriclib",
+    }
 
 
 def resolve_lyrics(db, node, blob_path: Path, fallback_title: str) -> dict:
@@ -558,13 +785,19 @@ def resolve_lyrics(db, node, blob_path: Path, fallback_title: str) -> dict:
         if pref is None or not pref.song_id:
             return {"source": "none", "matched": None, "lines": []}
         try:
-            data = fetch_lyrics(pref.song_id)
+            # 老库存的偏好没有 provider 字段，全部是 lyriclib 时代的数字 id，
+            # 不能拿去网易云查（两个来源的 id 不互通）
+            data = fetch_lyrics(pref.song_id, pref.provider or "lyriclib")
         except LyricsApiError as exc:
             return {
                 "source": "song", "matched": _pref_song(pref),
                 "lines": [], "error": exc.message or "歌词获取失败",
             }
-        return {"source": "song", "matched": _pref_song(pref), "lines": data.get("lines") or []}
+        return {
+            "source": "song", "matched": _pref_song(pref),
+            "lines": data.get("lines") or [],
+            "provider": data.get("provider"), "granularity": data.get("granularity"),
+        }
 
     # ---- auto：音频自带 → 在线搜索 → 无歌词 ----
     try:
@@ -580,6 +813,10 @@ def resolve_lyrics(db, node, blob_path: Path, fallback_title: str) -> dict:
     meta = audio_meta(blob_path, fallback_title)
     try:
         data = find_and_fetch(meta["title"], meta["artist"])
-        return {"source": "online", "matched": data.get("matched"), "lines": data.get("lines") or []}
+        return {
+            "source": "online", "matched": data.get("matched"),
+            "lines": data.get("lines") or [],
+            "provider": data.get("provider"), "granularity": data.get("granularity"),
+        }
     except LyricsApiError as exc:
         return {"source": "none", "matched": None, "lines": [], "error": exc.message or "没有找到这首歌的歌词"}

@@ -25,7 +25,7 @@ const FEATURES = [
     icon: "i-music",
     tone: "#f472b6",
     title: "全屏歌词播放器",
-    desc: "内嵌 / 在线歌词逐词高亮，对唱自动左右分边",
+    desc: "内嵌 / 网易云歌词逐词高亮，对唱自动左右分边",
   },
   {
     icon: "i-database",
@@ -67,6 +67,17 @@ const AUTHOR = {
 };
 
 const CHANGELOG = [
+  {
+    version: "0.3.51",
+    title: "网易云歌词（逐字 / 逐行）",
+    items: [
+      "在线歌词默认改走网易云接口：免密钥即可搜索与拿逐行歌词（lrc），原来的自建歌词库改为 LYRICS_PROVIDER=lyriclib 可选",
+      "配置 NETEASE_COOKIE（网页版 Cookie 里的 MUSIC_U=...）后升级为逐字歌词（yrc）并带翻译；不配置时自动退回逐行，Cookie 只存服务端",
+      "yrc 逐字时间轴完整解析（含间奏行与元数据行），翻译按行起始时间对齐到逐字行上",
+      "「搜索指定」的每首歌偏好记录来源（netease / lyriclib），老库自动补列，旧偏好仍按歌词库解析",
+      "播放器底部信息栏显示来源标签（内嵌 / 自定义 / 网易云·逐字 / 网易云·逐行 / 歌词库），搜索结果带来源角标",
+    ],
+  },
   {
     version: "0.3.50",
     title: "协议与隐私政策",
