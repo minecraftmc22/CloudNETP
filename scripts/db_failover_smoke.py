@@ -183,13 +183,45 @@ def part_a() -> None:
 
 # ================================================================ B. 端到端降级
 
+def seed_fallback_user(storage_dir: Path) -> None:
+    """直接在容灾 SQLite 里预置一个账号。
+
+    注册接口从 0.3.18 起强制图形验证码，脚本没法识别 SVG 里的点阵码，
+    所以这里把账号写进库（等价于「站点已经有账号」），后面走登录接口拿会话。
+    """
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session
+
+    from app.db import Base
+    from app.models import User, UserSetting
+    from app.security import hash_password
+
+    db_path = storage_dir / "db" / "fallback.db"
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    engine = create_engine(f"sqlite:///{db_path.as_posix()}", future=True)
+    Base.metadata.create_all(engine)
+    with Session(engine) as sess, sess.begin():
+        user = User(
+            username="fbprobe",
+            password_hash=hash_password("FbProbe#2026"),
+            role=1,
+            display_name="fbprobe",
+        )
+        sess.add(user)
+        sess.flush()
+        sess.add(UserSetting(user_id=user.id))
+    engine.dispose()
+
+
 def part_b() -> None:
     print("\n[B] 端到端：主库不可达 → 启动即降级 SQLite")
     tmp = Path(tempfile.mkdtemp(prefix="failover_b_"))
+    storage_dir = tmp / "storage"
+    seed_fallback_user(storage_dir)
     env = os.environ.copy()
     env.update({
         "DATABASE_URL": "mysql+pymysql://nobody:nope@127.0.0.1:1/nonexistent",
-        "STORAGE_DIR": str(tmp / "storage"),
+        "STORAGE_DIR": str(storage_dir),
         "PORT": str(PORT),
         "RELOAD": "false",
         "DB_PROBE_INTERVAL": "15",
@@ -224,20 +256,20 @@ def part_b() -> None:
         check("meta 可用", code == 200)
         check("meta.dbMode = fallback", meta.get("dbMode") == "fallback", str(meta.get("dbMode")))
 
-        # 降级模式下全功能：注册（首个=管理员）→ 登录 → 建文件夹 → 上传 → 列表
-        code, _, headers = request("POST", f"{BASE}/api/auth/register",
-                                   {"username": "fbprobe", "password": "FbProbe#2026"})
-        check("降级模式可注册", code in (200, 201), f"{code}")
+        # 注册接口强制图形验证码：不带码必须被拦（0.3.18+ 的行为，顺带回归一次）
+        code, body, _ = request("POST", f"{BASE}/api/auth/register",
+                                {"username": "fbprobe2", "password": "FbProbe#2026"})
+        check("降级模式下注册仍要验证码",
+              code == 400 and "验证码" in str(body.get("detail", "")), f"{code} {body}")
+
+        # 登录预置账号 → 拿会话
+        code, body, headers = request("POST", f"{BASE}/api/auth/login",
+                                      {"username": "fbprobe", "password": "FbProbe#2026"})
+        check("降级模式可登录", code == 200, f"{code} {body}")
         cookie = ""
         for v in headers.get_all("Set-Cookie") or []:
             if v.startswith("cloudnetp_session="):
                 cookie = v.split(";")[0]
-        if not cookie:  # 注册响应没带会话就补一次登录
-            code, _, headers = request("POST", f"{BASE}/api/auth/login",
-                                       {"username": "fbprobe", "password": "FbProbe#2026"})
-            for v in headers.get_all("Set-Cookie") or []:
-                if v.startswith("cloudnetp_session="):
-                    cookie = v.split(";")[0]
         check("拿到会话 Cookie", bool(cookie))
 
         code, me, _ = request("GET", f"{BASE}/api/me", cookie=cookie)

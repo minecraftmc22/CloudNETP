@@ -54,8 +54,15 @@ def free_port() -> int:
 
 
 def snapshot_db(dst: Path) -> None:
-    """用 SQLite 备份 API 复制 dev.db（连 WAL 里没落盘的内容一起带走）。"""
-    src = sqlite3.connect(str(ROOT / "dev.db"))
+    """用 SQLite 备份 API 复制现役库（连 WAL 里没落盘的内容一起带走）。
+
+    dev.db 是早先单独跑的开发库；现在默认库是容灾副本 storage/db/fallback.db，
+    两个都不在时按只读方式打开会直接报错，不会静默建一个空库。
+    """
+    src_path = ROOT / "dev.db"
+    if not src_path.is_file():
+        src_path = ROOT / "storage" / "db" / "fallback.db"
+    src = sqlite3.connect(f"file:{src_path.as_posix()}?mode=ro", uri=True)
     out = sqlite3.connect(str(dst))
     try:
         src.backup(out)
@@ -90,7 +97,7 @@ def main() -> None:
     row = con.execute("select id, token_version from users where role = 1 order by id limit 1").fetchone()
     con.close()
     if not row:
-        raise SystemExit("dev.db 里没有管理员，先手动建一个再来跑这个脚本")
+        raise SystemExit("库里没有管理员，先手动建一个再来跑这个脚本")
     cookie = f"cloudnetp_session={create_token(row[0], row[1])}"
 
     port = free_port()
