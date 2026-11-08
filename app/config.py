@@ -169,13 +169,15 @@ class Settings:
     SQLITE_PATH: str = _get("SQLITE_PATH").strip()
     SQLITE_TIMEOUT: int = _get_int("SQLITE_TIMEOUT", 30)
 
-    # ---- 歌词 API（音频预览的逐词歌词）----
-    # provider = netease：直连网易云接口，免密钥即可搜索 + 逐行歌词；
-    #   配置 NETEASE_COOKIE（网页版 Cookie 里的 MUSIC_U=...）后可拿逐字歌词（yrc）。
-    # provider = lyriclib：走自建歌词库（LYRICS_API_BASE + KEY），即 0.2.x 的行为。
-    # 密钥/Cookie 只放服务端，前端通过 /api/lyrics 代理访问，避免泄露。
+    # ---- 歌词（音频预览的逐行/逐字歌词）----
+    # 来源由 LYRICS_PROVIDER 决定，两套来源的凭据互相独立、可同时保留：
+    #   netease  直连网易云，免密钥；NETEASE_COOKIE 仅用于解锁逐字歌词（yrc）与翻译
+    #   lyriclib 走 MC22 自建歌词库，读 LYRICS_API_BASE + LYRICS_API_KEY
+    # 凭据只放服务端，前端通过 /api/lyrics 代理访问，避免泄露。
     LYRICS_PROVIDER: str = _get("LYRICS_PROVIDER", "netease").strip().lower()
+    # 来源 A：网易云（Cookie 留空 → 逐行歌词）
     NETEASE_COOKIE: str = _get("NETEASE_COOKIE")
+    # 来源 B：MC22 歌词库（仅 provider=lyriclib 时读取）
     LYRICS_API_BASE: str = _get("LYRICS_API_BASE", "https://minecraftmc22.top/lyric/api/v1").rstrip("/")
     LYRICS_API_KEY: str = _get("LYRICS_API_KEY")
 

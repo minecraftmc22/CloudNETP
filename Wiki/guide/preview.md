@@ -38,7 +38,9 @@ order: 4
   配了 `NETEASE_COOKIE`（网页版 Cookie 里的 `MUSIC_U=...`）就能拿到**逐字歌词（yrc）与翻译**，
   播放时按字推进高亮；Cookie 只存在服务端，前端拿不到。
 - 播放器顶部会标出当前来源：内嵌歌词 / 自定义歌词 / 网易云 · 逐字 / 网易云 · 逐行 / 歌词库。
-- 想继续用自建歌词库就设 `LYRICS_PROVIDER=lyriclib`，并填 `LYRICS_API_BASE` / `LYRICS_API_KEY`。
+- 想继续用 MC22 自建歌词库就设 `LYRICS_PROVIDER=lyriclib`，填 `LYRICS_API_BASE`（接口地址）与
+  `LYRICS_API_KEY`（密钥）。网易云的 Cookie 与歌词库的密钥在 `.env` 里分开放、互不影响，
+  切来源只改 `LYRICS_PROVIDER`，不用搬凭据。
 
 ## PDF
 
