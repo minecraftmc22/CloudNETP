@@ -204,6 +204,107 @@
 .auth-form__submit {
   margin-top: var(--sp-1);
 }
+
+/* ---- 「已阅读并同意」勾选行 ---- */
+.auth-agree {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 3px;
+  margin-top: 2px;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-3);
+}
+.auth-agree__pick {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+  user-select: none;
+}
+/* 原生框只负责点击与键盘焦点，视觉上换成方块 + 勾（勾由叠加的 svg 画） */
+.auth-agree input {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  border-radius: 4px;
+  border: 1.5px solid color-mix(in srgb, var(--text-3) 55%, transparent);
+  background: color-mix(in srgb, var(--layer-2) 60%, transparent);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-standard),
+    border-color var(--dur-fast) var(--ease-standard);
+}
+.auth-agree__box {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 15px;
+  height: 15px;
+  display: grid;
+  place-items: center;
+  transform: translateY(-50%);
+  /* 不拦截 pointer，点击直接落到下面的 input 上 */
+  pointer-events: none;
+}
+.auth-agree__box .icon {
+  width: 10px;
+  height: 10px;
+  color: #fff;
+  opacity: 0;
+  stroke-width: 3;
+  transition: opacity var(--dur-fast) var(--ease-standard);
+}
+.auth-agree input:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.auth-agree input:checked ~ .auth-agree__box .icon {
+  opacity: 1;
+}
+.auth-agree input:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 50%, transparent);
+  outline-offset: 2px;
+}
+.auth-agree__link {
+  color: var(--accent);
+  text-decoration: none;
+}
+.auth-agree__link:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.auth-agree.is-warn {
+  color: var(--danger);
+  animation: auth-agree-shake 0.3s var(--ease-standard, ease);
+}
+.auth-agree.is-warn .auth-agree__box {
+  color: var(--danger);
+}
+.auth-agree.is-warn input {
+  border-color: var(--danger);
+}
+@keyframes auth-agree-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-4px);
+  }
+  60% {
+    transform: translateX(3px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .auth-agree.is-warn {
+    animation: none;
+  }
+}
 .auth-form__msg {
   min-height: 18px;
   font-size: 12px;

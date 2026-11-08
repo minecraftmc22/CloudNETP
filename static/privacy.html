@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#fdf4fa">
+  <meta name="version" content="0.3.50">
+  <title>隐私政策 · CloudNETP</title>
+  <meta name="description" content="CloudNETP 隐私政策：我们收集哪些数据、存在哪里、保留多久、谁会看到，以及你可以行使哪些权利。">
+  <link rel="icon" href="/assets/favicon.ico" sizes="any">
+  <link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon-32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/assets/favicon-16.png">
+  <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <link rel="stylesheet" href="/static/css/theme.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+  <link rel="stylesheet" href="/static/css/legal.css">
+</head>
+<body>
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <symbol id="i-back" viewBox="0 0 24 24"><path d="M14.5 6 8.5 12l6 6"/></symbol>
+      <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3.6 5.6 6v5.4c0 3.6 2.5 6.9 6.4 8.2 3.9-1.3 6.4-4.6 6.4-8.2V6Z"/></symbol>
+      <symbol id="i-mail" viewBox="0 0 24 24"><rect x="3.6" y="5.4" width="16.8" height="13.2" rx="2.4"/><path d="m4.4 7 7.6 5.6L19.6 7"/></symbol>
+    </defs>
+  </svg>
+
+  <div class="legal-page">
+    <header class="legal-brand">
+      <div class="legal-brand__id">
+        <img class="legal-brand__mark" src="/assets/brand-avatar.png" alt="" width="24" height="24">
+        <span data-site>CloudNETP</span>
+      </div>
+      <a class="legal-brand__back" href="/" data-back>
+        <svg class="icon"><use href="#i-back"/></svg>
+        <span data-back-label>返回登录</span>
+      </a>
+    </header>
+
+    <main class="legal-main">
+      <article class="legal-doc">
+        <div class="legal-doc__head">
+          <span class="legal-doc__tag">隐私政策</span>
+          <h1>隐私政策</h1>
+          <p class="legal-doc__meta">修订日期 2026-11-08 · 说明我们收集什么、为什么收集、存在哪里</p>
+          <p class="legal-note" data-lang-note hidden>
+            This policy is provided in Chinese. The Chinese text is the authoritative version;
+            if you need an English summary, contact the site administrator.
+          </p>
+        </div>
+
+        <nav class="legal-toc" aria-label="条款目录" data-toc hidden>
+          <div class="legal-toc__title">内容目录</div>
+          <ol></ol>
+        </nav>
+
+        <div class="legal-body">
+          <section>
+            <h2>写在前面</h2>
+            <p>
+              <strong data-site>CloudNETP</strong> 是一个自托管的网盘程序。本网站由站点运营者搭建在自己的
+              服务器上，<strong>数据存放在运营者的机器里，而不是程序作者的服务器上</strong>；
+              作者接触不到任何站点数据。
+            </p>
+            <p>
+              本政策只覆盖这个网站本身。若你在别处部署同一程序，数据处理由那边的运营者负责。
+            </p>
+          </section>
+
+          <section>
+            <h2>我们收集哪些信息</h2>
+            <h3>你主动提供的信息</h3>
+            <ul>
+              <li><strong>账号信息</strong>：用户名、密码、可选邮箱、可选昵称与头像。密码只以 scrypt 派生值保存，无法还原明文。</li>
+              <li><strong>你上传的内容</strong>：文件本身、文件夹结构、文件名与大小、上传时间等元数据。</li>
+              <li><strong>意见反馈</strong>：你填写的描述、联系方式，以及（若附带）截图。</li>
+              <li><strong>分享设置</strong>：分享对象、提取码、有效期、下载次数上限。</li>
+            </ul>
+            <h3>使用过程中自动产生的信息</h3>
+            <ul>
+              <li><strong>登录与安全日志</strong>：登录时间、IP 地址、失败次数，用于识别暴力破解与异常登录。</li>
+              <li><strong>操作审计</strong>：登录、上传、删除、分享、改名、管理操作等动作的名称、时间、IP 与简要参数。</li>
+              <li><strong>技术信息</strong>：浏览器类型、访问时间等由服务器日志自然记录的字段。</li>
+              <li><strong>文件摘要</strong>：为支持秒传与去重，系统会计算文件的 SHA-256 摘要。</li>
+            </ul>
+            <h3>看板娘 AI 对话</h3>
+            <p>
+              若你使用站内的 AI 对话，你和它说的话、附带的图片、以及它调用工具的记录会被处理。
+              <strong>这些内容会发送给站点管理员配置的模型服务商</strong>（例如 OpenAI、DeepSeek 或自建服务），
+              因此同时受该服务商的隐私条款约束。对话记录保存在站点的数据库里，供你和运营者查看与排查问题。
+            </p>
+          </section>
+
+          <section>
+            <h2>我们如何使用这些信息</h2>
+            <ul>
+              <li>提供登录、存储、预览、分享、WebDAV 等核心功能；</li>
+              <li>维持安全：识别异常登录、限制暴力破解、处理举报与黑名单；</li>
+              <li>排查故障与计费（若站点启用了配额与计费）；</li>
+              <li>在你主动触发时更新检查与版本提示。</li>
+            </ul>
+            <p>
+              我们不会把你的内容用于广告投放、用户画像或训练模型；也不会出售、出租你的个人信息。
+            </p>
+          </section>
+
+          <section>
+            <h2>信息存在哪里、保留多久</h2>
+            <ul>
+              <li><strong>存储位置</strong>：站点运营者的服务器（数据库与文件目录），物理位置以该服务器为准。</li>
+              <li><strong>文件</strong>：保留到你删除为止。删除后先进入回收站，保留期限由运营者设定（默认 30 天），到期自动清理。</li>
+              <li><strong>审计与登录日志</strong>：为安全与追责保留，期限由运营者决定；管理员可在后台清理。</li>
+              <li><strong>账号信息</strong>：保留到账号注销为止；注销后与该账号关联的会话、设置会被删除。</li>
+            </ul>
+            <div class="legal-em">
+              <p>
+                提醒：<strong>运营者在技术上可以访问服务器上的文件与日志</strong>。这是自托管服务的固有特征，
+                不因本政策而改变。若你不接受这一点，请不要上传敏感或机密资料。
+              </p>
+            </div>
+          </section>
+
+          <section>
+            <h2>Cookie 与本地存储</h2>
+            <ul>
+              <li>
+                <strong>会话 Cookie</strong>（<code>cloudnetp_session</code>）：HttpOnly、SameSite=Lax，
+                只用于识别登录状态，不用于追踪你的站外行为。
+              </li>
+              <li>
+                <strong>本地存储</strong>：界面语言、主题、背景、布局、看板娘位置等偏好保存在你浏览器的
+                localStorage 里，换设备不会自动同步（语言与主题会随账号同步）。
+              </li>
+              <li>本站不接入第三方统计、广告或社交追踪脚本。</li>
+            </ul>
+          </section>
+
+          <section>
+            <h2>谁会看到你的信息</h2>
+            <ul>
+              <li><strong>站点运营者 / 管理员</strong>：可查看账号列表、存储用量、审计日志、举报内容，并可管理用户。</li>
+              <li><strong>分享的接收者</strong>：仅能看到你主动分享的文件；提取码与有效期由你设定。</li>
+              <li><strong>模型服务商</strong>：仅当你使用 AI 对话时，对话内容会发往管理员配置的服务商。</li>
+              <li><strong>司法机关</strong>：仅在依法提出要求时，按法定程序提供必要信息。</li>
+            </ul>
+            <p>除此之外，我们不会主动向任何第三方披露你的信息。</p>
+          </section>
+
+          <section>
+            <h2>你的权利</h2>
+            <ul>
+              <li><strong>查看与更正</strong>：在「设置 → 个人资料」查看并修改昵称、头像、邮箱与密码。</li>
+              <li><strong>导出</strong>：随时下载自己的文件；文件夹可整体打包下载。</li>
+              <li><strong>删除</strong>：删除文件、清空回收站、删除分享链接、清除反馈。</li>
+              <li><strong>注销</strong>：可请求运营者删除账号及关联数据；法律法规要求留存的部分除外。</li>
+            </ul>
+            <p>行使上述权利遇到阻碍时，可通过下方联系方式提出，运营者会在合理期限内答复。</p>
+          </section>
+
+          <section>
+            <h2>我们如何保护数据</h2>
+            <ul>
+              <li>密码使用 scrypt 加盐派生后保存，不存明文；</li>
+              <li>会话 Cookie 带 HttpOnly 与 SameSite 限制，降低脚本窃取与跨站请求风险；</li>
+              <li>AI 接口密钥在服务端加密保存，前端只显示掩码；</li>
+              <li>管理接口做权限校验与来源校验，敏感操作写入审计日志；</li>
+              <li>建议运营者启用 HTTPS，防止传输过程被窃听。</li>
+            </ul>
+            <p>
+              任何系统都无法保证绝对安全。发生数据安全事件时，运营者会尽快排查，
+              并在必要时通知受影响用户。
+            </p>
+          </section>
+
+          <section>
+            <h2>未成年人</h2>
+            <p>
+              本服务不面向未成年人单独提供。未满 14 周岁的用户应在监护人同意与指导下使用；
+              若发现未经监护人同意收集了相关信息，运营者会删除对应账号与数据。
+            </p>
+          </section>
+
+          <section>
+            <h2>政策更新</h2>
+            <p>
+              功能或法律要求变化时，本政策会随之更新，并在本页更新「修订日期」。
+              涉及你权利的重大变更，会在站内公告。
+            </p>
+          </section>
+
+          <section>
+            <h2>联系我们</h2>
+            <p>
+              对本政策有疑问，或想行使上述权利，可通过
+              <a class="legal-contact" data-contact href="#" hidden><svg class="icon icon--s"><use href="#i-mail"/></svg><span data-contact-text></span></a>
+              <span data-contact-empty>站点内「意见反馈」联系站点运营者。</span>
+            </p>
+            <p>本政策以中文版本为准，与《用户协议》共同构成你与站点运营者之间的约定。</p>
+          </section>
+        </div>
+      </article>
+    </main>
+
+    <footer class="legal-foot">
+      <a href="/terms">用户协议</a>
+      <span class="legal-foot__sep">·</span>
+      <a href="/privacy">隐私政策</a>
+      <span class="legal-foot__sep">·</span>
+      <span data-site>CloudNETP</span>
+      <span class="legal-foot__sep">·</span>
+      <span data-version>v0.3.50</span>
+    </footer>
+  </div>
+
+  <script type="module" src="/static/js/legal.js"></script>
+</body>
+</html>

@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#fdf4fa">
+  <meta name="version" content="0.3.50">
+  <title>用户协议 · CloudNETP</title>
+  <meta name="description" content="使用 CloudNETP 网盘服务前请阅读本协议，内容涵盖账号、用户内容、使用规范、分享、存储与服务变更。">
+  <link rel="icon" href="/assets/favicon.ico" sizes="any">
+  <link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon-32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/assets/favicon-16.png">
+  <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <link rel="stylesheet" href="/static/css/theme.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+  <link rel="stylesheet" href="/static/css/legal.css">
+</head>
+<body>
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <symbol id="i-back" viewBox="0 0 24 24"><path d="M14.5 6 8.5 12l6 6"/></symbol>
+      <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3.6 5.6 6v5.4c0 3.6 2.5 6.9 6.4 8.2 3.9-1.3 6.4-4.6 6.4-8.2V6Z"/></symbol>
+      <symbol id="i-mail" viewBox="0 0 24 24"><rect x="3.6" y="5.4" width="16.8" height="13.2" rx="2.4"/><path d="m4.4 7 7.6 5.6L19.6 7"/></symbol>
+    </defs>
+  </svg>
+
+  <div class="legal-page">
+    <header class="legal-brand">
+      <div class="legal-brand__id">
+        <img class="legal-brand__mark" src="/assets/brand-avatar.png" alt="" width="24" height="24">
+        <span data-site>CloudNETP</span>
+      </div>
+      <a class="legal-brand__back" href="/" data-back>
+        <svg class="icon"><use href="#i-back"/></svg>
+        <span data-back-label>返回登录</span>
+      </a>
+    </header>
+
+    <main class="legal-main">
+      <article class="legal-doc">
+        <div class="legal-doc__head">
+          <span class="legal-doc__tag">法律条款</span>
+          <h1>用户协议</h1>
+          <p class="legal-doc__meta">修订日期 2026-11-08 · 适用于本网站提供的全部服务</p>
+          <p class="legal-note" data-lang-note hidden>
+            This agreement is provided in Chinese. The Chinese text is the authoritative version;
+            if you need an English summary, contact the site administrator.
+          </p>
+        </div>
+
+        <nav class="legal-toc" aria-label="条款目录" data-toc hidden>
+          <div class="legal-toc__title">条款目录</div>
+          <ol></ol>
+        </nav>
+
+        <div class="legal-body">
+          <section>
+            <h2>服务说明</h2>
+            <p>
+              <strong data-site>CloudNETP</strong> 是一个可私有部署的网络存储程序。本网站由站点运营者
+              自行搭建与维护，为注册用户提供文件上传、存储、在线预览、分享链接与 WebDAV 挂载等功能。
+            </p>
+            <p>
+              站点运营者负责本机的数据、带宽与服务连续性；程序本身的作者不参与本站运营，也不接触你的数据，
+              因此不承担本站服务层面的义务。你与站点运营者之间的权利义务，以本协议为准。
+            </p>
+            <p>使用本服务即表示你已阅读并接受本协议与《隐私政策》。若不接受，请停止注册或使用。</p>
+          </section>
+
+          <section>
+            <h2>账号与安全</h2>
+            <ul>
+              <li>你需要提供用户名与密码完成注册；邮箱可选，仅用于找回密码与必要通知。</li>
+              <li>首个注册的账号会自动成为站点管理员，请确认你知道自己在做什么，并及时设置强密码。</li>
+              <li>账号仅限本人使用，不得出借、出租或转售。因保管不当导致的泄露与损失，由账号持有人承担。</li>
+              <li>发现账号被他人使用时，请立即修改密码并通知站点运营者。</li>
+            </ul>
+          </section>
+
+          <section>
+            <h2>你的内容</h2>
+            <p>
+              你上传的文件、文件夹名称与相关元数据仍归你所有。本服务不会主张对你内容的任何权利，
+              也不会将其用于广告或画像。
+            </p>
+            <p>
+              为提供功能，系统会计算文件的 SHA-256 摘要以支持秒传与去重；相同内容的文件在同一存储中
+              只保留一份物理副本。这是技术实现，不代表系统了解文件的具体内容。
+            </p>
+            <div class="legal-em">
+              <p>
+                请注意：本站是自托管服务，<strong>服务器与数据库由站点运营者掌握</strong>。在技术上，
+                运营者可以访问存储的文件与部分日志。若你不信任运营者，请不要上传敏感资料。
+              </p>
+            </div>
+          </section>
+
+          <section>
+            <h2>使用规范</h2>
+            <p>你承诺不利用本服务从事或协助下列行为：</p>
+            <ul>
+              <li>上传、存储、传播违反法律法规的内容，或侵犯他人著作权、商标权、隐私权等权益的内容；</li>
+              <li>上传恶意程序、病毒、勒索软件，或把本服务当作恶意样本的分发渠道；</li>
+              <li>未经授权访问他人空间、探测系统漏洞、绕过配额与鉴权、对服务实施拒绝服务攻击；</li>
+              <li>批量注册账号、自动化刷取接口，或以其它方式滥用带宽与存储资源；</li>
+              <li>把本服务用于搭建与站点运营者约定无关的公开分发站（如大文件分发、图床外链）。</li>
+            </ul>
+            <p>
+              违反上述规范时，站点运营者可以视情节删除内容、限制功能、暂停或终止账号，
+              并保留依法追究责任与向主管部门报告的权利。
+            </p>
+          </section>
+
+          <section>
+            <h2>分享与公开链接</h2>
+            <ul>
+              <li>你可以为文件或文件夹创建分享链接，并可设置提取码、有效期与下载次数上限。</li>
+              <li>
+                <strong>分享链接一旦泄露，任何拿到链接的人都能访问对应内容</strong>；提取码只是额外的门槛，
+                不构成加密保护。
+              </li>
+              <li>你应自行确保分享内容不侵犯他人权益。站点运营者对公开分享内容设有举报与审核机制。</li>
+              <li>删除原文件或关闭分享后，链接会立即失效；已下载的副本无法追回。</li>
+            </ul>
+          </section>
+
+          <section>
+            <h2>存储空间与回收站</h2>
+            <ul>
+              <li>每个账号有独立的存储配额，用量以达到配额为限；超出时无法继续上传。</li>
+              <li>删除的文件会先进入回收站，保留期限由站点运营者设定，到期自动清理且不可恢复。</li>
+              <li>请自行保留重要数据的副本。本服务不是备份服务，不承诺任何级别的数据可靠性。</li>
+            </ul>
+          </section>
+
+          <section>
+            <h2>服务变更与终止</h2>
+            <ul>
+              <li>站点运营者可因维护、升级、硬件或网络故障暂停服务，并尽量提前公告。</li>
+              <li>运营者有权调整功能、配额与计费方式；重大变更会在站内公告。</li>
+              <li>你可以随时停止使用并删除自己的内容。长期不用或欠费（若启用计费）的账号可能被清理。</li>
+              <li>服务整体下线时，运营者会给出合理期限供你导出数据，法律另有规定的除外。</li>
+            </ul>
+          </section>
+
+          <section>
+            <h2>免责与责任限制</h2>
+            <p>
+              本服务按「现状」提供，不附带任何明示或默示的担保，包括但不限于适销性、特定用途适用性与
+              不侵权担保。在法律允许的最大范围内，站点运营者不对因使用或无法使用本服务造成的
+              间接损失、数据丢失、利润损失承担责任。
+            </p>
+            <p>
+              因不可抗力、网络攻击、第三方服务故障或你自身操作不当导致的损失，运营者不承担责任，
+              但会尽力协助排查与恢复。
+            </p>
+          </section>
+
+          <section>
+            <h2>协议更新</h2>
+            <p>
+              运营者可因功能变化或法律要求修订本协议。修订后会在本页更新「修订日期」，
+              重大变更会在站内公告。修订生效后继续使用，视为接受新版本；
+              若不同意，请停止使用并可申请删除账号。
+            </p>
+          </section>
+
+          <section>
+            <h2>联系我们</h2>
+            <p>
+              对本协议有疑问，或需要行使与本协议相关的权利，可通过
+              <a class="legal-contact" data-contact href="#" hidden><svg class="icon icon--s"><use href="#i-mail"/></svg><span data-contact-text></span></a>
+              <span data-contact-empty>站点内「意见反馈」联系站点运营者。</span>
+            </p>
+            <p>本协议以中文版本为准。协议未尽事宜，按服务所在地法律法规处理。</p>
+          </section>
+        </div>
+      </article>
+    </main>
+
+    <footer class="legal-foot">
+      <a href="/terms">用户协议</a>
+      <span class="legal-foot__sep">·</span>
+      <a href="/privacy">隐私政策</a>
+      <span class="legal-foot__sep">·</span>
+      <span data-site>CloudNETP</span>
+      <span class="legal-foot__sep">·</span>
+      <span data-version>v0.3.50</span>
+    </footer>
+  </div>
+
+  <script type="module" src="/static/js/legal.js"></script>
+</body>
+</html>

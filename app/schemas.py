@@ -23,6 +23,8 @@ class RegisterIn(CamelModel):
     email: str | None = Field(default=None, max_length=254)
     captcha_id: str = Field(default="", max_length=64)
     captcha: str = Field(default="", max_length=16)
+    # 必须显式同意《用户协议》与《隐私政策》：前端勾选后传 true，接口层也挡一次
+    agree: bool = Field(default=False)
 
 
 class LoginIn(CamelModel):

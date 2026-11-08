@@ -11,6 +11,9 @@ import { H, LANGS, getLang, setLang, t } from "../i18n.js";
 import { PASSWORD_MAX, passwordProblem, strengthOf } from "../password.js";
 
 // 注意是函数：模块加载时语言还没初始化，模板必须在渲染时现算
+// 勾选状态放在模块作用域：登录页切语言会整块重绘，勾过的不该被清掉
+let agreeChecked = false;
+
 const template = () => H`
   <div class="auth-stage">
     <div class="auth-lang">
@@ -115,6 +118,17 @@ const template = () => H`
               <img data-captcha-img alt="验证码">
             </button>
           </div>
+        </div>
+
+        <div class="auth-agree" data-agree-row>
+          <label class="auth-agree__pick">
+            <input type="checkbox" data-agree ${agreeChecked ? "checked" : ""}>
+            <span class="auth-agree__box"><svg class="icon"><use href="#i-check"/></svg></span>
+            <span>${t("已阅读并同意")}</span>
+          </label>
+          <a class="auth-agree__link" href="/terms" target="_blank" rel="noopener">${t("《用户协议》")}</a>
+          <span>${t("和")}</span>
+          <a class="auth-agree__link" href="/privacy" target="_blank" rel="noopener">${t("《隐私政策》")}</a>
         </div>
 
         <div class="auth-form__msg" data-msg></div>
@@ -226,6 +240,14 @@ export function renderAuth(root, { meta = {}, onSuccess }) {
   const forgotConfirmField = el("[data-f-fconfirm]");
   const forgotHelp = el("[data-fhelp]");
   const forgotSubmit = el("[data-fsubmit]");
+  const agreeRow = el("[data-agree-row]");
+  const agreeInput = el("[data-agree]");
+
+  // 勾选状态跟着模块变量走，切语言重绘后还在
+  agreeInput?.addEventListener("change", () => {
+    agreeChecked = Boolean(agreeInput.checked);
+    if (agreeChecked) agreeRow?.classList.remove("is-warn");
+  });
 
   root.querySelectorAll("[data-auth-lang]").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -435,6 +457,17 @@ export function renderAuth(root, { meta = {}, onSuccess }) {
       if (!captcha) return showError("请输入图形验证码");
     }
 
+    // 登录与注册都要先同意协议；未勾选时把勾选行抖一下，比只飘一行字更容易看见
+    if (!agreeInput?.checked) {
+      if (agreeRow) {
+        agreeRow.classList.remove("is-warn");
+        void agreeRow.offsetWidth; // 强制重排，让动画能重放
+        agreeRow.classList.add("is-warn");
+      }
+      agreeInput?.focus();
+      return showError("请先阅读并同意《用户协议》和《隐私政策》");
+    }
+
     submit.dataset.busy = "1";
     submit.disabled = true;
     const original = submit.innerHTML;
@@ -465,6 +498,8 @@ export function renderAuth(root, { meta = {}, onSuccess }) {
           email: email || null,
           captchaId,
           captcha,
+          // 服务端也会校验：前端只是提前拦一次，接口不允许绕过
+          agree: true,
         });
         restore();
         onSuccess?.(data.user, data.firstAdmin);

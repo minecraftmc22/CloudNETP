@@ -10,7 +10,7 @@
  *
  * 改版本号时记得同步改这里的 VERSION 与 app/config.py 的 VERSION。
  */
-const VERSION = "0.3.36";
+const VERSION = "0.3.50";
 const SHELL = `cloudnetp-shell-${VERSION}`;
 const RUNTIME = `cloudnetp-runtime-${VERSION}`;
 const CACHE_PREFIX = "cloudnetp-";
@@ -21,6 +21,8 @@ const PRECACHE = [
   "/static/index.html",
   "/static/share.html",
   "/static/offline.html",
+  "/terms",
+  "/privacy",
   "/manifest.webmanifest",
   "/assets/favicon.ico",
   "/assets/favicon-32.png",
@@ -39,6 +41,7 @@ const PRECACHE = [
   "/static/css/preview.css",
   "/static/css/admin.css",
   "/static/css/share.css",
+  "/static/css/legal.css",
   "/static/css/mobile.css",
   "/static/js/api.js",
   "/static/js/app.js",
@@ -49,6 +52,7 @@ const PRECACHE = [
   "/static/js/petals.js",
   "/static/js/sha256.js",
   "/static/js/share.js",
+  "/static/js/legal.js",
   "/static/js/uploader.js",
   "/static/js/views/auth.js",
   "/static/js/views/files.js",

@@ -174,6 +174,11 @@ def register(
     check_origin(request)
     if not settings_store.get_flag(db, "allow_register"):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "站点已关闭注册")
+    # 勾选是注册的前置条件：不经过前端、直接调接口也要挡住
+    if not payload.agree:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "请先阅读并同意《用户协议》和《隐私政策》"
+        )
 
     # 先查格式，再验验证码：格式错误不该白烧一张验证码
     username = payload.username.strip()

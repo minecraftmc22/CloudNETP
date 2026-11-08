@@ -161,6 +161,18 @@ def favicon() -> FileResponse:
     return FileResponse(STATIC_DIR / "assets" / "favicon.ico", media_type="image/x-icon")
 
 
+@app.get("/terms", include_in_schema=False)
+def terms_page() -> FileResponse:
+    """用户协议：登录/注册页的「已阅读并同意」指向这里，未登录也能打开。"""
+    return FileResponse(STATIC_DIR / "terms.html", headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/privacy", include_in_schema=False)
+def privacy_page() -> FileResponse:
+    """隐私政策：同上，独立页面，不依赖登录态。"""
+    return FileResponse(STATIC_DIR / "privacy.html", headers={"Cache-Control": "no-cache"})
+
+
 @app.get("/manifest.webmanifest", include_in_schema=False)
 def webmanifest() -> FileResponse:
     """PWA 清单。必须挂在根路径，start_url / scope 才能覆盖整站。"""

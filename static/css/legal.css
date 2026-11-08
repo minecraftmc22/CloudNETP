@@ -1,0 +1,315 @@
+/* ============================================================
+   用户协议 / 隐私政策（独立静态页，共用 theme.css 的 token）
+   ============================================================ */
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: "Segoe UI Variable Text", "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  color: var(--text-1);
+  background: radial-gradient(
+      1200px 600px at 12% -10%,
+      color-mix(in srgb, var(--accent) 16%, transparent),
+      transparent 70%
+    ),
+    radial-gradient(
+      900px 500px at 105% 0%,
+      color-mix(in srgb, var(--accent-warm) 20%, transparent),
+      transparent 65%
+    ),
+    var(--layer-1);
+}
+
+.legal-page {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  padding: calc(26px + env(safe-area-inset-top, 0px)) 20px calc(36px + env(safe-area-inset-bottom, 0px));
+}
+
+/* ---------- 页头 ---------- */
+.legal-brand {
+  width: min(820px, 100%);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.legal-brand__id {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-2);
+  letter-spacing: 0.4px;
+}
+.legal-brand__mark {
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  object-fit: cover;
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--accent) 26%, transparent);
+}
+.legal-brand__back {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 12px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--stroke-hair);
+  background: color-mix(in srgb, var(--layer-2) 72%, transparent);
+  font-size: 12.5px;
+  color: var(--text-2);
+  text-decoration: none;
+  transition: color var(--dur-fast) var(--ease-standard), border-color var(--dur-fast) var(--ease-standard);
+}
+.legal-brand__back:hover {
+  color: var(--text-1);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--stroke-hair));
+}
+.legal-brand__back .icon {
+  width: 14px;
+  height: 14px;
+}
+
+/* ---------- 正文卡 ---------- */
+.legal-main {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}
+.legal-doc {
+  width: min(820px, 100%);
+  padding: 32px 34px 34px;
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--stroke-hair);
+  background: color-mix(in srgb, var(--layer-2) 90%, transparent);
+  box-shadow: var(--shadow-2);
+  backdrop-filter: blur(18px) saturate(1.1);
+}
+
+.legal-doc__head {
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--stroke-hair);
+}
+.legal-doc__tag {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: var(--radius-pill);
+  font-size: 11.5px;
+  letter-spacing: 0.3px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.legal-doc__head h1 {
+  margin: 10px 0 6px;
+  font-family: var(--font-display);
+  font-size: 26px;
+  font-weight: 650;
+  letter-spacing: 0.2px;
+}
+.legal-doc__meta {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--text-3);
+}
+.legal-note {
+  margin: 12px 0 0;
+  padding: 9px 12px;
+  border-radius: var(--radius-s);
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--text-2);
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+/* ---------- 目录 ---------- */
+.legal-toc {
+  margin: 18px 0 6px;
+  padding: 12px 16px;
+  border-radius: var(--radius-m);
+  background: color-mix(in srgb, var(--layer-3) 55%, transparent);
+  border: 1px solid var(--stroke-hair);
+}
+.legal-toc__title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-3);
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+}
+.legal-toc ol {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  columns: 2;
+  column-gap: 28px;
+  font-size: 13px;
+  line-height: 1.9;
+}
+.legal-toc a {
+  color: var(--text-2);
+  text-decoration: none;
+}
+.legal-toc a:hover {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* ---------- 条款正文 ---------- */
+.legal-body {
+  margin-top: 8px;
+  font-size: 14px;
+  line-height: 1.9;
+  color: var(--text-1);
+}
+.legal-body section {
+  margin-top: 26px;
+  scroll-margin-top: 18px;
+}
+.legal-body h2 {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 0 8px;
+  font-size: 16px;
+  font-weight: 650;
+  letter-spacing: 0.2px;
+}
+.legal-body h2 .legal-body__no {
+  flex: none;
+  min-width: 22px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+.legal-body h3 {
+  margin: 16px 0 4px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-1);
+}
+.legal-body p {
+  margin: 0 0 10px;
+  /* 协议正文比一般说明文字更需要对比度：在 text-1 / text-2 之间取一档 */
+  color: color-mix(in srgb, var(--text-1) 58%, var(--text-2));
+}
+.legal-body strong {
+  color: var(--text-1);
+  font-weight: 600;
+}
+.legal-body ul {
+  margin: 0 0 10px;
+  padding-left: 20px;
+  color: color-mix(in srgb, var(--text-1) 58%, var(--text-2));
+}
+.legal-body li {
+  margin: 3px 0;
+}
+.legal-body li::marker {
+  color: color-mix(in srgb, var(--accent) 70%, var(--text-3));
+}
+.legal-body code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 12.5px;
+  background: color-mix(in srgb, var(--layer-3) 70%, transparent);
+}
+.legal-body .legal-em {
+  padding: 10px 14px;
+  border-left: 3px solid color-mix(in srgb, var(--accent) 60%, transparent);
+  border-radius: 0 var(--radius-s) var(--radius-s) 0;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  color: color-mix(in srgb, var(--text-1) 58%, var(--text-2));
+}
+.legal-body .legal-em p:last-child {
+  margin-bottom: 0;
+}
+
+.legal-contact {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--accent);
+  text-decoration: none;
+  word-break: break-all;
+}
+.legal-contact:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* ---------- 页脚 ---------- */
+.legal-foot {
+  width: min(820px, 100%);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+.legal-foot a {
+  color: var(--text-2);
+  text-decoration: none;
+}
+.legal-foot a:hover {
+  color: var(--accent);
+}
+.legal-foot__sep {
+  opacity: 0.6;
+}
+
+/* ---------- 移动端 ---------- */
+@media (max-width: 640px) {
+  .legal-page {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+  .legal-doc {
+    padding: 22px 18px 24px;
+    border-radius: var(--radius-l);
+  }
+  .legal-doc__head h1 {
+    font-size: 22px;
+  }
+  .legal-toc ol {
+    columns: 1;
+  }
+  .legal-body {
+    font-size: 13.5px;
+    line-height: 1.85;
+  }
+  .legal-body section {
+    margin-top: 22px;
+  }
+}
+
+@media print {
+  body {
+    background: #fff;
+  }
+  .legal-page {
+    padding: 0;
+  }
+  .legal-brand__back,
+  .legal-foot,
+  .legal-toc {
+    display: none;
+  }
+  .legal-doc {
+    border: 0;
+    box-shadow: none;
+    backdrop-filter: none;
+    background: #fff;
+    padding: 0;
+  }
+}

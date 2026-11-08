@@ -181,8 +181,10 @@ app/
   ai_service.py      看板娘 AI：配置、模型探测、SSE 流式、工具调用、系统提示词
   routers/           auth / nodes / uploads / shares / admin / dav / ai / live2d
 static/
-  css/               theme / layout / components / views / files / viewer / admin / share
+  css/               theme / layout / components / views / files / viewer / admin / share / legal
   js/                api / store / theme / uploader / sha256 / i18n / views / ui
+  terms.html         用户协议（/terms）
+  privacy.html       隐私政策（/privacy）
 scripts/
   bootstrap.py       首次启动：生成 .env 与随机 SECRET_KEY
   make_readme_shots.py  生成 docs/screenshots 里的界面截图（临时库 + 演示数据）
