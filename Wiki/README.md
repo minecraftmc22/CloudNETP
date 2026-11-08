@@ -56,31 +56,3 @@ ES Module 前端，界面按 WinUI 3 / Fluent Design 的风格做，右下角常
 | 管理用户、看审计日志 | [管理后台](/guide/admin.md) |
 | 换成 MySQL、做主备容灾 | [数据库容灾](/guide/database.md) |
 | 绑域名、开 HTTPS、跑在服务器上 | [部署与运维](/guide/deploy.md) |
-
-## 本 Wiki 怎么跑起来
-
-在线阅读：<https://minecraftmc22.github.io/CloudNETP/>
-
-文档用 [VuePress 2](https://v2.vuepress.vuejs.org/) + [vuepress-theme-hope](https://theme-hope.vuejs.press/)
-编写，源文件就在仓库的 `Wiki/` 目录：
-
-```bash
-cd Wiki
-pnpm install        # 或 npm install
-pnpm docs:dev       # 本地预览：http://localhost:8080/CloudNETP/
-pnpm docs:build     # 产出静态站点到 .vuepress/dist
-```
-
-本地预览地址带 `/CloudNETP/` 前缀，是因为 `base` 必须和 GitHub Pages 的仓库路径一致 ——
-这样本地看到的样子就是线上看到的样子，不会出现「本地好、线上图片 404」。
-
-::: important 文档站怎么发布
-改了 `Wiki/` 下的任何文件，push 到 `main` 就会自动重新构建并发布，不需要手动跑 `docs:build`。
-工作流在 `.github/workflows/deploy-wiki.yml`，也可以到 Actions 页面点 `Run workflow` 手动触发。
-:::
-
-::: tip 截图怎么来的
-文档里的界面图由 `scripts/make_wiki_shots.py` 生成：脚本会建一套临时数据库与临时存储，
-写入演示用户、目录树、分享记录，再起一个独立实例用 Playwright 截图，跑完自动清理 ——
-不会碰你的真实数据。
-:::
