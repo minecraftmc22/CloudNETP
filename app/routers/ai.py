@@ -44,17 +44,14 @@ def _sse(event: str, payload: dict) -> str:
 
 
 @router.get("/config")
-def get_config(db: DbSession, user: CurrentUser, lang: str | None = None) -> dict:
+def get_config(db: DbSession, user: CurrentUser) -> dict:
     cfg = ai.public_config(db, user.id)
     is_admin = user.role == 1
-    # 语言由前端显式带上（界面语言可能刚切、账号里还没落盘），缺省回落到账号设置
-    ui_lang = ai.normalize_language(lang or ai.user_language(db, user))
+    # 内置提示词只在服务端拼装，不下发；这里只回管理员自己写过的内容
     return {
         "config": cfg,
         "isAdmin": is_admin,
         "systemPrompt": ai.read_prompt(db) if is_admin else "",
-        "defaultPrompt": ai.default_prompt(ui_lang) if is_admin else "",
-        "lang": ui_lang,
     }
 
 
@@ -171,9 +168,9 @@ def chat(
 
 
 @router.get("/prompt")
-def get_prompt(db: DbSession, admin: AdminUser, lang: str | None = None) -> dict:
-    ui_lang = ai.normalize_language(lang or ai.user_language(db, admin))
-    return {"prompt": ai.read_prompt(db), "defaultPrompt": ai.default_prompt(ui_lang), "lang": ui_lang}
+def get_prompt(db: DbSession, admin: AdminUser) -> dict:
+    # 只回自定义内容；内置提示词留在服务端，不通过接口返回
+    return {"prompt": ai.read_prompt(db)}
 
 
 @router.put("/prompt")

@@ -9,7 +9,7 @@
  */
 
 import { api, escapeHtml } from "../api.js";
-import { H, getLang, t } from "../i18n.js";
+import { H, t } from "../i18n.js";
 import { Toast } from "./toast.js";
 
 const TOKEN_CHOICES = [
@@ -25,7 +25,6 @@ const state = {
   cfg: null,
   isAdmin: false,
   prompt: "",
-  defaultPrompt: "",
   models: [],
   card: null,
   saveTimer: 0,
@@ -247,13 +246,12 @@ function configMarkup() {
         ? H`<div class="setting-row setting-row--stack ai-prompt">
             <div class="setting-row__main">
               <div class="setting-row__label">系统提示词<span class="chip chip--accent">管理员</span></div>
-              <div class="setting-row__desc">决定 CDP娘 的人设和说话方式，全站生效；留空则用内置默认（中英各一版，跟随界面语言）</div>
+              <div class="setting-row__desc">决定 CDP娘 的人设和说话方式，全站生效；留空则用内置默认提示词（跟随界面语言）</div>
             </div>
             <textarea class="ai-textarea" data-ai-prompt rows="6" maxlength="8000"
                       placeholder="留空使用默认提示词">${escapeHtml(state.prompt)}</textarea>
             <div class="ai-actions">
               <button class="btn btn--sm" type="button" data-ai-prompt-save>保存提示词</button>
-              <button class="btn btn--subtle btn--sm" type="button" data-ai-prompt-default>填入默认</button>
               <span class="ai-status" data-ai-prompt-status></span>
             </div>
           </div>`
@@ -282,12 +280,11 @@ export async function mountAiSettings(card) {
   state.card = card;
 
   try {
-    // 带上当前界面语言：内置系统提示词要按它取中文版 / 英文版
-    const data = await api.get(`/api/ai/config?lang=${encodeURIComponent(getLang())}`);
+    // 内置提示词只在服务端使用，这里拿到的只有管理员自己写过的内容
+    const data = await api.get("/api/ai/config");
     state.cfg = data.config || {};
     state.isAdmin = Boolean(data.isAdmin);
     state.prompt = data.systemPrompt || "";
-    state.defaultPrompt = data.defaultPrompt || "";
   } catch {
     body.innerHTML = `<div class="settings-card__note">${t("配置读取失败，刷新页面再试")}</div>`;
     return;
@@ -496,14 +493,6 @@ function bind(body) {
       setStatus(tip, err.message || "保存失败", "bad");
     } finally {
       button.disabled = false;
-    }
-  });
-
-  body.querySelector("[data-ai-prompt-default]")?.addEventListener("click", () => {
-    const area = body.querySelector("[data-ai-prompt]");
-    if (area && state.defaultPrompt) {
-      area.value = state.defaultPrompt;
-      Toast.info("已填入默认提示词，记得点保存");
     }
   });
 
