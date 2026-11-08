@@ -247,7 +247,7 @@ function configMarkup() {
         ? H`<div class="setting-row setting-row--stack ai-prompt">
             <div class="setting-row__main">
               <div class="setting-row__label">系统提示词<span class="chip chip--accent">管理员</span></div>
-              <div class="setting-row__desc">决定 CDP娘 的人设和说话方式，全站生效；留空则用内置默认</div>
+              <div class="setting-row__desc">决定 CDP娘 的人设和说话方式，全站生效；留空则用内置默认（中英各一版，跟随界面语言）</div>
             </div>
             <textarea class="ai-textarea" data-ai-prompt rows="6" maxlength="8000"
                       placeholder="留空使用默认提示词">${escapeHtml(state.prompt)}</textarea>

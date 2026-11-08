@@ -1026,15 +1026,30 @@ def default_prompt(lang: str | None = None) -> str:
 
 
 def is_builtin_prompt(text: str | None) -> bool:
-    """空值，或与任一内置提示词完全一致时，视为「没自定义过」。
+    """空值，或与任一内置提示词一致时，视为「没自定义过」。
 
     管理员点「填入默认」再保存时，落库的文本必然等于某个内置版本；把它归回默认，
     之后切换语言才能继续跟着换，而不是被当成自定义内容钉死。
+
+    比较时先去掉末尾的语言规则行：0.3.47 之前存下的中文默认没有这一行，不能因此
+    把老数据当成自定义内容。
     """
-    key = (text or "").strip()
-    if not key:
+    core = _prompt_core(text)
+    if not core:
         return True
-    return any(key == prompt.strip() for prompt in DEFAULT_SYSTEM_PROMPTS.values())
+    return any(core == _prompt_core(prompt) for prompt in DEFAULT_SYSTEM_PROMPTS.values())
+
+
+LANGUAGE_RULE_PREFIXES = ("- **回复语言**", "- **Language**")
+
+
+def _prompt_core(text: str | None) -> str:
+    lines = [
+        line
+        for line in (text or "").strip().splitlines()
+        if not line.strip().startswith(LANGUAGE_RULE_PREFIXES)
+    ]
+    return "\n".join(lines).strip()
 
 
 def user_language(db: Session, user: User) -> str:

@@ -186,7 +186,6 @@ export default {
   "输出上限": "Output limit",
   "单次回答最多生成多少 token": "Maximum tokens per reply",
   "系统提示词": "System prompt",
-  "决定 CDP娘 的人设和说话方式，全站生效；留空则用内置默认": "Defines CDP娘's persona and tone site-wide; leave empty for the built-in default",
   "保存提示词": "Save prompt",
   "填入默认": "Insert default",
   "保存配置": "Save settings",
@@ -926,4 +925,5 @@ export default {
   "降级运行 · SQLite": "Running degraded · SQLite",
   "原生 ES Module": "Vanilla ES Modules",
   "配置读取失败，刷新页面再试": "Could not load the configuration — refresh the page and try again",
+  "决定 CDP娘 的人设和说话方式，全站生效；留空则用内置默认（中英各一版，跟随界面语言）": "Defines CDP娘's persona and tone site-wide; leave empty for the built-in default, which comes in Chinese and English and follows the UI language",
 };
