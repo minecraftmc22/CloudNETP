@@ -27,6 +27,8 @@ import urllib.request
 from collections import OrderedDict
 from pathlib import Path
 
+from . import lyrics_config
+
 log = logging.getLogger("uvicorn.error")
 
 SEARCH_TTL = 6 * 3600  # 搜索缓存 6 小时
@@ -369,24 +371,28 @@ def provider_label(pid: str) -> str:
 def provider_ready(pid: str) -> bool:
     """该来源当前是否可用（凭据齐不齐）。
 
-    网易云免密钥，永远可用；歌词库要 LYRICS_API_KEY。
+    网易云免密钥，永远可用；歌词库要密钥（后台配的或 .env 的）。
     """
-    from .config import settings
-
     if pid == "netease":
         return True
     if pid == "lyriclib":
-        return bool((settings.LYRICS_API_KEY or "").strip())
+        return bool(lyrics_config.api_key())
     return False
 
 
 def _provider_env() -> list[str]:
-    """读配置：LYRICS_PROVIDERS 优先，退回单值 LYRICS_PROVIDER。"""
+    """读配置：后台保存的 > LYRICS_PROVIDERS > 单值 LYRICS_PROVIDER。
+
+    三处都没写时：歌词库有密钥就两个都启用（很多人只填了密钥，
+    不写来源就默认只搜网易云，等于白配），否则只有网易云。
+    """
     from .config import settings
 
-    raw = (getattr(settings, "LYRICS_PROVIDERS", "") or "").strip()
+    raw = lyrics_config.providers_raw() or (
+        getattr(settings, "LYRICS_PROVIDERS", "") or settings.LYRICS_PROVIDER or ""
+    ).strip()
     if not raw:
-        raw = (settings.LYRICS_PROVIDER or DEFAULT_PROVIDER).strip()
+        return list(PROVIDERS) if lyrics_config.api_key() else [DEFAULT_PROVIDER]
     if raw.strip().lower() in {"*", "all", "any"}:
         return list(PROVIDERS)
     out: list[str] = []
@@ -395,6 +401,13 @@ def _provider_env() -> list[str]:
         if pid and pid not in out:
             out.append(pid)
     return out
+
+
+def reset_caches() -> None:
+    """清空搜索/歌词缓存（后台改了地址、密钥或来源后调用）。"""
+    with _lock:
+        _search_cache.clear()
+        _lyrics_cache.clear()
 
 
 def enabled_providers() -> list[str]:
@@ -427,7 +440,7 @@ def providers_info() -> list[dict]:
                 "label": provider_label(pid),
                 "ready": ready,
                 "default": pid == default,
-                "reason": "" if ready else "未配置歌词接口密钥（LYRICS_API_KEY）",
+                "reason": "" if ready else "未配置歌词库密钥（管理后台 → 歌词来源）",
             }
         )
     return out
@@ -453,7 +466,8 @@ def _check_provider(pid: str, *, for_search: bool) -> str:
     if for_search and norm not in enabled:
         names = "、".join(provider_label(p) for p in enabled)
         raise LyricsApiError(
-            f"歌词来源「{provider_label(norm)}」未启用，当前可用：{names}（在 .env 的 LYRICS_PROVIDERS 里启用）",
+            f"歌词来源「{provider_label(norm)}」未启用，当前可用：{names}"
+            f"（在管理后台 → 系统设置 → 歌词来源里启用）",
             code="provider_disabled",
             status=400,
         )
@@ -470,36 +484,53 @@ def _use_netease() -> bool:
     return default_provider() == "netease"
 
 
+def lyriclib_search(
+    query: str,
+    limit: int = 8,
+    *,
+    base: str | None = None,
+    key: str | None = None,
+    cookie: str | None = None,
+    use_cache: bool = True,
+) -> list[dict]:
+    """MC22 歌词库搜索（不做来源开关校验，后台「测试连接」也会用）。
+
+    base / key / cookie 传 None 表示用当前生效配置；传空串表示明确不带。
+    测试连接会把还没保存的值直接传进来，避免临时改动全局状态。
+    """
+    query = query.strip()
+    if not query:
+        return []
+    base = (base if base is not None else lyrics_config.api_base()).rstrip("/")
+    key = (key if key is not None else lyrics_config.api_key()).strip()
+    cookie = cookie if cookie is not None else lyrics_config.api_cookie()
+    if not key:
+        raise LyricsApiError("未配置歌词接口密钥（LYRICS_API_KEY）", code="no_key")
+    cache_key = f"lyriclib|{base}|{limit}|{query}"
+    if use_cache and (hit := _cache_get(_search_cache, cache_key, SEARCH_TTL)) is not None:
+        return hit
+    url = f"{base}/search.php?" + urllib.parse.urlencode({"q": query, "limit": limit})
+    body = _get(url, key, cookie=cookie)
+    if not body.get("ok"):
+        raise LyricsApiError("歌词搜索失败", code="upstream")
+    items = body.get("data", {}).get("items") or []
+    for item in items:
+        item.setdefault("provider", "lyriclib")
+    if use_cache:
+        _cache_put(_search_cache, cache_key, items)
+    return items
+
+
 def search_songs(query: str, limit: int = 8, provider: str = "") -> list[dict]:
     """按指定来源搜索歌曲。
 
     返回 items（id/title/artist/album/duration_ms/cover_url/provider）。
     provider 留空 = 默认来源（enabled_providers 里第一个可用的）。
     """
-    from .config import settings
-
     prov = _check_provider(provider, for_search=True)
     if prov == "netease":
         return netease_search(query, limit)
-
-    query = query.strip()
-    if not query:
-        return []
-    cache_key = f"{prov}|{limit}|{query}"
-    if (hit := _cache_get(_search_cache, cache_key, SEARCH_TTL)) is not None:
-        return hit
-    url = (
-        f"{settings.LYRICS_API_BASE}/search.php?"
-        + urllib.parse.urlencode({"q": query, "limit": limit})
-    )
-    body = _get(url, settings.LYRICS_API_KEY, cookie=settings.LYRICS_API_COOKIE)
-    if not body.get("ok"):
-        raise LyricsApiError("歌词搜索失败", code="upstream")
-    items = body.get("data", {}).get("items") or []
-    for item in items:
-        item.setdefault("provider", "lyriclib")
-    _cache_put(_search_cache, cache_key, items)
-    return items
+    return lyriclib_search(query, limit)
 
 
 def fetch_lyrics(song_id: int, provider: str = "") -> dict:
@@ -508,8 +539,6 @@ def fetch_lyrics(song_id: int, provider: str = "") -> dict:
     provider 为空时用当前默认来源；歌单里已保存的偏好会带上
     当时的来源，避免两个来源的数字 id 撞车。
     """
-    from .config import settings
-
     prov = _check_provider(provider, for_search=False)
     cache_key = (prov, song_id)
     if (hit := _cache_get(_lyrics_cache, cache_key, LYRICS_TTL)) is not None:
@@ -522,10 +551,10 @@ def fetch_lyrics(song_id: int, provider: str = "") -> dict:
         data["provider"] = "netease"
     else:
         url = (
-            f"{settings.LYRICS_API_BASE}/lyrics.php?"
+            f"{lyrics_config.api_base()}/lyrics.php?"
             + urllib.parse.urlencode({"song": song_id, "lang": "both", "gran": "auto"})
         )
-        body = _get(url, settings.LYRICS_API_KEY, cookie=settings.LYRICS_API_COOKIE)
+        body = _get(url, lyrics_config.api_key(), cookie=lyrics_config.api_cookie())
         if not body.get("ok"):
             raise LyricsApiError("歌词获取失败", code="upstream")
         data = body.get("data") or {}

@@ -286,7 +286,7 @@ def audio_cover(node_id: int, db: DbSession, user: CurrentUser) -> Response:
 
 @router.get("/lyrics/providers")
 def lyrics_providers(user: CurrentUser) -> dict:
-    """可用的歌词来源（.env 的 LYRICS_PROVIDERS 决定）。
+    """可用的歌词来源（管理后台的「歌词来源」优先，其次 .env）。
 
     前端「搜索指定」用它渲染分类切换；凭据没配齐的来源会带 ready=false 和原因。
     """

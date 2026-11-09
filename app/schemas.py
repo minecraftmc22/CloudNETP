@@ -290,3 +290,27 @@ class AdminDbReconnectIn(CamelModel):
     """管理页手动重连：切到主库还是容灾 SQLite。"""
 
     target: Literal["primary", "fallback"] = "primary"
+
+
+class AdminLyricsIn(CamelModel):
+    """后台保存歌词来源配置。
+
+    ``providers`` 省略 = 不改；传空数组 = 清掉后台覆盖、回到 .env / 自动；
+    密钥与 Cookie 留空表示「不改」，要清空请用 clearKey / clearCookie。
+    """
+
+    providers: list[Literal["netease", "lyriclib"]] | None = None
+    api_base: str = Field(default="", max_length=300)
+    api_key: str = Field(default="", max_length=500)
+    api_cookie: str = Field(default="", max_length=4000)
+    clear_key: bool = False
+    clear_cookie: bool = False
+
+
+class AdminLyricsTestIn(CamelModel):
+    """测试歌词库连通性：可以带上还没保存的地址/密钥先试。"""
+
+    api_base: str = Field(default="", max_length=300)
+    api_key: str = Field(default="", max_length=500)
+    api_cookie: str = Field(default="", max_length=4000)
+    query: str = Field(default="晴天", max_length=80)

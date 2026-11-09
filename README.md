@@ -218,7 +218,7 @@ sql/schema.sql       MySQL 建表参考
 | `DB_FALLBACK_ENABLED` | 主库连不上时是否降级本地 SQLite（默认开；多实例部署请关） |
 | `DB_PROBE_INTERVAL` | 主库探活间隔秒数（`0` = 只在启动时选库，运行期不切换） |
 | `DB_MIRROR_INTERVAL` | 主库 → SQLite 镜像间隔秒数（`0` = 不做周期镜像） |
-| `LYRICS_PROVIDERS` | 启用的歌词来源，逗号分隔（`netease,lyriclib`），顺序即优先级；`all` = 全部；留空退回 `LYRICS_PROVIDER` |
+| `LYRICS_PROVIDERS` | 启用的歌词来源，逗号分隔（`netease,lyriclib`），顺序即优先级；`all` = 全部；留空退回 `LYRICS_PROVIDER`。管理后台「歌词来源」里的设置优先于这里 |
 | `LYRICS_PROVIDER` | 单值默认来源（老写法，仍然兼容） |
 | `NETEASE_COOKIE` | 网易云网页版 Cookie（含 `MUSIC_U=...`）。配了才有逐字歌词与翻译，不配也能用（逐行） |
 | `LYRICS_API_BASE` / `LYRICS_API_KEY` / `LYRICS_API_COOKIE` | MC22 歌词库的地址 / 开发者密钥 / 站点 Cookie |
@@ -232,6 +232,14 @@ sql/schema.sql       MySQL 建表参考
 | 网易云 | `netease` | `NETEASE_COOKIE`（可选） | 免密钥直接搜；配 Cookie 后拿逐字歌词（yrc）与翻译，不配就是逐行（lrc） |
 | MC22 歌词库 | `lyriclib` | `LYRICS_API_KEY`（必需）+ `LYRICS_API_COOKIE`（可选） | 自建站点的开发者 API |
 
+**管理后台 → 系统设置 → 歌词来源** 可以直接改（存 `system_settings`，保存即生效，不用重启）：
+
+- 两个来源的开关、歌词库地址、API 密钥、站点 Cookie 都在这一张卡片里；
+- 密钥与 Cookie 用 `SECRET_KEY` 派生的 Fernet 加密保存，接口只回掩码，浏览器拿不到原文；
+- 「测试连接」用当前填写的值试搜一首，测试本身不保存；
+- **优先级：后台保存的 > `.env`**。卡片上每个字段都会标出当前用的是后台的、`.env` 的还是没配；
+  留空表示继续跟随 `.env`，清空用对应的「清除」勾选。
+
 ```dotenv
 LYRICS_PROVIDERS=netease,lyriclib   # 顺序即优先级，也可以是 all
 NETEASE_COOKIE=MUSIC_U=xxxxx
@@ -240,12 +248,14 @@ LYRICS_API_KEY=xxxxx
 LYRICS_API_COOKIE=session=xxxxx
 ```
 
+`LYRICS_PROVIDERS` 与 `LYRICS_PROVIDER` 都不写时：**配了歌词库密钥就两个都启用**，否则只有网易云。
+
 行为：
 
 - **搜索指定**：歌词设置 → 搜索指定，搜索框上方出现来源分类（网易云 / 歌词库），点哪个就搜哪个；
   只启用一个来源时不显示分类，直接搜那一个。选过的分类记在浏览器本地，下次打开还是它。
-- **自动匹配**：按 `LYRICS_PROVIDERS` 的顺序依次尝试，先用先得；某个来源挂了会跳过并继续试下一个，
-  全部失败才报错。
+- **自动匹配**：按启用顺序（后台保存的或 `LYRICS_PROVIDERS`）依次尝试，先用先得；某个来源挂了会跳过
+  并继续试下一个，全部失败才报错。
 - **每首歌的来源会存下来**：`audio_prefs.provider` 记录点选时用的是哪个来源（两个来源的歌曲 id 不互通）。
   后来把某个来源从配置里去掉，老歌单里指向它的歌仍然能取到歌词。
 - 搜索/取词缓存都按来源分开（`(provider, song_id)`），同一个 id 在两个来源里不会被当成同一首歌。

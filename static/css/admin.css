@@ -920,3 +920,36 @@
     align-self: center;
   }
 }
+
+/* ------------------------------------------------------------------ */
+/* 歌词来源卡片：凭据「清除」勾选                                       */
+/* ------------------------------------------------------------------ */
+.lyr-clear {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 11.5px;
+  color: var(--text-3);
+  cursor: pointer;
+  user-select: none;
+}
+.lyr-clear input {
+  width: 13px;
+  height: 13px;
+  accent-color: var(--accent);
+}
+
+/* 歌词来源卡片：手机上「来源胶囊」单独占一行，说明文字别被挤成窄条 */
+@media (max-width: 560px) {
+  .settings-card[data-card="lyrics"] .setting-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .settings-card[data-card="lyrics"] .setting-row__main {
+    flex: 0 0 auto;
+  }
+  .settings-card[data-card="lyrics"] .ai-chips {
+    margin-top: 8px;
+  }
+}

@@ -73,6 +73,10 @@ async def lifespan(app: FastAPI):
     from . import netease_auth
 
     netease_auth.hydrate()
+    # 歌词来源（后台可能配了歌词库密钥/地址）也读进内存，同样失败就先用 .env
+    from . import lyrics_config
+
+    lyrics_config.hydrate()
     _startup_maintenance()
     # 自动更新看门狗：默认关闭，管理员在后台开启后每 6 小时检查一次
     from . import update_service

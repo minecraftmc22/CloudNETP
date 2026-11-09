@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import secrets
+import time
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
@@ -15,6 +16,8 @@ from sqlalchemy.orm import Session
 from .. import admin_service as admin
 from .. import dav_auth as da
 from .. import db_failover
+from .. import lyrics_config
+from .. import lyrics_service
 from .. import netease_auth as ng
 from .. import node_service as ns
 from .. import profile_service as ps
@@ -26,6 +29,8 @@ from ..schemas import (
     AdminDbReconnectIn,
     AdminGcIn,
     AdminLogPurgeIn,
+    AdminLyricsIn,
+    AdminLyricsTestIn,
     AdminSettingsIn,
     AdminUserPatchIn,
 )
@@ -491,6 +496,71 @@ def netease_logout(request: Request, db: DbSession, me: AdminUser) -> dict:
     log_action(db, "admin_netease_logout", me.id, result, request)
     db.commit()
     return {"result": result, "account": ng.status(db, verify=False)}
+
+
+# --------------------------------------------------------------------------- #
+# 歌词来源（网易云 / MC22 歌词库）
+# --------------------------------------------------------------------------- #
+@router.get("/lyrics")
+def lyrics_status(_: AdminUser) -> dict:
+    """歌词来源的生效配置。密钥与 Cookie 只回掩码，不回原文。"""
+    return {"config": lyrics_config.snapshot()}
+
+
+@router.put("/lyrics")
+def lyrics_save(payload: AdminLyricsIn, request: Request, db: DbSession, me: AdminUser) -> dict:
+    """保存歌词来源配置（存 system_settings，立即生效）。"""
+    check_origin(request)
+    config = lyrics_config.save(
+        db,
+        providers=list(payload.providers) if payload.providers is not None else None,
+        api_base=payload.api_base,
+        api_key=payload.api_key,
+        api_cookie=payload.api_cookie,
+        clear_key=payload.clear_key,
+        clear_cookie=payload.clear_cookie,
+    )
+    log_action(
+        db,
+        "admin_lyrics_save",
+        me.id,
+        {
+            "providers": config["providers"],
+            "apiBase": config["apiBase"],
+            "hasKey": config["hasKey"],
+            "hasCookie": config["hasCookie"],
+        },
+        request,
+    )
+    db.commit()
+    return {"config": config}
+
+
+@router.post("/lyrics/test")
+def lyrics_test(payload: AdminLyricsTestIn, request: Request, _: AdminUser) -> dict:
+    """用「还没保存」的地址/密钥试搜一首；成功返回前几条结果。"""
+    check_origin(request)
+    started = time.perf_counter()
+    try:
+        items = lyrics_service.lyriclib_search(
+            payload.query or "晴天",
+            5,
+            base=(payload.api_base or "").strip() or None,
+            key=(payload.api_key or "").strip() or None,
+            cookie=(payload.api_cookie or "").strip() or None,
+            use_cache=False,
+        )
+    except lyrics_service.LyricsApiError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, exc.message or "连接失败") from None
+    elapsed = int((time.perf_counter() - started) * 1000)
+    return {
+        "ok": True,
+        "elapsedMs": elapsed,
+        "total": len(items),
+        "items": [
+            {k: item.get(k, "") for k in ("title", "artist", "album")} for item in items[:3]
+        ],
+    }
 
 
 # --------------------------------------------------------------------------- #

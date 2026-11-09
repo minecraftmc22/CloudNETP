@@ -269,6 +269,104 @@ function neteaseCardMarkup(account) {
   </section>`;
 }
 
+/* ------------------------------------------------------------------ */
+/* 歌词来源卡片：网易云 / MC22 歌词库                                  */
+/* ------------------------------------------------------------------ */
+function lyricsCardMarkup(cfg) {
+  const head = `<div class="settings-card__head"><svg class="icon icon--s"><use href="#i-music"/></svg>${t("歌词来源")}</div>`;
+  if (!cfg) {
+    return H`<section class="settings-card" data-card="lyrics">${head}
+      <div class="admin-hint">${t("歌词配置读取失败，刷新页面重试")}</div>
+    </section>`;
+  }
+
+  const on = new Set(cfg.providers || []);
+  const sourceHint =
+    cfg.providersSource === "admin"
+      ? t("由后台保存，优先于 .env")
+      : cfg.providersSource === "env"
+        ? t("跟随 .env 的 {value}", { value: cfg.env?.providers || "—" })
+        : t("未显式配置：配了歌词库密钥就两个都启用");
+
+  const keyPlaceholder = cfg.hasKey
+    ? cfg.keySource === "env"
+      ? t("沿用 .env 的密钥 {mask}，留空不改", { mask: cfg.keyMask || "••••" })
+      : t("已保存 {mask}，留空不改", { mask: cfg.keyMask || "••••" })
+    : t("歌词库的 API 密钥");
+  const cookiePlaceholder = cfg.hasCookie
+    ? cfg.cookieSource === "env"
+      ? t("沿用 .env 的 Cookie {mask}，留空不改", { mask: cfg.cookieMask || "••••" })
+      : t("已保存 {mask}，留空不改", { mask: cfg.cookieMask || "••••" })
+    : t("歌词库站点 Cookie（可选）");
+
+  // 只有「后台保存过」的凭据才谈得上清除：.env 的清了也还在
+  const clearKey = cfg.keySource === "admin"
+    ? H`<label class="lyr-clear"><input type="checkbox" data-lyr-clear-key>${t("清除已保存的密钥")}</label>`
+    : "";
+  const clearCookie = cfg.cookieSource === "admin"
+    ? H`<label class="lyr-clear"><input type="checkbox" data-lyr-clear-cookie>${t("清除已保存的 Cookie")}</label>`
+    : "";
+
+  // 按当前启用顺序渲染：从左到右就是自动匹配的优先级，保存时按 DOM 顺序收集
+  const ALL = ["netease", "lyriclib"];
+  const order = [...(cfg.providers || []), ...ALL.filter((id) => !on.has(id))];
+  const label = { netease: t("网易云"), lyriclib: t("歌词库") };
+  const chips = order
+    .map(
+      (id) =>
+        `<button class="ai-chip ${on.has(id) ? "is-active" : ""}" type="button"
+           data-lyr-prov="${id}" aria-pressed="${on.has(id) ? "true" : "false"}">${label[id] || id}</button>`
+    )
+    .join("");
+
+  return H`<section class="settings-card" data-card="lyrics">${head}
+    <div class="setting-row">
+      <div class="setting-row__main">
+        <div class="setting-row__label">${t("启用的来源")}</div>
+        <div class="setting-row__desc">${t("决定播放器「搜索指定」里出现哪些分类；从左到右就是自动匹配的优先级")}<br>${sourceHint}</div>
+      </div>
+      <div class="ai-chips">${chips}</div>
+    </div>
+
+    <div class="admin-form-grid">
+      <label class="field field--wide">
+        <span class="field__label">${t("歌词库地址")}</span>
+        <span class="textbox"><input data-lyr-base spellcheck="false"
+          placeholder="${escapeHtml(cfg.apiBase || "")}"
+          value="${cfg.apiBaseSource === "admin" ? escapeHtml(cfg.apiBase) : ""}"></span>
+      </label>
+      <label class="field">
+        <span class="field__label">${t("API 密钥")}</span>
+        <span class="textbox"><input data-lyr-key type="password" autocomplete="off"
+          placeholder="${escapeHtml(keyPlaceholder)}"></span>
+        ${clearKey}
+      </label>
+      <label class="field">
+        <span class="field__label">${t("站点 Cookie")}</span>
+        <span class="textbox"><input data-lyr-cookie type="password" autocomplete="off"
+          placeholder="${escapeHtml(cookiePlaceholder)}"></span>
+        ${clearCookie}
+      </label>
+    </div>
+
+    <div class="setting-row">
+      <div class="setting-row__main">
+        <div class="setting-row__label">${t("测试连接")}</div>
+        <div class="setting-row__desc">${t("用上面填的地址与密钥搜一首歌；测试不会保存")}</div>
+      </div>
+      <div class="ai-actions">
+        <span class="ai-status" data-lyr-status></span>
+        <button class="btn btn--subtle" type="button" data-lyr-test>${t("测试")}</button>
+      </div>
+    </div>
+
+    <div class="admin-card__foot">
+      <button class="btn btn--accent" type="button" data-lyr-save>${t("保存歌词设置")}</button>
+    </div>
+    <p class="admin-hint">${t("密钥与 Cookie 加密存在服务端，接口只回掩码；留空表示沿用 .env。保存后播放器重新打开歌词面板即可看到新的分类。")}</p>
+  </section>`;
+}
+
 export function renderAdmin(root) {
   const state = {
     tab: "overview",
@@ -1486,16 +1584,19 @@ export function renderAdmin(root) {
     panel.innerHTML = loading();
     let settings;
     let dbInfo = null;
+    let lyrCfg = null;
     // 网易云状态可能要去网易云核对 Cookie（慢/不可达），先占位、拿到再涂，别拖住整页
     const ngAccount = { loading: true };
     try {
-      const [data, dbData] = await Promise.all([
+      const [data, dbData, lyrData] = await Promise.all([
         api.get("/api/admin/settings"),
         // 数据库卡片单独取：这一项失败不该让整个设置页白屏
         api.get("/api/admin/db").catch(() => null),
+        api.get("/api/admin/lyrics").catch(() => null),
       ]);
       settings = data.settings;
       dbInfo = dbData?.db || null;
+      lyrCfg = lyrData?.config || null;
     } catch (err) {
       panel.innerHTML = errorBlock(err.message);
       return;
@@ -1634,6 +1735,8 @@ export function renderAdmin(root) {
       ${dbCardMarkup(dbInfo)}
 
       ${neteaseCardMarkup(ngAccount)}
+
+      ${lyricsCardMarkup(lyrCfg)}
 
       <section class="settings-card">
         <div class="settings-card__head"><svg class="icon icon--s"><use href="#i-database"/></svg>维护</div>
@@ -1860,6 +1963,102 @@ export function renderAdmin(root) {
     }
 
     bindNeteaseCard();
+
+    /* --- 歌词来源卡片：来源开关 / 地址密钥 / 测试 / 保存 --- */
+    function paintLyricsCard(config) {
+      const card = panel.querySelector('[data-card="lyrics"]');
+      if (!card) return;
+      card.outerHTML = lyricsCardMarkup(config);
+      bindLyricsCard();
+    }
+
+    function bindLyricsCard() {
+      const card = panel.querySelector('[data-card="lyrics"]');
+      if (!card || !card.querySelector("[data-lyr-save]")) return;
+
+      const status = card.querySelector("[data-lyr-status]");
+      const setStatus = (text, state = "") => {
+        if (!status) return;
+        status.textContent = text || "";
+        if (state) status.dataset.state = state;
+        else status.removeAttribute("data-state");
+      };
+
+      card.querySelectorAll("[data-lyr-prov]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const on = btn.classList.toggle("is-active");
+          btn.setAttribute("aria-pressed", on ? "true" : "false");
+        });
+      });
+
+      card.querySelector("[data-lyr-test]")?.addEventListener("click", async (event) => {
+        // currentTarget 在 await 之后会丢，先把按钮存下来
+        const button = event.currentTarget;
+        const label = button.textContent;
+        button.disabled = true;
+        button.textContent = t("测试中…");
+        setStatus("");
+        try {
+          const data = await api.post("/api/admin/lyrics/test", {
+            apiBase: card.querySelector("[data-lyr-base]")?.value.trim() || "",
+            apiKey: card.querySelector("[data-lyr-key]")?.value.trim() || "",
+            apiCookie: card.querySelector("[data-lyr-cookie]")?.value.trim() || "",
+          });
+          setStatus(
+            t("连接正常 · {ms}ms · {n} 条结果", { ms: data.elapsedMs, n: data.total }),
+            "ok"
+          );
+          const first = data.items?.[0];
+          if (first) {
+            Toast.success(
+              t("测试成功：{title}{artist}", {
+                title: first.title,
+                artist: first.artist ? ` — ${first.artist}` : "",
+              })
+            );
+          } else {
+            Toast.info(t("连接正常，但没搜到结果"));
+          }
+        } catch (err) {
+          setStatus(err.message || t("连接失败"), "bad");
+          Toast.error(err.message || t("连接失败"));
+        } finally {
+          button.disabled = false;
+          button.textContent = label;
+        }
+      });
+
+      card.querySelector("[data-lyr-save]")?.addEventListener("click", async (event) => {
+        const button = event.currentTarget;
+        const providers = [...card.querySelectorAll("[data-lyr-prov]")]
+          .filter((b) => b.classList.contains("is-active"))
+          .map((b) => b.dataset.lyrProv);
+        if (!providers.length) {
+          Toast.error(t("至少启用一个来源"));
+          return;
+        }
+        const payload = {
+          providers,
+          apiBase: card.querySelector("[data-lyr-base]")?.value.trim() || "",
+          apiKey: card.querySelector("[data-lyr-key]")?.value.trim() || "",
+          apiCookie: card.querySelector("[data-lyr-cookie]")?.value.trim() || "",
+          clearKey: !!card.querySelector("[data-lyr-clear-key]")?.checked,
+          clearCookie: !!card.querySelector("[data-lyr-clear-cookie]")?.checked,
+        };
+        button.disabled = true;
+        try {
+          const data = await api.put("/api/admin/lyrics", payload);
+          Toast.success(t("歌词设置已保存，播放器重新打开歌词面板即可看到新分类"));
+          paintLyricsCard(data.config);
+        } catch (err) {
+          Toast.error(err.message || t("保存失败"));
+        } finally {
+          button.disabled = false;
+        }
+      });
+    }
+
+    bindLyricsCard();
 
     panel.querySelector('[data-act="purge-logs"]')?.addEventListener("click", purgeLogs);
     panel.querySelector('[data-act="blob-gc"]')?.addEventListener("click", blobGc);
