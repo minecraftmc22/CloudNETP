@@ -266,7 +266,7 @@ def main() -> int:
     )
     check("没授权时拒绝写操作", "没有开启" in denied, denied)
 
-    allowed = {"write": True, "move": True}
+    allowed = {"read": True, "write": True, "move": True}
     made = ai.run_tool_safe(USER_ID, "create_folder", {"path": "AI测试/子目录"}, allowed)
     check("能建多级文件夹", "已创建" in made, made)
 
@@ -298,10 +298,27 @@ def main() -> int:
     dup = ai.run_tool_safe(USER_ID, "create_folder", {"path": "AI测试"}, allowed)
     check("重复建同名文件夹会提示已存在", "已经存在" in dup, dup)
 
+    denied_read = ai.run_tool_safe(USER_ID, "read_text", {"path": "AI测试/子目录/hello.md"}, {"read": False})
+    check("没勾「查看文件内容」时拒绝读正文", "查看文件内容" in denied_read, denied_read)
+
+    names = [s["function"]["name"] for s in ai.tool_specs({"tools": True})]
+    check("默认不下发读内容工具", "read_text" not in names, names)
+    check("默认仍能列目录 / 搜文件", {"list_files", "search_files"} <= set(names), names)
+    names = [s["function"]["name"] for s in ai.tool_specs({"tools": True, "readContent": True})]
+    check("勾选后才出现读内容工具", "read_text" in names, names)
+
     specs = ai.tool_specs({"tools": True, "writeFiles": False, "moveFiles": False})
     check("未授权时工具列表只有只读工具", all(s["function"]["name"] not in ai.WRITE_TOOL_NAMES for s in specs))
-    specs = ai.tool_specs({"tools": True, "writeFiles": True, "moveFiles": True})
-    check("授权后工具列表包含写/移动工具", len(specs) == len(ai.TOOL_SPECS) + len(ai.WRITE_TOOL_SPECS) + len(ai.MOVE_TOOL_SPECS))
+    specs = ai.tool_specs({"tools": True, "readContent": True, "writeFiles": True, "moveFiles": True})
+    check(
+        "全部授权后工具数量对得上",
+        len(specs)
+        == len(ai.TOOL_SPECS)
+        + len(ai.READ_TOOL_SPECS)
+        + len(ai.WRITE_TOOL_SPECS)
+        + len(ai.MOVE_TOOL_SPECS),
+        str(len(specs)),
+    )
 
     print("8. 工具轮次上限：到上限后要收尾而不是断掉")
     before = STATE["chat_calls"]

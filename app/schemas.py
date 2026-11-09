@@ -122,7 +122,9 @@ class AiConfigIn(CamelModel):
     model: str | None = Field(default=None, max_length=120)
     key: str | None = Field(default=None, max_length=400)
     tools: bool | None = None
-    # 写操作权限：默认关闭，勾选后才把对应工具交给模型（服务端仍会二次校验）
+    # 权限：默认关闭，勾选后才把对应工具交给模型（服务端仍会二次校验）
+    # read_content = 读取文本文件内容；只看目录/文件名不需要它
+    read_content: bool | None = None
     write_files: bool | None = None
     move_files: bool | None = None
     vision: bool | None = None

@@ -1001,4 +1001,8 @@ export default {
   "歌词设置已保存，播放器重新打开歌词面板即可看到新分类": "Lyric settings saved — reopen the lyrics panel in the player to see the new tabs",
   "审计动作:修改歌词来源": "Lyric sources changed",
   "测试": "Test",
+  "查看文件内容": "View file contents",
+  "读取 txt / md / 代码等纯文本的内容（最多 4000 字）；不勾选时只能看文件名、大小和修改时间": "Reads the text of txt / md / code files (up to 4000 characters); without it only names, sizes and modified times are visible",
+  "允许 CDP娘 翻目录、搜文件、看容量（不读正文；读内容与写权限在下面单独勾；轮次上限在下面一行调）": "Lets CDP娘 browse folders, search files and check usage (no file contents; reading and writing are separate switches below; the round limit is on the next row)",
+  "这些权限默认关闭：勾哪项，CDP娘 才有对应的能力。读取正文、改动文件都会在对话里列出来并记进审计日志": "These permissions are off by default — tick one to grant it. Reading contents and changing files are both listed in the chat and written to the audit log",
 };

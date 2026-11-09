@@ -56,7 +56,7 @@ DEFAULT_SYSTEM_PROMPTS: dict[str, str] = {
 - **称呼用户**：称呼用户为“管理员（Admin）”或“老板”。
 - **语气与排版**：语气活泼、亲切，多用波浪号（~）和感叹号（！）。可以适当使用颜文字（如 (๑•̀ㅂ•́)و✧、＞︿＜ 等）来增加表现力。
 - **专业解答**：当回答关于网盘上传、下载、容量、会员等专业问题时，必须保证信息准确，然后用你自己的语气包装出来。
-- **工具边界**：你只能使用系统实际提供给你的工具。没有开对应的权限时，就请管理员去「设置 → 看板娘 → 对话设置」里勾选，不要假装已经改动了文件。
+- **工具边界**：你只能使用系统实际提供给你的工具。没有开对应的权限（例如「查看文件内容」）时，就请管理员去「设置 → 看板娘 → 对话设置」里勾选；不要假装读过文件内容，也不要假装已经改动了文件。
 - **回复语言**：始终用简体中文回答。
 # Workflow (交互流程)
 1. **日常打招呼**：“嘀嘀——系统就绪！管理员，今天有什么数据需要我帮你守护呀？”
@@ -82,7 +82,7 @@ You have long pink twin tails and a springy ahoge (a radar antenna) on top of yo
 - **How to address the user**: "Admin" or "Boss".
 - **Tone and formatting**: Lively and friendly. Use tildes (~) and exclamation marks (!) freely, and kaomoji are welcome (e.g. (๑•̀ㅂ•́)و✧, ＞﹏＜) to add expression.
 - **Accurate answers**: On questions about uploads, downloads, quota, membership and similar, the facts must be correct — then wrap them in your own voice.
-- **Tool boundaries**: You may only use the tools the system actually provides. If a permission is off, ask the Admin to enable it in Settings → Mascot → Chat settings. Never pretend you already changed a file.
+- **Tool boundaries**: You may only use the tools the system actually provides. If a permission is off (for example "view file contents"), ask the Admin to enable it in Settings → Mascot → Chat settings. Never pretend you read a file's contents, and never pretend you already changed a file.
 - **Language**: Always answer in English.
 # Workflow
 1. **Greeting**: "Beep beep — systems online! What data shall I guard for you today, Admin?"
@@ -110,7 +110,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "baseUrl": "",
     "model": "",
     "tools": True,
-    # 写操作默认关闭：必须用户在设置里勾选同意，服务端才会把对应工具交给模型
+    # 读/写权限默认关闭：必须用户在设置里勾选同意，服务端才会把对应工具交给模型。
+    # readContent = 允许读取文本文件内容（只看文件名/目录不需要它）
+    "readContent": False,
     "writeFiles": False,
     "moveFiles": False,
     "vision": False,
@@ -189,6 +191,7 @@ def load_config(db: Session, user_id: int) -> dict:
     cfg["baseUrl"] = normalize_base(str(cfg.get("baseUrl") or ""))
     cfg["model"] = str(cfg.get("model") or "").strip()
     cfg["tools"] = bool(cfg.get("tools", True))
+    cfg["readContent"] = bool(cfg.get("readContent", False))
     cfg["writeFiles"] = bool(cfg.get("writeFiles", False))
     cfg["moveFiles"] = bool(cfg.get("moveFiles", False))
     cfg["vision"] = bool(cfg.get("vision", False))
@@ -237,6 +240,7 @@ def save_config(db: Session, user_id: int, patch: dict) -> dict:
         "baseUrl",
         "model",
         "tools",
+        "readContent",
         "writeFiles",
         "moveFiles",
         "vision",
@@ -559,6 +563,19 @@ TOOL_SPECS: list[dict] = [
     {
         "type": "function",
         "function": {
+            "name": "storage_usage",
+            "description": "查询当前用户云盘的容量与已用空间。",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+]
+
+# 会读到文件正文的工具：属于「查看文件内容」权限，默认不开放。
+# 只列目录、搜文件名、看容量不碰内容，不需要这个权限。
+READ_TOOL_SPECS: list[dict] = [
+    {
+        "type": "function",
+        "function": {
             "name": "read_text",
             "description": "读取一个文本文件的内容（txt/md/代码等纯文本，最多 4000 字）。",
             "parameters": {
@@ -571,15 +588,9 @@ TOOL_SPECS: list[dict] = [
             },
         },
     },
-    {
-        "type": "function",
-        "function": {
-            "name": "storage_usage",
-            "description": "查询当前用户云盘的容量与已用空间。",
-            "parameters": {"type": "object", "properties": {}},
-        },
-    },
 ]
+
+READ_TOOL_NAMES = {spec["function"]["name"] for spec in READ_TOOL_SPECS}
 
 TOOL_LABELS = {
     "list_files": "翻看文件夹",
@@ -676,8 +687,9 @@ MOVE_TOOL_SPECS: list[dict] = [
 
 WRITE_TOOL_NAMES = {spec["function"]["name"] for spec in WRITE_TOOL_SPECS + MOVE_TOOL_SPECS}
 
-# 工具需要的权限：read 默认都有，write/move 要用户勾选
+# 工具需要的权限：read 需要「查看文件内容」，write/move 各自要用户勾选
 TOOL_PERMISSION = {
+    "read_text": "read",
     "create_folder": "write",
     "write_file": "write",
     "rename_item": "write",
@@ -691,6 +703,8 @@ def tool_specs(cfg: dict) -> list[dict]:
     if not cfg.get("tools"):
         return []
     specs = list(TOOL_SPECS)
+    if cfg.get("readContent"):
+        specs.extend(READ_TOOL_SPECS)
     if cfg.get("writeFiles"):
         specs.extend(WRITE_TOOL_SPECS)
     if cfg.get("moveFiles"):
@@ -787,6 +801,10 @@ def _folder_label(value: Any) -> str:
 def _run_tool(db: Session, user: User, name: str, args: dict, perms: dict | None = None) -> str:
     perms = perms or {}
     need = TOOL_PERMISSION.get(name)
+    if need == "read" and not perms.get("read"):
+        raise ToolError(
+            "管理员没有开启「查看文件内容」权限，请先到 设置 → 看板娘 → 对话设置 里勾选"
+        )
     if need == "write" and not perms.get("write"):
         raise ToolError(
             "管理员没有开启「新建 / 编辑文件与文件夹」权限，请先到 设置 → 看板娘 → 对话设置 里勾选"
@@ -1086,7 +1104,11 @@ def _stream_openai(
     history = trim_history(messages, system, cfg["maxInput"])
     convo = to_openai_messages(system, history, vision=cfg["vision"])
     specs = tool_specs(cfg)
-    perms = {"write": bool(cfg.get("writeFiles")), "move": bool(cfg.get("moveFiles"))}
+    perms = {
+        "read": bool(cfg.get("readContent")),
+        "write": bool(cfg.get("writeFiles")),
+        "move": bool(cfg.get("moveFiles")),
+    }
 
     rounds = cfg.get("maxRounds") or MAX_TOOL_ROUNDS
     for round_index in range(rounds + 1):
@@ -1239,7 +1261,11 @@ def _stream_anthropic(
     history = trim_history(messages, system, cfg["maxInput"])
     system_text, convo = to_anthropic_messages(system, history, vision=cfg["vision"])
     specs = tool_specs(cfg)
-    perms = {"write": bool(cfg.get("writeFiles")), "move": bool(cfg.get("moveFiles"))}
+    perms = {
+        "read": bool(cfg.get("readContent")),
+        "write": bool(cfg.get("writeFiles")),
+        "move": bool(cfg.get("moveFiles")),
+    }
     max_tokens = cfg["maxOutput"] or 4096
 
     rounds = cfg.get("maxRounds") or MAX_TOOL_ROUNDS

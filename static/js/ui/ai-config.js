@@ -149,7 +149,7 @@ function configMarkup() {
             <input type="checkbox" data-ai-flag="tools" ${cfg.tools ? "checked" : ""}>
             <span class="switch__track"><span class="switch__knob"></span></span>
           </span>
-          <span class="ai-line__text"><b>工具调用</b><small>允许 CDP娘 翻目录、搜文件、读文本（只读；写权限要单独勾；轮次上限在下面一行调）</small></span>
+          <span class="ai-line__text"><b>工具调用</b><small>允许 CDP娘 翻目录、搜文件、看容量（不读正文；读内容与写权限在下面单独勾；轮次上限在下面一行调）</small></span>
         </label>
         <label class="ai-line">
           <span class="switch">
@@ -211,10 +211,20 @@ function configMarkup() {
       <div class="setting-row__main">
         <div class="setting-row__label">数据操作权限<span class="chip ai-perms__flag">需授权</span></div>
         <div class="setting-row__desc">
-          不勾选时CDP娘只能看，不能改。勾选后她可以真的动你的文件，每一次操作都会在对话里列出来并记进审计日志
+          这些权限默认关闭：勾哪项，CDP娘 才有对应的能力。读取正文、改动文件都会在对话里列出来并记进审计日志
         </div>
       </div>
       <div class="ai-switches">
+        <label class="ai-line">
+          <span class="switch">
+            <input type="checkbox" data-ai-flag="readContent" ${cfg.readContent ? "checked" : ""}>
+            <span class="switch__track"><span class="switch__knob"></span></span>
+          </span>
+          <span class="ai-line__text">
+            <b>查看文件内容</b>
+            <small>读取 txt / md / 代码等纯文本的内容（最多 4000 字）；不勾选时只能看文件名、大小和修改时间</small>
+          </span>
+        </label>
         <label class="ai-line">
           <span class="switch">
             <input type="checkbox" data-ai-flag="writeFiles" ${cfg.writeFiles ? "checked" : ""}>

@@ -201,8 +201,11 @@ def main() -> None:
             page.wait_for_selector("[data-ai-save]", timeout=15000)
             page.locator("[data-ai-save]").scroll_into_view_if_needed()
             page.wait_for_timeout(300)
-            # 只改 DOM 不触发 change：只有按钮自己收集才能把这个值提交上去
+            # 只改 DOM 不触发 change：只有按钮自己收集才能把这些值提交上去
             page.evaluate("() => { document.querySelector('[data-ai-rounds-input]').value = '6'; }")
+            page.evaluate(
+                "() => { document.querySelector('[data-ai-flag=\"readContent\"]').checked = true; }"
+            )
             page.click("[data-ai-save]")
             page.wait_for_timeout(1200)
             status = page.locator("[data-ai-save-status]").inner_text()
@@ -214,6 +217,11 @@ def main() -> None:
                 "async () => (await fetch('/api/ai/config', { credentials: 'same-origin' })).json()"
             )
             check("按钮真的把页面上的值提交上去了", cfg.get("config", {}).get("maxRounds") == 6, str(cfg.get("config", {}).get("maxRounds")))
+            check(
+                "读内容权限也一起提交了",
+                cfg.get("config", {}).get("readContent") is True,
+                str(cfg.get("config", {}).get("readContent")),
+            )
 
             # 按钮必须贴右且不溢出卡片（之前设置页踩过宽度压不回去的坑）
             geo = page.evaluate(
