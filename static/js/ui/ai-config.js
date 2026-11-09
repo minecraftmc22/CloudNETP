@@ -156,7 +156,7 @@ function configMarkup() {
             <input type="checkbox" data-ai-flag="vision" ${cfg.vision ? "checked" : ""}>
             <span class="switch__track"><span class="switch__knob"></span></span>
           </span>
-          <span class="ai-line__text"><b>图片输入</b><small>多模态模型才能勾；勾上后对话框出现发图按钮</small></span>
+          <span class="ai-line__text"><b>图片输入</b><small>多模态模型才能勾；勾上后对话框出现发图按钮，「查看文件内容」也能直接看网盘里的图片</small></span>
         </label>
         <label class="ai-line">
           <span class="switch">
@@ -222,7 +222,7 @@ function configMarkup() {
           </span>
           <span class="ai-line__text">
             <b>查看文件内容</b>
-            <small>读取 txt / md / 代码等纯文本的内容（最多 4000 字）；不勾选时只能看文件名、大小和修改时间</small>
+            <small>读取 txt / md / 代码等纯文本（最多 4000 字），以及 png / jpg / webp / gif 图片（需同时开启「图片输入」）；不勾选时只能看文件名、大小和修改时间</small>
           </span>
         </label>
         <label class="ai-line">

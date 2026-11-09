@@ -56,9 +56,10 @@ def free_port() -> int:
 
 
 def snapshot_db(dst: Path) -> None:
-    src_path = ROOT / "dev.db"
+    # 现役库是容灾副本；dev.db 是更早的开发库，schema 可能落后
+    src_path = ROOT / "storage" / "db" / "fallback.db"
     if not src_path.is_file():
-        src_path = ROOT / "storage" / "db" / "fallback.db"
+        src_path = ROOT / "dev.db"
     src = sqlite3.connect(f"file:{src_path.as_posix()}?mode=ro", uri=True)
     out = sqlite3.connect(str(dst))
     try:
@@ -66,6 +67,14 @@ def snapshot_db(dst: Path) -> None:
     finally:
         src.close()
         out.close()
+    # 0.3.44 才加的 language 列：老库里没有，副本上先补上，免得后面 update 直接报错
+    con = sqlite3.connect(str(dst))
+    try:
+        if "language" not in [row[1] for row in con.execute("pragma table_info(user_settings)")]:
+            con.execute("alter table user_settings add column language varchar(16)")
+            con.commit()
+    finally:
+        con.close()
 
 
 def wait_up(base: str, proc: subprocess.Popen, log_path: Path) -> bool:
@@ -95,17 +104,20 @@ def get_json(url: str, cookie: str | None) -> tuple[int, str]:
 
 
 def probes() -> list[str]:
-    """从内置提示词里挑几段特征句：任何一段出现在响应里都算泄露。"""
+    """从内置提示词里挑几段特征句：任何一段出现在响应里都算泄露。
+
+    取带名字「CDP娘」的整句，而不是按固定偏移切中段——后者容易切到
+    「工具边界」这类用户自定义人设里也会写的通用规则，造成假阳性。
+    """
     from app.ai_service import DEFAULT_SYSTEM_PROMPTS
 
     out: list[str] = []
     for text in DEFAULT_SYSTEM_PROMPTS.values():
-        body = text.strip()
-        # 取中段，避开开头可能重复的通用称呼
-        start = max(0, len(body) // 3)
-        out.append(body[start : start + 24])
-        out.append(body[start + 40 : start + 64])
-    return [p for p in out if p.strip()]
+        for line in text.strip().splitlines():
+            line = line.strip()
+            if "CDP娘" in line and len(line) >= 24:
+                out.append(line[:52])
+    return out
 
 
 def main() -> None:

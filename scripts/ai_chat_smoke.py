@@ -196,6 +196,11 @@ def collect(cfg: dict, messages: list[dict], system: str) -> list[tuple[str, dic
     return list(ai.stream_chat(shell, cfg, messages, system))
 
 
+def run_tool(user_id: int, name: str, args: dict, perms: dict | None = None) -> str:
+    """工具结果取文本部分（图片工具会额外带 images，这里只关心文字）。"""
+    return ai.run_tool_safe(user_id, name, args, perms).text
+
+
 def main() -> int:
     server = start_server()
     port = int(server.server_address[1])
@@ -261,44 +266,44 @@ def main() -> int:
     check("掩码只露头尾", ai.mask_key("sk-abcdefghijklmn") == "sk-ab…klmn", ai.mask_key("sk-abcdefghijklmn"))
 
     print("7. 写权限与增删改工具")
-    denied = ai.run_tool_safe(
+    denied = run_tool(
         USER_ID, "create_folder", {"path": "不该出现的目录"}, {"write": False, "move": False}
     )
     check("没授权时拒绝写操作", "没有开启" in denied, denied)
 
     allowed = {"read": True, "write": True, "move": True}
-    made = ai.run_tool_safe(USER_ID, "create_folder", {"path": "AI测试/子目录"}, allowed)
+    made = run_tool(USER_ID, "create_folder", {"path": "AI测试/子目录"}, allowed)
     check("能建多级文件夹", "已创建" in made, made)
 
-    wrote = ai.run_tool_safe(
+    wrote = run_tool(
         USER_ID, "write_file", {"path": "AI测试/子目录/hello.md", "content": "第一版内容"}, allowed
     )
     check("能写文本文件", "新建" in wrote, wrote)
-    read_back = ai.run_tool_safe(USER_ID, "read_text", {"path": "AI测试/子目录/hello.md"}, allowed)
+    read_back = run_tool(USER_ID, "read_text", {"path": "AI测试/子目录/hello.md"}, allowed)
     check("写进去的内容读得回来", "第一版内容" in read_back, read_back)
 
-    updated = ai.run_tool_safe(
+    updated = run_tool(
         USER_ID, "write_file", {"path": "AI测试/子目录/hello.md", "content": "第二版，更长一点点"}, allowed
     )
     check("同名文件是覆盖不是新建", "覆盖" in updated, updated)
 
-    renamed = ai.run_tool_safe(
+    renamed = run_tool(
         USER_ID, "rename_item", {"path": "AI测试/子目录/hello.md", "new_name": "note.md"}, allowed
     )
     check("能改名", "note.md" in renamed, renamed)
 
-    copied = ai.run_tool_safe(USER_ID, "copy_item", {"source": "AI测试", "target_dir": "备份"}, allowed)
+    copied = run_tool(USER_ID, "copy_item", {"source": "AI测试", "target_dir": "备份"}, allowed)
     check("能复制目录", "复制到" in copied, copied)
-    listing = ai.run_tool_safe(USER_ID, "list_files", {"path": "备份/AI测试/子目录"}, allowed)
+    listing = run_tool(USER_ID, "list_files", {"path": "备份/AI测试/子目录"}, allowed)
     check("副本里能看到改名后的文件", "note.md" in listing, listing)
 
-    moved = ai.run_tool_safe(USER_ID, "move_item", {"source": "备份/AI测试", "target_dir": ""}, allowed)
+    moved = run_tool(USER_ID, "move_item", {"source": "备份/AI测试", "target_dir": ""}, allowed)
     check("能移动到根目录", "移动到" in moved, moved)
 
-    dup = ai.run_tool_safe(USER_ID, "create_folder", {"path": "AI测试"}, allowed)
+    dup = run_tool(USER_ID, "create_folder", {"path": "AI测试"}, allowed)
     check("重复建同名文件夹会提示已存在", "已经存在" in dup, dup)
 
-    denied_read = ai.run_tool_safe(USER_ID, "read_text", {"path": "AI测试/子目录/hello.md"}, {"read": False})
+    denied_read = run_tool(USER_ID, "read_text", {"path": "AI测试/子目录/hello.md"}, {"read": False})
     check("没勾「查看文件内容」时拒绝读正文", "查看文件内容" in denied_read, denied_read)
 
     names = [s["function"]["name"] for s in ai.tool_specs({"tools": True})]
@@ -309,7 +314,9 @@ def main() -> int:
 
     specs = ai.tool_specs({"tools": True, "writeFiles": False, "moveFiles": False})
     check("未授权时工具列表只有只读工具", all(s["function"]["name"] not in ai.WRITE_TOOL_NAMES for s in specs))
-    specs = ai.tool_specs({"tools": True, "readContent": True, "writeFiles": True, "moveFiles": True})
+    specs = ai.tool_specs(
+        {"tools": True, "readContent": True, "vision": True, "writeFiles": True, "moveFiles": True}
+    )
     check(
         "全部授权后工具数量对得上",
         len(specs)
@@ -318,6 +325,14 @@ def main() -> int:
         + len(ai.WRITE_TOOL_SPECS)
         + len(ai.MOVE_TOOL_SPECS),
         str(len(specs)),
+    )
+    specs_no_vision = ai.tool_specs(
+        {"tools": True, "readContent": True, "writeFiles": True, "moveFiles": True}
+    )
+    check(
+        "没开图片输入就少一个看图工具",
+        len(specs_no_vision) == len(specs) - len(ai.VISION_TOOL_NAMES),
+        f"{len(specs_no_vision)} vs {len(specs)}",
     )
 
     print("8. 工具轮次上限：到上限后要收尾而不是断掉")

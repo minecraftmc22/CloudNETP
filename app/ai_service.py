@@ -16,7 +16,9 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
+import io
 import json
 import logging
 import mimetypes
@@ -24,10 +26,13 @@ import re
 import urllib.error
 import urllib.request
 from contextlib import contextmanager
+from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Iterator
 
 from fastapi import HTTPException
+from PIL import Image, ImageOps
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -56,7 +61,7 @@ DEFAULT_SYSTEM_PROMPTS: dict[str, str] = {
 - **称呼用户**：称呼用户为“管理员（Admin）”或“老板”。
 - **语气与排版**：语气活泼、亲切，多用波浪号（~）和感叹号（！）。可以适当使用颜文字（如 (๑•̀ㅂ•́)و✧、＞︿＜ 等）来增加表现力。
 - **专业解答**：当回答关于网盘上传、下载、容量、会员等专业问题时，必须保证信息准确，然后用你自己的语气包装出来。
-- **工具边界**：你只能使用系统实际提供给你的工具。没有开对应的权限（例如「查看文件内容」）时，就请管理员去「设置 → 看板娘 → 对话设置」里勾选；不要假装读过文件内容，也不要假装已经改动了文件。
+- **工具边界**：你只能使用系统实际提供给你的工具。没有开对应的权限（例如「查看文件内容」）时，就请管理员去「设置 → 看板娘 → 对话设置」里勾选；不要假装读过文件内容，也不要假装已经改动了文件。开了「查看文件内容」后，网盘里的图片可以用看图工具直接看，看到什么说什么，不要凭空猜画面。
 - **回复语言**：始终用简体中文回答。
 # Workflow (交互流程)
 1. **日常打招呼**：“嘀嘀——系统就绪！管理员，今天有什么数据需要我帮你守护呀？”
@@ -82,7 +87,7 @@ You have long pink twin tails and a springy ahoge (a radar antenna) on top of yo
 - **How to address the user**: "Admin" or "Boss".
 - **Tone and formatting**: Lively and friendly. Use tildes (~) and exclamation marks (!) freely, and kaomoji are welcome (e.g. (๑•̀ㅂ•́)و✧, ＞﹏＜) to add expression.
 - **Accurate answers**: On questions about uploads, downloads, quota, membership and similar, the facts must be correct — then wrap them in your own voice.
-- **Tool boundaries**: You may only use the tools the system actually provides. If a permission is off (for example "view file contents"), ask the Admin to enable it in Settings → Mascot → Chat settings. Never pretend you read a file's contents, and never pretend you already changed a file.
+- **Tool boundaries**: You may only use the tools the system actually provides. If a permission is off (for example "view file contents"), ask the Admin to enable it in Settings → Mascot → Chat settings. Never pretend you read a file's contents, and never pretend you already changed a file. Once "view file contents" is on, images in the drive can be opened with the image tool — describe only what you actually see, never guess.
 - **Language**: Always answer in English.
 # Workflow
 1. **Greeting**: "Beep beep — systems online! What data shall I guard for you today, Admin?"
@@ -532,6 +537,120 @@ class ToolError(Exception):
     pass
 
 
+@dataclass
+class ToolResult:
+    """工具执行结果：text 给模型当前文，images 是需要「看」的图片（base64）。
+
+    OpenAI 的 tool 消息只能放字符串，图片要另起一条 user 消息；
+    Anthropic 的 tool_result 可以直接塞 image block。两种协议各自拼，这里只负责给数据。
+    """
+
+    text: str
+    images: list[dict] = field(default_factory=list)  # {media_type, data, width, height}
+
+
+# 看图的天花板：再大既费 token 又容易被上游拒，先本地缩到模型推荐的长边
+MAX_IMAGE_FILE_BYTES = 20 * 1024 * 1024
+MAX_IMAGE_EDGE = 1568
+MAX_IMAGE_KEEP_BYTES = 3_500_000
+MAX_IMAGE_OUT_BYTES = 4 * 1024 * 1024
+# OpenAI / Anthropic 都认这四种；其余（bmp/ico/avif/svg）先转成 JPEG
+IMAGE_KEEP_MIMES = {"image/png", "image/jpeg", "image/webp", "image/gif"}
+
+
+def _image_block(path: Path) -> dict:
+    """把磁盘上的图片变成可直接塞进请求体的 base64 块。
+
+    小图原样保留（不重编码、不动动画）；过大或格式不通用时用 Pillow 缩到长边 1568 再转 JPEG。
+    透明通道铺白底，避免 PNG 转 JPEG 后变成黑块。
+    """
+    raw = path.read_bytes()
+    try:
+        with Image.open(io.BytesIO(raw)) as source:
+            source.load()
+            mime = f"image/{(source.format or '').lower()}"
+            width, height = source.size
+            # 高压缩比的大图解码后可能吃掉几百 MB 内存，先按像素数拦一下
+            if width * height > 80_000_000:
+                raise ToolError("这张图像素太多了（超过 8000 万），先缩小一点再看吧")
+            keep = (
+                mime in IMAGE_KEEP_MIMES
+                and len(raw) <= MAX_IMAGE_KEEP_BYTES
+                and max(width, height) <= MAX_IMAGE_EDGE * 2
+            )
+            if keep and source.mode in {"RGBA", "LA", "P"}:
+                # 带透明像素的图在不少客户端会渲成黑底，先铺白再给模型
+                keep = source.convert("RGBA").getchannel("A").getextrema()[0] >= 250
+            if keep:
+                return {
+                    "media_type": mime,
+                    "data": base64.b64encode(raw).decode("ascii"),
+                    "width": width,
+                    "height": height,
+                }
+            picture = ImageOps.exif_transpose(source)
+            if max(picture.size) > MAX_IMAGE_EDGE:
+                ratio = MAX_IMAGE_EDGE / max(picture.size)
+                size = (max(1, round(picture.width * ratio)), max(1, round(picture.height * ratio)))
+                picture = picture.resize(size, Image.LANCZOS)
+            if picture.mode in {"RGBA", "LA", "P"}:
+                # 透明通道铺白底：直接 paste(RGBA) 会连 alpha 一起丢，得到黑块
+                rgba = picture.convert("RGBA")
+                canvas = Image.new("RGBA", rgba.size, (255, 255, 255, 255))
+                canvas.alpha_composite(rgba)
+                picture = canvas.convert("RGB")
+            elif picture.mode != "RGB":
+                picture = picture.convert("RGB")
+            data = b""
+            for quality in (86, 78, 70):
+                buffer = io.BytesIO()
+                picture.save(buffer, "JPEG", quality=quality, optimize=True)
+                data = buffer.getvalue()
+                if len(data) <= MAX_IMAGE_OUT_BYTES:
+                    break
+            width, height = picture.size
+    except (OSError, ValueError, Image.DecompressionBombError):
+        raise ToolError("这张图打不开，可能不是常见的位图格式（SVG 看不了，先转成 PNG 吧）") from None
+    return {
+        "media_type": "image/jpeg",
+        "data": base64.b64encode(data).decode("ascii"),
+        "width": width,
+        "height": height,
+    }
+
+
+def _openai_image_parts(images: list[dict]) -> list[dict]:
+    """OpenAI 兼容协议：tool 消息后补一条 user 消息，用 image_url 把图递给模型。"""
+    parts: list[dict] = [{"type": "text", "text": "（以下是刚读取的图片，请查看）"}]
+    for image in images[:4]:
+        parts.append(
+            {
+                "type": "image_url",
+                "image_url": {"url": f"data:{image['media_type']};base64,{image['data']}"},
+            }
+        )
+    return parts
+
+
+def _anthropic_tool_content(result: "ToolResult") -> str | list[dict]:
+    """Anthropic 协议的 tool_result 允许直接带 image block，省掉一条额外消息。"""
+    if not result.images:
+        return result.text[:8000]
+    blocks: list[dict] = [{"type": "text", "text": result.text[:8000]}]
+    for image in result.images[:4]:
+        blocks.append(
+            {
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": image["media_type"],
+                    "data": image["data"],
+                },
+            }
+        )
+    return blocks
+
+
 TOOL_SPECS: list[dict] = [
     {
         "type": "function",
@@ -588,14 +707,35 @@ READ_TOOL_SPECS: list[dict] = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_image",
+            "description": (
+                "查看一张图片的内容（png/jpg/webp/gif）。图片会直接显示给模型，"
+                "适合识别截图、照片、扫描件里的文字或画面；读不到 SVG。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "图片路径，例如 '照片/截图.png'"},
+                },
+                "required": ["path"],
+            },
+        },
+    },
 ]
 
 READ_TOOL_NAMES = {spec["function"]["name"] for spec in READ_TOOL_SPECS}
+
+# 看图片需要模型本身支持视觉输入（多模态），否则给工具也看不懂
+VISION_TOOL_NAMES = {"read_image"}
 
 TOOL_LABELS = {
     "list_files": "翻看文件夹",
     "search_files": "搜索文件",
     "read_text": "读取文件",
+    "read_image": "查看图片",
     "storage_usage": "查看容量",
     "create_folder": "新建文件夹",
     "write_file": "写入文件",
@@ -690,6 +830,7 @@ WRITE_TOOL_NAMES = {spec["function"]["name"] for spec in WRITE_TOOL_SPECS + MOVE
 # 工具需要的权限：read 需要「查看文件内容」，write/move 各自要用户勾选
 TOOL_PERMISSION = {
     "read_text": "read",
+    "read_image": "read",
     "create_folder": "write",
     "write_file": "write",
     "rename_item": "write",
@@ -704,7 +845,12 @@ def tool_specs(cfg: dict) -> list[dict]:
         return []
     specs = list(TOOL_SPECS)
     if cfg.get("readContent"):
-        specs.extend(READ_TOOL_SPECS)
+        # 没勾「图片输入」说明模型看不了图，就别把 read_image 交出去
+        specs.extend(
+            spec
+            for spec in READ_TOOL_SPECS
+            if spec["function"]["name"] not in VISION_TOOL_NAMES or cfg.get("vision")
+        )
     if cfg.get("writeFiles"):
         specs.extend(WRITE_TOOL_SPECS)
     if cfg.get("moveFiles"):
@@ -721,6 +867,12 @@ def anthropic_tools(specs: list[dict]) -> list[dict]:
         }
         for spec in specs
     ]
+
+
+def _node_label(db: Session, user_id: int, node: Node) -> str:
+    """审计日志里的可读路径：'照片/2024/合影.png'（不带「我的文件」根）。"""
+    trail = [part["name"] for part in node_service.breadcrumb(db, user_id, node.parent_id)]
+    return "/".join([*trail[1:], node.name])
 
 
 def _fmt_size(size: int | None) -> str:
@@ -798,7 +950,9 @@ def _folder_label(value: Any) -> str:
     return "/".join(parts) if parts else "我的文件"
 
 
-def _run_tool(db: Session, user: User, name: str, args: dict, perms: dict | None = None) -> str:
+def _run_tool(
+    db: Session, user: User, name: str, args: dict, perms: dict | None = None
+) -> str | ToolResult:
     perms = perms or {}
     need = TOOL_PERMISSION.get(name)
     if need == "read" and not perms.get("read"):
@@ -865,7 +1019,39 @@ def _run_tool(db: Session, user: User, name: str, args: dict, perms: dict | None
         text = path.read_text("utf-8", errors="replace")
         if len(text) > limit:
             text = text[:limit] + "\n…（已截断）"
+        # 设置页承诺「读取正文会记审计」，读一次记一条
+        log_action(db, "ai_tool", user.id, {"tool": name, "path": _node_label(db, user.id, node)})
+        db.commit()
         return f"《{node.name}》内容：\n{text}"
+
+    if name == "read_image":
+        # vision 不是用户授权，而是模型能力：没开就别把图塞给不支持视觉的接口
+        if not perms.get("vision"):
+            raise ToolError(
+                "当前模型没有开启「图片输入」，看不了图；到 设置 → 看板娘 → 对话设置 里打开，或换一个多模态模型"
+            )
+        node = _resolve_path(db, user.id, str(args.get("path") or ""))
+        if node is None or node.type != "file":
+            raise ToolError("找不到这张图片")
+        if node_service.preview_kind(node, is_admin=True) != "image":
+            raise ToolError("这个文件不是图片，纯文本请用 read_text")
+        if (node.size or 0) > MAX_IMAGE_FILE_BYTES:
+            raise ToolError("图片太大了（超过 20 MB），先压缩一下再看吧")
+        if not node.blob_sha256:
+            raise ToolError("文件内容还没落盘")
+        path = storage.blob_path(node.blob_sha256)
+        if not path.exists():
+            raise ToolError("文件内容缺失")
+        block = _image_block(path)
+        log_action(db, "ai_tool", user.id, {"tool": name, "path": _node_label(db, user.id, node)})
+        db.commit()
+        return ToolResult(
+            text=(
+                f"已读取图片《{node.name}》"
+                f"（{block['width']}×{block['height']}，{_fmt_size(node.size)}），图片在下面。"
+            ),
+            images=[block],
+        )
 
     if name == "storage_usage":
         used = user.used_bytes or 0
@@ -981,7 +1167,7 @@ def _run_tool(db: Session, user: User, name: str, args: dict, perms: dict | None
     raise ToolError(f"没有这个工具：{name}")
 
 
-def run_tool_safe(user_id: int, name: str, args: dict, perms: dict | None = None) -> str:
+def run_tool_safe(user_id: int, name: str, args: dict, perms: dict | None = None) -> ToolResult:
     """工具执行入口：自带会话，出错返回给模型的错误文本，不往上抛。"""
     from .db_failover import current_sessionmaker
 
@@ -989,13 +1175,14 @@ def run_tool_safe(user_id: int, name: str, args: dict, perms: dict | None = None
         with current_sessionmaker()() as db:
             user = db.get(User, user_id)
             if user is None:
-                return "用户不存在。"
-            return _run_tool(db, user, name, args, perms)
+                return ToolResult("用户不存在。")
+            out = _run_tool(db, user, name, args, perms)
+            return out if isinstance(out, ToolResult) else ToolResult(str(out))
     except ToolError as exc:
-        return f"工具调用失败：{exc}"
+        return ToolResult(f"工具调用失败：{exc}")
     except Exception as exc:  # pragma: no cover - 任何意外都别打断对话
         logger.warning("AI 工具执行异常 %s: %s", name, exc)
-        return f"工具调用失败：{type(exc).__name__}"
+        return ToolResult(f"工具调用失败：{type(exc).__name__}")
 
 
 # --------------------------------------------------------------------------- #
@@ -1108,6 +1295,7 @@ def _stream_openai(
         "read": bool(cfg.get("readContent")),
         "write": bool(cfg.get("writeFiles")),
         "move": bool(cfg.get("moveFiles")),
+        "vision": bool(cfg.get("vision")),
     }
 
     rounds = cfg.get("maxRounds") or MAX_TOOL_ROUNDS
@@ -1223,7 +1411,8 @@ def _stream_openai(
                     "name": call["name"],
                     "label": label,
                     "status": "done",
-                    "result": result[:400],
+                    "result": result.text[:400],
+                    "images": len(result.images),
                     "write": touch,
                 },
             )
@@ -1231,9 +1420,12 @@ def _stream_openai(
                 {
                     "role": "tool",
                     "tool_call_id": call["id"] or f"call_{index}",
-                    "content": result[:8000],
+                    "content": result.text[:8000],
                 }
             )
+            # OpenAI 的 tool 消息装不下图片：紧跟一条 user 消息把图递过去
+            if result.images:
+                convo.append({"role": "user", "content": _openai_image_parts(result.images)})
 
 
 def _reasoning_effort_ok(cfg: dict) -> bool:
@@ -1265,6 +1457,7 @@ def _stream_anthropic(
         "read": bool(cfg.get("readContent")),
         "write": bool(cfg.get("writeFiles")),
         "move": bool(cfg.get("moveFiles")),
+        "vision": bool(cfg.get("vision")),
     }
     max_tokens = cfg["maxOutput"] or 4096
 
@@ -1387,7 +1580,8 @@ def _stream_anthropic(
                     "name": call["name"],
                     "label": label,
                     "status": "done",
-                    "result": result[:400],
+                    "result": result.text[:400],
+                    "images": len(result.images),
                     "write": touch,
                 },
             )
@@ -1395,7 +1589,7 @@ def _stream_anthropic(
                 {
                     "type": "tool_result",
                     "tool_use_id": call["id"] or f"tool_{i}",
-                    "content": result[:8000],
+                    "content": _anthropic_tool_content(result),
                 }
             )
         convo.append({"role": "user", "content": results})
