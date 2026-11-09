@@ -6,9 +6,9 @@ import logging
 import time
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, Request
+from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.openapi.docs import get_swagger_ui_html
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -236,3 +236,20 @@ app.include_router(ai_router.router)
 def share_page(token: str) -> FileResponse:
     """公开分享页（独立页面，不依赖登录态）。"""
     return FileResponse(STATIC_DIR / "share.html", headers={"Cache-Control": "no-cache"})
+
+
+# --------------------------------------------------------------------------- #
+# 路径式入口 → hash 路由
+# --------------------------------------------------------------------------- #
+# 前端是 hash 路由（/#/admin）。总有人把地址写成 /admin 或 /admin#/admin
+# （旧书签、外部链接、手敲），这类请求以前直接 404。
+# 这里把已知视图名 302 到 /#/<视图>；Location 自带 fragment，
+# 浏览器不会继承原来的 #/admin，所以最终就是干净的 /#/admin。
+VIEW_ROUTES = frozenset({"files", "shares", "trash", "settings", "about", "feedback", "admin"})
+
+
+@app.get("/{view}", include_in_schema=False)
+def view_route_alias(view: str) -> RedirectResponse:
+    if view not in VIEW_ROUTES:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not Found")
+    return RedirectResponse(f"/#/{view}", status_code=status.HTTP_302_FOUND)

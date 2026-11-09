@@ -68,6 +68,15 @@ const AUTHOR = {
 
 const CHANGELOG = [
   {
+    version: "0.3.56",
+    title: "路径式链接不再 404",
+    items: [
+      "前端是 hash 路由（/#/admin），但地址栏可能被写成 /admin 或 /admin#/admin（旧书签、外部链接、手敲）",
+      "现在 /admin、/files、/settings、/shares、/trash、/about、/feedback 都会 302 到对应的 /#/视图",
+      "跳转是 302（临时），不会被浏览器长期缓存；未知路径仍然是 404，/api、/terms、/s/<token> 不受影响",
+    ],
+  },
+  {
     version: "0.3.55",
     title: "读文件内容也要授权了",
     items: [
