@@ -633,6 +633,40 @@
 .lyr__srcpane[hidden] {
   display: none;
 }
+/* 来源分类（网易云 / 歌词库）：只在服务端启用多个来源时出现 */
+.lyr__srcpick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.lyr__srcpick[hidden] {
+  display: none;
+}
+.lyr__src {
+  padding: 3px 11px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--stroke-hair);
+  background: var(--fill-subtle);
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.6;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-fluent), color var(--dur-fast) var(--ease-fluent);
+}
+.lyr__src:hover:not(:disabled) {
+  color: var(--text-1);
+  background: var(--fill-hover);
+}
+.lyr__src.is-active {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  font-weight: 600;
+}
+.lyr__src:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
 .lyr__searchbox {
   width: 100%;
 }

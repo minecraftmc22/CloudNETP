@@ -1,10 +1,12 @@
 """音频元数据解析（mutagen）与歌词 API 代理。
 
-歌词来源按 LYRICS_PROVIDER 分发：
-- netease（默认）：直连网易云接口，免密钥即可搜索 + 逐行歌词（lrc）；
+歌词来源可以同时启用多个（LYRICS_PROVIDERS，逗号分隔），按顺序即优先级：
+- netease：直连网易云接口，免密钥即可搜索 + 逐行歌词（lrc）；
   配置 NETEASE_COOKIE（网页版 Cookie 里的 MUSIC_U=...）后可拿逐字歌词（yrc）。
-- lyriclib：自建歌词库开发者 API（LYRICS_API_BASE / LYRICS_API_KEY），即 0.2.x 的行为。
+- lyriclib：自建歌词库开发者 API（LYRICS_API_BASE / LYRICS_API_KEY /
+  可选 LYRICS_API_COOKIE），即 0.2.x 的行为。
 
+前端「搜索指定」里的分类只列已启用的来源；自动匹配按配置顺序依次尝试。
 密钥/Cookie 只放服务端，前端只访问本站代理。
 
 本模块对上游的全部请求都直连（不走系统代理）：本机代理对 TLS 上游会超时。
@@ -13,6 +15,7 @@
 from __future__ import annotations
 
 import base64
+import http.client
 import json
 import logging
 import re
@@ -285,10 +288,11 @@ def _sniff_image_mime(data: bytes) -> str:
 # --------------------------------------------------------------------------- #
 # 歌词 API 代理
 # --------------------------------------------------------------------------- #
-def _get(url: str, key: str, timeout: float = 12.0) -> dict:
-    req = urllib.request.Request(
-        url, headers={"Authorization": f"Bearer {key}", "User-Agent": "CloudNETP/lyrics"}
-    )
+def _get(url: str, key: str, timeout: float = 12.0, cookie: str = "") -> dict:
+    headers = {"Authorization": f"Bearer {key}", "User-Agent": "CloudNETP/lyrics"}
+    if cookie:
+        headers["Cookie"] = cookie
+    req = urllib.request.Request(url, headers=headers)
     try:
         with _opener.open(req, timeout=timeout) as resp:
             return json.loads(resp.read())
@@ -303,7 +307,9 @@ def _get(url: str, key: str, timeout: float = 12.0) -> dict:
             code=err.get("code") or "http_error",
             status=exc.code,
         ) from None
-    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError, http.client.HTTPException) as exc:
+        # OSError / HTTPException 覆盖对端直接掐连接（RemoteDisconnected）等
+        # 非 URLError 的失败，否则会漏成 500 而不是「服务暂时不可用」
         raise LyricsApiError("歌词服务暂时不可用", code="network") from exc
 
 
@@ -328,33 +334,165 @@ def _cache_put(cache: OrderedDict, key, value) -> None:
             cache.popitem(last=False)
 
 
-def _use_netease() -> bool:
-    """当前默认来源是否为网易云（LYRICS_PROVIDER != lyriclib）。"""
+# --------------------------------------------------------------------------- #
+# 歌词来源（可以同时启用多个，前端按「分类」切换）
+# --------------------------------------------------------------------------- #
+# 已知来源：id → 展示名。这里的顺序也是「一个都没配时的默认顺序」
+PROVIDERS: dict[str, str] = {"netease": "网易云", "lyriclib": "歌词库"}
+DEFAULT_PROVIDER = "netease"
+
+# 兼容 .env 里可能写成人话/别名的几种写法
+_PROVIDER_ALIASES = {
+    "netease": "netease",
+    "163": "netease",
+    "music163": "netease",
+    "music.163": "netease",
+    "网易云": "netease",
+    "网易": "netease",
+    "lyriclib": "lyriclib",
+    "mc22": "lyriclib",
+    "minecraftmc22": "lyriclib",
+    "歌词库": "lyriclib",
+    "local": "lyriclib",
+}
+
+
+def normalize_provider(value: str) -> str:
+    """把配置/入参里的来源写法归一成 id；不认识返回空串。"""
+    return _PROVIDER_ALIASES.get((value or "").strip().lower(), "")
+
+
+def provider_label(pid: str) -> str:
+    return PROVIDERS.get(pid, pid)
+
+
+def provider_ready(pid: str) -> bool:
+    """该来源当前是否可用（凭据齐不齐）。
+
+    网易云免密钥，永远可用；歌词库要 LYRICS_API_KEY。
+    """
     from .config import settings
 
-    return (settings.LYRICS_PROVIDER or "netease") != "lyriclib"
+    if pid == "netease":
+        return True
+    if pid == "lyriclib":
+        return bool((settings.LYRICS_API_KEY or "").strip())
+    return False
 
 
-def search_songs(query: str, limit: int = 8) -> list[dict]:
-    """搜索歌曲，返回 items（id/title/artist/album/duration_ms/cover_url/provider）。"""
-    if _use_netease():
+def _provider_env() -> list[str]:
+    """读配置：LYRICS_PROVIDERS 优先，退回单值 LYRICS_PROVIDER。"""
+    from .config import settings
+
+    raw = (getattr(settings, "LYRICS_PROVIDERS", "") or "").strip()
+    if not raw:
+        raw = (settings.LYRICS_PROVIDER or DEFAULT_PROVIDER).strip()
+    if raw.strip().lower() in {"*", "all", "any"}:
+        return list(PROVIDERS)
+    out: list[str] = []
+    for part in re.split(r"[,;\s|]+", raw):
+        pid = normalize_provider(part)
+        if pid and pid not in out:
+            out.append(pid)
+    return out
+
+
+def enabled_providers() -> list[str]:
+    """已启用的来源，顺序即自动匹配 / 默认来源的优先级。
+
+    配置写错了（例如写了不认识的名字）时退回默认来源，
+    不让界面出现「一个来源都没有」的死角。
+    """
+    return _provider_env() or [DEFAULT_PROVIDER]
+
+
+def default_provider() -> str:
+    """默认来源：已启用里第一个凭据齐全的，都没有就用第一个。"""
+    enabled = enabled_providers()
+    for pid in enabled:
+        if provider_ready(pid):
+            return pid
+    return enabled[0]
+
+
+def providers_info() -> list[dict]:
+    """给前端渲染「分类」用：只列已启用的，并标出默认项和不可用原因。"""
+    default = default_provider()
+    out: list[dict] = []
+    for pid in enabled_providers():
+        ready = provider_ready(pid)
+        out.append(
+            {
+                "id": pid,
+                "label": provider_label(pid),
+                "ready": ready,
+                "default": pid == default,
+                "reason": "" if ready else "未配置歌词接口密钥（LYRICS_API_KEY）",
+            }
+        )
+    return out
+
+
+def _check_provider(pid: str, *, for_search: bool) -> str:
+    """校验来源入参，返回归一后的 id。
+
+    - 搜索：必须是在 LYRICS_PROVIDERS 里启用的来源（用户点的是「分类」）
+    - 取词：只要是已知且凭据齐全的来源就放行——歌单里存的是历史选择，
+      后来把某个来源从配置里去掉，也不该让老歌单瞬间变哑
+    """
+    enabled = enabled_providers()
+    raw = (pid or "").strip()
+    if raw:
+        norm = normalize_provider(raw)
+        if not norm:
+            raise LyricsApiError(f"未知的歌词来源：{pid}", code="bad_provider", status=400)
+    else:
+        # 没指定就用默认来源，但凭据检查一样要走：默认来源没配密钥时
+        # 应该直接报「缺少凭据」，而不是带着空 key 去请求上游
+        norm = default_provider()
+    if for_search and norm not in enabled:
+        names = "、".join(provider_label(p) for p in enabled)
+        raise LyricsApiError(
+            f"歌词来源「{provider_label(norm)}」未启用，当前可用：{names}（在 .env 的 LYRICS_PROVIDERS 里启用）",
+            code="provider_disabled",
+            status=400,
+        )
+    if not provider_ready(norm):
+        raise LyricsApiError(
+            f"歌词来源「{provider_label(norm)}」缺少凭据（LYRICS_API_KEY）",
+            code="no_key",
+        )
+    return norm
+
+
+def _use_netease() -> bool:
+    """默认来源是否为网易云（老接口，保留给旧调用点/测试）。"""
+    return default_provider() == "netease"
+
+
+def search_songs(query: str, limit: int = 8, provider: str = "") -> list[dict]:
+    """按指定来源搜索歌曲。
+
+    返回 items（id/title/artist/album/duration_ms/cover_url/provider）。
+    provider 留空 = 默认来源（enabled_providers 里第一个可用的）。
+    """
+    from .config import settings
+
+    prov = _check_provider(provider, for_search=True)
+    if prov == "netease":
         return netease_search(query, limit)
 
-    from .config import settings
-
-    if not settings.LYRICS_API_KEY:
-        raise LyricsApiError("未配置歌词接口密钥（LYRICS_API_KEY）", code="no_key")
     query = query.strip()
     if not query:
         return []
-    cache_key = f"{limit}|{query}"
+    cache_key = f"{prov}|{limit}|{query}"
     if (hit := _cache_get(_search_cache, cache_key, SEARCH_TTL)) is not None:
         return hit
     url = (
         f"{settings.LYRICS_API_BASE}/search.php?"
         + urllib.parse.urlencode({"q": query, "limit": limit})
     )
-    body = _get(url, settings.LYRICS_API_KEY)
+    body = _get(url, settings.LYRICS_API_KEY, cookie=settings.LYRICS_API_COOKIE)
     if not body.get("ok"):
         raise LyricsApiError("歌词搜索失败", code="upstream")
     items = body.get("data", {}).get("items") or []
@@ -367,12 +505,12 @@ def search_songs(query: str, limit: int = 8) -> list[dict]:
 def fetch_lyrics(song_id: int, provider: str = "") -> dict:
     """按 (来源, 歌曲 id) 取歌词，返回 {lines, granularity?, ...}。
 
-    provider 为空时用当前配置的默认来源；歌单里已保存的偏好会带上
+    provider 为空时用当前默认来源；歌单里已保存的偏好会带上
     当时的来源，避免两个来源的数字 id 撞车。
     """
     from .config import settings
 
-    prov = (provider or settings.LYRICS_PROVIDER or "netease").strip().lower()
+    prov = _check_provider(provider, for_search=False)
     cache_key = (prov, song_id)
     if (hit := _cache_get(_lyrics_cache, cache_key, LYRICS_TTL)) is not None:
         return hit
@@ -380,13 +518,11 @@ def fetch_lyrics(song_id: int, provider: str = "") -> dict:
         data = netease_lyrics(song_id, settings.NETEASE_COOKIE)
         data["provider"] = "netease"
     else:
-        if not settings.LYRICS_API_KEY:
-            raise LyricsApiError("未配置歌词接口密钥（LYRICS_API_KEY）", code="no_key")
         url = (
             f"{settings.LYRICS_API_BASE}/lyrics.php?"
             + urllib.parse.urlencode({"song": song_id, "lang": "both", "gran": "auto"})
         )
-        body = _get(url, settings.LYRICS_API_KEY)
+        body = _get(url, settings.LYRICS_API_KEY, cookie=settings.LYRICS_API_COOKIE)
         if not body.get("ok"):
             raise LyricsApiError("歌词获取失败", code="upstream")
         data = body.get("data") or {}
@@ -398,25 +534,39 @@ def fetch_lyrics(song_id: int, provider: str = "") -> dict:
 def find_and_fetch(title: str, artist: str = "") -> dict:
     """按「标题 歌手」搜索并取最匹配歌曲的歌词。
 
+    同时启用多个来源时按配置顺序依次尝试，先用先得（网易云在前就优先网易云）。
     匹配策略：先「标题 + 歌手」，没结果退回仅标题；命中后取第一条。
     返回 {provider, granularity?, lines: [...], matched: {...}}。
     """
     q_parts = [part for part in (title.strip(), artist.strip()) if part]
     if not q_parts:
         raise LyricsApiError("缺少歌名", code="missing_param")
-    items = search_songs(" ".join(q_parts))
-    if not items and artist.strip() and title.strip():
-        items = search_songs(title.strip())
-    if not items:
-        raise LyricsApiError("没有找到这首歌", code="song_not_found", status=404)
-    best = items[0]
-    data = fetch_lyrics(best["id"], best.get("provider", ""))
-    data["matched"] = {
-        "id": best["id"],
-        "provider": best.get("provider", ""),
-        **{k: best.get(k, "") for k in ("title", "artist", "album")},
-    }
-    return data
+
+    providers = [p for p in enabled_providers() if provider_ready(p)] or [default_provider()]
+    errors: list[str] = []
+    for prov in providers:
+        try:
+            items = search_songs(" ".join(q_parts), provider=prov)
+            if not items and artist.strip() and title.strip():
+                items = search_songs(title.strip(), provider=prov)
+        except LyricsApiError as exc:
+            # 单个来源挂了不该让整次匹配失败：记下来继续试下一个
+            errors.append(exc.message or provider_label(prov))
+            continue
+        if not items:
+            continue
+        best = items[0]
+        data = fetch_lyrics(best["id"], best.get("provider") or prov)
+        data["matched"] = {
+            "id": best["id"],
+            "provider": best.get("provider", prov),
+            **{k: best.get(k, "") for k in ("title", "artist", "album")},
+        }
+        return data
+
+    if errors and len(errors) == len(providers):
+        raise LyricsApiError(errors[0], code="upstream")
+    raise LyricsApiError("没有找到这首歌", code="song_not_found", status=404)
 
 
 # --------------------------------------------------------------------------- #
@@ -455,7 +605,7 @@ def _netease_get(url: str, extra_cookie: str = "") -> dict:
             code="upstream",
             status=exc.code,
         ) from None
-    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError, http.client.HTTPException) as exc:
         raise LyricsApiError("网易云服务暂时不可用", code="network") from exc
 
 

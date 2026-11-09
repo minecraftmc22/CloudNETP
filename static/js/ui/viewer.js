@@ -789,6 +789,7 @@ export function openViewer(item, { onDownload } = {}) {
     const statusEl = root.querySelector("[data-lyr-panel-status]");
     const searchInput = root.querySelector("[data-lyr-search]");
     const resultsEl = root.querySelector("[data-lyr-results]");
+    const srcPickEl = root.querySelector("[data-lyr-srcpick]");
     const customEl = root.querySelector("[data-lyr-custom]");
     const sizeInput = root.querySelector("[data-lyr-size]");
     const sizeVal = root.querySelector("[data-lyr-size-val]");
@@ -798,11 +799,92 @@ export function openViewer(item, { onDownload } = {}) {
     const panes = {};
     root.querySelectorAll("[data-srcpane]").forEach((el) => (panes[el.dataset.srcpane] = el));
 
+    /* --- 歌词来源分类（网易云 / 歌词库）：服务端开了两个才会出现 --- */
+    const PROVIDER_KEY = "cloudnetp.lyricsProvider";
+    let providers = []; // [{id,label,ready,default,reason}]
+    let activeProvider = "";
+    const readStoredProvider = () => {
+      try {
+        return localStorage.getItem(PROVIDER_KEY) || "";
+      } catch {
+        return "";
+      }
+    };
+    const saveProvider = (id) => {
+      try {
+        localStorage.setItem(PROVIDER_KEY, id);
+      } catch {
+        /* 隐私模式下写不了，忽略 */
+      }
+    };
+    const readyProviders = () => providers.filter((p) => p.ready);
+    const sourceChain = () => {
+      const names = readyProviders().map((p) => t(p.label));
+      return names.length ? names.join(" → ") : t("在线搜索");
+    };
+
     const SRC_HINT = {
-      auto: "按优先级自动匹配：音频内嵌歌词 → 网易云搜索 → 无歌词",
-      song: "搜索网易云曲库并点选结果即启用；逐字歌词（yrc）需要服务端配置网易云登录 Cookie，未配置时返回逐行歌词",
-      custom: "直接使用自己粘贴的歌词文本（支持 LRC）",
-      none: "播放时不显示歌词",
+      auto: () => t("按优先级自动匹配：音频内嵌歌词 → {sources} → 无歌词", { sources: sourceChain() }),
+      song: () =>
+        t(
+          "搜索线上曲库并点选结果即启用；逐字歌词（yrc）需要服务端配置网易云登录 Cookie，未配置时返回逐行歌词"
+        ),
+      custom: () => t("直接使用自己粘贴的歌词文本（支持 LRC）"),
+      none: () => t("播放时不显示歌词"),
+    };
+    const hintFor = (mode) => (SRC_HINT[mode] ? SRC_HINT[mode]() : "");
+
+    const renderProviderPick = () => {
+      if (!srcPickEl) return;
+      if (providers.length <= 1) {
+        // 只启用了一个来源时没必要让用户选，直接搜那个
+        srcPickEl.hidden = true;
+        srcPickEl.innerHTML = "";
+        return;
+      }
+      srcPickEl.hidden = false;
+      srcPickEl.innerHTML = "";
+      providers.forEach((p) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "lyr__src";
+        btn.textContent = t(p.label);
+        if (p.id === activeProvider) btn.classList.add("is-active");
+        if (!p.ready) {
+          btn.disabled = true;
+          btn.title = t(p.reason || "该来源不可用");
+        }
+        btn.addEventListener("click", () => {
+          if (activeProvider === p.id) return;
+          activeProvider = p.id;
+          saveProvider(activeProvider);
+          // 只切 class，不重建按钮：重建会把被点的节点从 DOM 里摘掉，
+          // 冒泡到面板时 contains(event.target) 变 false，面板就被误关了
+          [...srcPickEl.children].forEach((el) => el.classList.toggle("is-active", el === btn));
+          if (searchInput.value.trim()) doSearch(); // 换分类就按新来源重新搜
+        });
+        srcPickEl.appendChild(btn);
+      });
+    };
+
+    // 懒加载：只在真的要搜的时候问一次服务端
+    const ensureProviders = async () => {
+      if (providers.length) return;
+      try {
+        const data = await api.get("/api/lyrics/providers");
+        providers = data.items || [];
+        const stored = readStoredProvider();
+        const pick =
+          providers.find((p) => p.id === stored && p.ready) ||
+          providers.find((p) => p.id === data.default) ||
+          providers.find((p) => p.ready) ||
+          providers[0];
+        activeProvider = pick?.id || "";
+      } catch {
+        providers = [];
+        activeProvider = "";
+      }
+      if (document.contains(root)) renderProviderPick();
     };
 
     // 样式跟随账号：读全局设置，即时应用 + 防抖保存
@@ -895,7 +977,7 @@ export function openViewer(item, { onDownload } = {}) {
         thumbEl.style.transform = `translateX(${btn.offsetLeft - 3}px)`;
       }
       Object.entries(panes).forEach(([key, el]) => (el.hidden = key !== mode));
-      segHintEl.textContent = t(SRC_HINT[mode] || "");
+      segHintEl.textContent = hintFor(mode);
     };
     const status = (msg) => {
       statusEl.textContent = msg;
@@ -912,13 +994,15 @@ export function openViewer(item, { onDownload } = {}) {
       }
     };
 
-    /* 搜索歌词库（搜索指定歌词） */
+    /* 搜索歌词库（搜索指定歌词）：按当前分类的来源搜 */
     const doSearch = async () => {
       const q = searchInput.value.trim();
       if (!q) return;
       resultsEl.innerHTML = H`<p class="lyr__panel-hint">搜索中…</p>`;
       try {
-        const data = await api.get(`/api/lyrics/search?q=${encodeURIComponent(q)}`);
+        const params = new URLSearchParams({ q });
+        if (activeProvider) params.set("provider", activeProvider);
+        const data = await api.get(`/api/lyrics/search?${params.toString()}`);
         if (!document.contains(root)) return;
         if (!data.items?.length) {
           resultsEl.innerHTML = H`<p class="lyr__panel-hint">没有找到，换个关键词试试</p>`;
@@ -976,12 +1060,18 @@ export function openViewer(item, { onDownload } = {}) {
     root.querySelector("[data-lyr-use-auto]").addEventListener("click", () => applyPref({ mode: "auto" }));
 
     segEl.querySelectorAll("[data-src]").forEach((b) => {
-      b.addEventListener("click", () => {
+      b.addEventListener("click", async () => {
         const mode = b.dataset.src;
         setPanelMode(mode);
-        if (mode === "song" && !searchInput.value.trim() && qTitle) {
-          searchInput.value = qTitle; // 预填元数据里的歌名，直接搜
-          doSearch();
+        if (mode === "song") {
+          // 先把来源分类拉回来（只有启用多个时才会显示切换）
+          await ensureProviders();
+          if (!document.contains(root)) return;
+          setPanelMode("song"); // 来源链已知后刷新提示
+          if (!searchInput.value.trim() && qTitle) {
+            searchInput.value = qTitle; // 预填元数据里的歌名，直接搜
+            doSearch();
+          }
         }
         if (mode === "auto") applyPref({ mode: "auto" });
         if (mode === "none") applyPref({ mode: "none" });
@@ -993,6 +1083,10 @@ export function openViewer(item, { onDownload } = {}) {
     };
     const openPanel = async () => {
       panel.hidden = false;
+      // 面板一打开就把来源列表拉回来：不阻塞渲染，拿到后补齐提示与分类
+      ensureProviders().then(() => {
+        if (document.contains(root) && !panel.hidden) segHintEl.textContent = hintFor(paneMode);
+      });
       try {
         const pref = await api.get(`/api/nodes/${node.id}/lyrics-pref`);
         if (!document.contains(root) || panel.hidden) return;
@@ -1016,7 +1110,10 @@ export function openViewer(item, { onDownload } = {}) {
     });
     root.querySelector("[data-lyr-panel-close]").addEventListener("click", closePanel);
     panel.addEventListener("click", (event) => {
-      if (!panelCard.contains(event.target)) closePanel();
+      // 用 composedPath 判断：目标节点如果因为重绘被摘掉，contains 会误判成「点在外面」
+      const path = event.composedPath ? event.composedPath() : [];
+      const inside = path.length ? path.includes(panelCard) : panelCard.contains(event.target);
+      if (!inside) closePanel();
     });
 
     // 文件名兜底：常见「歌手 - 歌名.mp3」格式
@@ -1130,6 +1227,7 @@ export function openViewer(item, { onDownload } = {}) {
                 <button class="btn btn--accent" type="button" data-lyr-use-auto>改回自动匹配</button>
               </div>
               <div class="lyr__srcpane" data-srcpane="song" hidden>
+                <div class="lyr__srcpick" data-lyr-srcpick hidden></div>
                 <div class="textbox lyr__searchbox">
                   <svg class="icon"><use href="#i-search"/></svg>
                   <input data-lyr-search placeholder="搜索歌名 / 歌手" maxlength="80">

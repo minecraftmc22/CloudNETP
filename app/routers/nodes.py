@@ -284,6 +284,20 @@ def audio_cover(node_id: int, db: DbSession, user: CurrentUser) -> Response:
     )
 
 
+@router.get("/lyrics/providers")
+def lyrics_providers(user: CurrentUser) -> dict:
+    """可用的歌词来源（.env 的 LYRICS_PROVIDERS 决定）。
+
+    前端「搜索指定」用它渲染分类切换；凭据没配齐的来源会带 ready=false 和原因。
+    """
+    items = lyrics_service.providers_info()
+    return {
+        "items": items,
+        "default": lyrics_service.default_provider(),
+        "total": len(items),
+    }
+
+
 @router.get("/lyrics")
 def lyrics_proxy(
     db: DbSession,
@@ -291,14 +305,16 @@ def lyrics_proxy(
     songId: int | None = Query(default=None),
     title: str = Query(default="", max_length=120),
     artist: str = Query(default="", max_length=120),
+    provider: str = Query(default="", max_length=24),
 ) -> dict:
     """歌词库代理：songId 指定歌曲，否则按「标题 + 歌手」自动匹配。
 
+    provider 为空时用默认来源；指定了就必须是该来源里的歌曲 id。
     服务端代理，密钥不出内网。
     """
     try:
         if songId is not None:
-            return lyrics_service.fetch_lyrics(songId)
+            return lyrics_service.fetch_lyrics(songId, provider)
         if not title.strip():
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "缺少 songId 或 title")
         return lyrics_service.find_and_fetch(title, artist)
@@ -306,6 +322,8 @@ def lyrics_proxy(
         http_status = status.HTTP_424_FAILED_DEPENDENCY
         if exc.status == 404:
             http_status = status.HTTP_404_NOT_FOUND
+        elif exc.code in {"bad_provider", "provider_disabled"}:
+            http_status = status.HTTP_400_BAD_REQUEST
         elif exc.code in {"quota_exceeded", "network", "upstream"}:
             http_status = status.HTTP_503_SERVICE_UNAVAILABLE
         raise HTTPException(http_status, exc.message or "歌词获取失败") from None
@@ -315,18 +333,30 @@ def lyrics_proxy(
 def lyrics_search(
     user: CurrentUser,
     q: str = Query(min_length=1, max_length=120),
+    provider: str = Query(default="", max_length=24),
 ) -> dict:
-    """歌词库搜索（手动给某首歌挑歌词用），只返回条目不取正文。"""
+    """歌词库搜索（手动给某首歌挑歌词用），只返回条目不取正文。
+
+    provider 指定搜哪个来源（网易云 / 歌词库），留空用默认来源。
+    """
     try:
-        items = lyrics_service.search_songs(q.strip())
+        items = lyrics_service.search_songs(q.strip(), provider=provider)
     except lyrics_service.LyricsApiError as exc:
         http_status = (
             status.HTTP_503_SERVICE_UNAVAILABLE
             if exc.code in {"quota_exceeded", "network", "upstream"}
             else status.HTTP_424_FAILED_DEPENDENCY
         )
+        if exc.code in {"bad_provider", "provider_disabled"}:
+            http_status = status.HTTP_400_BAD_REQUEST
         raise HTTPException(http_status, exc.message or "歌词搜索失败") from None
-    return {"query": q, "items": items, "total": len(items)}
+    return {
+        "query": q,
+        "provider": lyrics_service.normalize_provider(provider)
+        or lyrics_service.default_provider(),
+        "items": items,
+        "total": len(items),
+    }
 
 
 def _pref_payload(pref: AudioPref | None) -> dict:
@@ -374,9 +404,13 @@ def set_lyrics_pref(
     if payload.mode == "song":
         if not payload.song_id:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "指定歌曲需要 songId")
-        provider = (payload.provider or "").strip().lower()
-        if provider not in {"netease", "lyriclib"}:
-            # 缺省按老行为算 lyriclib（旧前端不会带 provider 字段）
+        raw_provider = (payload.provider or "").strip()
+        if raw_provider:
+            provider = lyrics_service.normalize_provider(raw_provider)
+            if not provider:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, "未知的歌词来源")
+        else:
+            # 旧前端不会带 provider，按 0.2.x 的老行为算歌词库
             provider = "lyriclib"
         # 先取一次歌词校验 id 在该来源里有效，顺便预热缓存
         try:

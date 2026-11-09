@@ -67,7 +67,7 @@ Python 3.14 + FastAPI 后端，零构建原生 ES Module 前端；分片秒传�
 - **文件管理**：目录树、网格 / 列表双视图、多选（Ctrl / Shift）、右键菜单、面包屑、搜索、重命名、移动、回收站
 - **上传**：拖拽上传（文件夹保留目录结构、同名目录自动合并、空目录也建）、分片断点续传、SHA-256 秒传去重、实时进度与速度
 - **下载**：支持 Range（断点续传 / 视频拖动进度条）
-- **在线预览**：图片（缩放 / 拖动 / 快捷键）、文本（多编码探测）、音视频（ArtPlayer + 弹幕 / 多字幕 / 章节 / 进度缩略图 / 氛围光，同名伴生文件自动挂载）、音频全屏歌词（读取 ID3 内嵌元数据与封面，逐词滚动歌词 + 控制栏；在线歌词默认走网易云——免密钥即得逐行歌词，配置网易云 Cookie 后升级为逐字歌词与翻译，歌词经服务端代理，Cookie 不出服务端）、PDF
+- **在线预览**：图片（缩放 / 拖动 / 快捷键）、文本（多编码探测）、音视频（ArtPlayer + 弹幕 / 多字幕 / 章节 / 进度缩略图 / 氛围光，同名伴生文件自动挂载）、音频全屏歌词（读取 ID3 内嵌元数据与封面，逐词滚动歌词 + 控制栏；在线歌词支持网易云与 MC22 歌词库两个来源、可在搜索时按分类切换——网易云免密钥即得逐行歌词，配 Cookie 后升级为逐字歌词与翻译，两个来源可同时启用，歌词经服务端代理，Cookie 与密钥不出服务端）、PDF
 - **意见反馈**：入口在「关于」页，站内提交建议 / 问题，管理员在后台标记处理，反馈只有管理员可见
 - **版本检查与更新**：关于页可手动检查；管理员可开启自动检查提示，或在后台手动/自动更新（git fast-forward + 重启，要求 main 分支、工作区干净）
 - **分享链接**：有效期 / 提取码（scrypt 哈希存储）/ 下载次数上限、独立公开页；合集链接支持勾选转存，双击文件就地预览
@@ -218,6 +218,41 @@ sql/schema.sql       MySQL 建表参考
 | `DB_FALLBACK_ENABLED` | 主库连不上时是否降级本地 SQLite（默认开；多实例部署请关） |
 | `DB_PROBE_INTERVAL` | 主库探活间隔秒数（`0` = 只在启动时选库，运行期不切换） |
 | `DB_MIRROR_INTERVAL` | 主库 → SQLite 镜像间隔秒数（`0` = 不做周期镜像） |
+| `LYRICS_PROVIDERS` | 启用的歌词来源，逗号分隔（`netease,lyriclib`），顺序即优先级；`all` = 全部；留空退回 `LYRICS_PROVIDER` |
+| `LYRICS_PROVIDER` | 单值默认来源（老写法，仍然兼容） |
+| `NETEASE_COOKIE` | 网易云网页版 Cookie（含 `MUSIC_U=...`）。配了才有逐字歌词与翻译，不配也能用（逐行） |
+| `LYRICS_API_BASE` / `LYRICS_API_KEY` / `LYRICS_API_COOKIE` | MC22 歌词库的地址 / 开发者密钥 / 站点 Cookie |
+
+## 歌词来源（网易云 / 歌词库）
+
+音频全屏播放器里的在线歌词支持两个来源，**可以同时启用**：
+
+| 来源 | id | 凭据 | 说明 |
+| --- | --- | --- | --- |
+| 网易云 | `netease` | `NETEASE_COOKIE`（可选） | 免密钥直接搜；配 Cookie 后拿逐字歌词（yrc）与翻译，不配就是逐行（lrc） |
+| MC22 歌词库 | `lyriclib` | `LYRICS_API_KEY`（必需）+ `LYRICS_API_COOKIE`（可选） | 自建站点的开发者 API |
+
+```dotenv
+LYRICS_PROVIDERS=netease,lyriclib   # 顺序即优先级，也可以是 all
+NETEASE_COOKIE=MUSIC_U=xxxxx
+LYRICS_API_BASE=https://minecraftmc22.top/lyric/api/v1
+LYRICS_API_KEY=xxxxx
+LYRICS_API_COOKIE=session=xxxxx
+```
+
+行为：
+
+- **搜索指定**：歌词设置 → 搜索指定，搜索框上方出现来源分类（网易云 / 歌词库），点哪个就搜哪个；
+  只启用一个来源时不显示分类，直接搜那一个。选过的分类记在浏览器本地，下次打开还是它。
+- **自动匹配**：按 `LYRICS_PROVIDERS` 的顺序依次尝试，先用先得；某个来源挂了会跳过并继续试下一个，
+  全部失败才报错。
+- **每首歌的来源会存下来**：`audio_prefs.provider` 记录点选时用的是哪个来源（两个来源的歌曲 id 不互通）。
+  后来把某个来源从配置里去掉，老歌单里指向它的歌仍然能取到歌词。
+- 搜索/取词缓存都按来源分开（`(provider, song_id)`），同一个 id 在两个来源里不会被当成同一首歌。
+- 凭据只读服务端：前端只调 `/api/lyrics`，Cookie 与密钥不会下发到浏览器。
+
+接口：`GET /api/lyrics/providers`（可用来源与默认项）、`GET /api/lyrics/search?q=&provider=`、
+`GET /api/lyrics?songId=&provider=`。
 
 ## 数据库容灾
 

@@ -103,7 +103,7 @@ def _compose_database_url() -> str:
 class Settings:
     # ---- 应用 ----
     APP_NAME: str = _get("APP_NAME", "CloudNETP")
-    VERSION: str = "0.3.51"
+    VERSION: str = "0.3.52"
     DEBUG: bool = _get_bool("DEBUG", True)
 
     # ---- 监听与对外地址 ----
@@ -170,16 +170,22 @@ class Settings:
     SQLITE_TIMEOUT: int = _get_int("SQLITE_TIMEOUT", 30)
 
     # ---- 歌词（音频预览的逐行/逐字歌词）----
-    # 来源由 LYRICS_PROVIDER 决定，两套来源的凭据互相独立、可同时保留：
+    # 可以同时启用多个来源，前端搜索框旁边会出现「分类」切换：
     #   netease  直连网易云，免密钥；NETEASE_COOKIE 仅用于解锁逐字歌词（yrc）与翻译
-    #   lyriclib 走 MC22 自建歌词库，读 LYRICS_API_BASE + LYRICS_API_KEY
+    #   lyriclib 走 MC22 自建歌词库，读 LYRICS_API_BASE + LYRICS_API_KEY（+ 可选 Cookie）
+    # 两套来源的凭据互相独立、可同时保留：
+    #   LYRICS_PROVIDERS 列出启用哪些（逗号分隔，顺序即默认优先级；留空 = 只用 LYRICS_PROVIDER）
+    #   LYRICS_PROVIDER  仍保留为「默认来源」的单值写法，向后兼容
     # 凭据只放服务端，前端通过 /api/lyrics 代理访问，避免泄露。
     LYRICS_PROVIDER: str = _get("LYRICS_PROVIDER", "netease").strip().lower()
+    LYRICS_PROVIDERS: str = _get("LYRICS_PROVIDERS", "").strip().lower()
     # 来源 A：网易云（Cookie 留空 → 逐行歌词）
     NETEASE_COOKIE: str = _get("NETEASE_COOKIE")
-    # 来源 B：MC22 歌词库（仅 provider=lyriclib 时读取）
+    # 来源 B：MC22 歌词库
     LYRICS_API_BASE: str = _get("LYRICS_API_BASE", "https://minecraftmc22.top/lyric/api/v1").rstrip("/")
     LYRICS_API_KEY: str = _get("LYRICS_API_KEY")
+    # 歌词库站点自身的 Cookie（部分接口在登录态下才返回逐字/翻译；留空即不带）
+    LYRICS_API_COOKIE: str = _get("LYRICS_API_COOKIE")
 
     # ---- Live2D 看板娘 ----
     # 模型根目录（默认项目根下的 live2d/），对外挂载为 /live2d；模型放 live2d/model/<模型名>/
