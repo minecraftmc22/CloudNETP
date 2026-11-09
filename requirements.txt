@@ -7,3 +7,5 @@ PyMySQL>=1.1.2
 cryptography>=45
 Pillow>=11.3.0
 mutagen>=1.47.0
+# 网易云扫码登录：服务端把登录地址画成二维码（纯 Python，SVG 输出不依赖图片库）
+qrcode>=8.0

@@ -9,12 +9,13 @@ import logging
 import secrets
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy.orm import Session
 
 from .. import admin_service as admin
 from .. import dav_auth as da
 from .. import db_failover
+from .. import netease_auth as ng
 from .. import node_service as ns
 from .. import profile_service as ps
 from .. import storage
@@ -424,6 +425,72 @@ def db_reconnect(payload: AdminDbReconnectIn, request: Request, me: AdminUser) -
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from None
     _db_audit(request, me.id, "admin_db_reconnect", result)
     return {"result": result, "db": db_failover.describe()}
+
+
+# --------------------------------------------------------------------------- #
+# 网易云歌词账号（扫码登录，Cookie 只在服务端）
+# --------------------------------------------------------------------------- #
+@router.get("/netease")
+def netease_status(db: DbSession, _: AdminUser) -> dict:
+    """当前网易云连接状态。只回昵称/头像/时间，**不回 Cookie**。"""
+    return {"account": ng.status(db)}
+
+
+@router.post("/netease/qr")
+def netease_qr(request: Request, _: AdminUser) -> dict:
+    """申请一个扫码登录会话，返回二维码内容与本站会话 id。"""
+    check_origin(request)
+    try:
+        return ng.qr_create()
+    except ng.NeteaseError as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, exc.message) from None
+
+
+# 注意顺序：带 .svg 的必须写在 /{session} 之前，否则会被当成本 session id
+@router.get("/netease/qr/{session}.svg")
+def netease_qr_svg(session: str, _: AdminUser) -> Response:
+    try:
+        svg = ng.qr_svg(session)
+    except ng.NeteaseError as exc:
+        raise HTTPException(exc.status or status.HTTP_404_NOT_FOUND, exc.message) from None
+    return Response(
+        content=svg,
+        media_type="image/svg+xml",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@router.get("/netease/qr/{session}")
+def netease_qr_poll(session: str, request: Request, db: DbSession, me: AdminUser) -> dict:
+    """轮询扫码状态；803 时把 Cookie 落库，响应里只带账号信息。"""
+    try:
+        result = ng.qr_poll(session)
+    except ng.NeteaseError as exc:
+        raise HTTPException(exc.status or status.HTTP_400_BAD_REQUEST, exc.message) from None
+
+    if result.get("code") != 803:
+        return result
+
+    cookie = result.pop("cookie", "")
+    try:
+        profile = ng.fetch_profile(cookie)
+    except ng.NeteaseError:
+        # 拿不到账号信息不影响用：Cookie 本身就是可用的
+        profile = {"nickname": result.get("nickname") or ""}
+    ng.save_cookie(db, cookie, profile)
+    log_action(db, "admin_netease_login", me.id, {"nickname": profile.get("nickname", "")}, request)
+    db.commit()
+    return {"code": 803, "account": ng.status(db, verify=False)}
+
+
+@router.delete("/netease")
+def netease_logout(request: Request, db: DbSession, me: AdminUser) -> dict:
+    """退出网易云：清掉后台保存的 Cookie（.env 里配的不动）。"""
+    check_origin(request)
+    result = ng.clear_cookie(db)
+    log_action(db, "admin_netease_logout", me.id, result, request)
+    db.commit()
+    return {"result": result, "account": ng.status(db, verify=False)}
 
 
 # --------------------------------------------------------------------------- #

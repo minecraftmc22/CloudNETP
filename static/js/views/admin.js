@@ -168,6 +168,107 @@ function dbCardMarkup(db) {
   </section>`;
 }
 
+/* ------------------------------------------------------------------ */
+/* 网易云卡片：扫码登录（Cookie 只留在服务端）                        */
+/* ------------------------------------------------------------------ */
+function neteaseCardMarkup(account) {
+  const head = `<div class="settings-card__head"><svg class="icon icon--s"><use href="#i-music"/></svg>${t("网易云歌词")}</div>`;
+  if (account?.loading) {
+    return H`<section class="settings-card" data-card="netease">${head}
+      <div class="admin-hint">${t("正在读取网易云状态…")}</div>
+    </section>`;
+  }
+  if (!account) {
+    return H`<section class="settings-card" data-card="netease">${head}
+      <div class="admin-hint">${t("网易云状态读取失败，点右上角刷新按钮重试")}</div>
+    </section>`;
+  }
+
+  const connected = !!account.connected;
+  const chip = connected
+    ? H`<span class="chip chip--accent">${t("已连接")}</span>`
+    : H`<span class="chip">${t("未连接")}</span>`;
+
+  const sourceText =
+    account.source === "admin"
+      ? account.updatedAt
+        ? t("Cookie 由后台扫码登录保存（服务端加密），{when}更新", {
+            when: formatTime(account.updatedAt),
+          })
+        : t("Cookie 由后台扫码登录保存（服务端加密）")
+      : account.source === "env"
+        ? t("正在使用配置文件 .env 里的 NETEASE_COOKIE")
+        : t("还没连接：扫码登录后可以解锁逐字歌词与翻译");
+
+  const avatar = account.avatarUrl
+    ? avatarMarkup({
+        displayName: account.nickname || "网易云",
+        avatarUrl: String(account.avatarUrl).replace(/^http:/, "https:"),
+      })
+    : "";
+
+  const accountLine = connected
+    ? H`<span class="ng-user">
+        ${avatar ? H`<span class="admin-avatar">${avatar}</span>` : ""}
+        <span class="ng-user__text">
+          <b>${escapeHtml(account.nickname || t("网易云账号"))}</b>
+          <small>${account.userId ? `UID ${account.userId}` : ""}${account.vipType ? t(" · VIP") : ""}</small>
+        </span>
+        ${
+          account.error
+            ? H`<span class="chip chip--warn" title="${escapeHtml(account.error)}">${t("Cookie 可能已失效")}</span>`
+            : ""
+        }
+      </span>`
+    : "";
+
+  const logoutRow =
+    account.source === "admin"
+      ? H`<div class="setting-row">
+          <div class="setting-row__main">
+            <div class="setting-row__label">${t("退出登录")}</div>
+            <div class="setting-row__desc">${
+              account.envConfigured
+                ? t("清掉后台保存的 Cookie 后，会自动回退到 .env 里配的那个")
+                : t("清掉后台保存的 Cookie 后，歌词退回逐行（没有翻译）")
+            }</div>
+          </div>
+          <button class="btn btn--subtle" type="button" data-ng-act="logout">${t("退出登录")}</button>
+        </div>`
+      : "";
+
+  return H`<section class="settings-card" data-card="netease">${head}
+    <div class="setting-row">
+      <div class="setting-row__main">
+        <div class="setting-row__label">${t("连接状态")}${chip}</div>
+        <div class="setting-row__desc">${sourceText}</div>
+      </div>
+      ${accountLine}
+    </div>
+
+    <div class="setting-row">
+      <div class="setting-row__main">
+        <div class="setting-row__label">${t("扫码登录")}</div>
+        <div class="setting-row__desc">${t("用网易云音乐 App 扫码，登录成功后服务端自动保存登录票据；逐字歌词与翻译需要登录态")}</div>
+      </div>
+      <button class="btn btn--accent" type="button" data-ng-act="login">${t("扫码登录")}</button>
+    </div>
+    ${logoutRow}
+
+    <div class="ng-qr" data-ng-qr hidden>
+      <img class="ng-qr__img" data-ng-qr-img alt="${t("网易云登录二维码")}">
+      <div class="ng-qr__side">
+        <div class="ng-qr__title">${t("用网易云音乐 App 扫一扫")}</div>
+        <p class="ng-qr__hint">${t("打开 App 左上角菜单 → 扫一扫；扫码后请在手机上确认登录")}</p>
+        <p class="ng-qr__status" data-ng-qr-status></p>
+        <button class="btn btn--subtle" type="button" data-ng-act="cancel">${t("取消")}</button>
+      </div>
+    </div>
+
+    <p class="admin-hint">${t("Cookie 只保存在服务端并加密存放：接口只回连接状态与昵称，浏览器拿不到；歌词请求由后端代发。")}</p>
+  </section>`;
+}
+
 export function renderAdmin(root) {
   const state = {
     tab: "overview",
@@ -1385,6 +1486,8 @@ export function renderAdmin(root) {
     panel.innerHTML = loading();
     let settings;
     let dbInfo = null;
+    // 网易云状态可能要去网易云核对 Cookie（慢/不可达），先占位、拿到再涂，别拖住整页
+    const ngAccount = { loading: true };
     try {
       const [data, dbData] = await Promise.all([
         api.get("/api/admin/settings"),
@@ -1530,6 +1633,8 @@ export function renderAdmin(root) {
 
       ${dbCardMarkup(dbInfo)}
 
+      ${neteaseCardMarkup(ngAccount)}
+
       <section class="settings-card">
         <div class="settings-card__head"><svg class="icon icon--s"><use href="#i-database"/></svg>维护</div>
         <div class="setting-row">
@@ -1556,6 +1661,15 @@ export function renderAdmin(root) {
     )}</span>
         </div>
       </section>`;
+
+    api
+      .get("/api/admin/netease")
+      .then((d) => {
+        if (document.contains(panel)) paintNeteaseCard(d.account);
+      })
+      .catch(() => {
+        if (document.contains(panel)) paintNeteaseCard(null);
+      });
 
     panel.querySelectorAll("[data-save]").forEach((btn) => {
       btn.addEventListener("click", () => saveCard(btn));
@@ -1642,6 +1756,110 @@ export function renderAdmin(root) {
     }
 
     bindDbCard();
+
+    /* --- 网易云卡片：扫码登录 / 退出（Cookie 全程只在服务端） --- */
+    function paintNeteaseCard(account) {
+      const card = panel.querySelector('[data-card="netease"]');
+      if (!card) return;
+      card.outerHTML = neteaseCardMarkup(account);
+      bindNeteaseCard();
+    }
+
+    function bindNeteaseCard() {
+      const card = panel.querySelector('[data-card="netease"]');
+      if (!card) return;
+
+      const qrBox = card.querySelector("[data-ng-qr]");
+      const qrImg = card.querySelector("[data-ng-qr-img]");
+      const qrStatus = card.querySelector("[data-ng-qr-status]");
+      let timer = 0;
+      let session = "";
+
+      const setQrStatus = (text) => {
+        if (qrStatus) qrStatus.textContent = text;
+      };
+      const stopQr = () => {
+        window.clearTimeout(timer);
+        timer = 0;
+        session = "";
+        if (qrBox) qrBox.hidden = true;
+      };
+
+      async function poll() {
+        if (!session) return;
+        // 卡片被重绘/切页后就不再轮询，避免打到已经不存在的节点
+        if (!document.contains(card)) {
+          stopQr();
+          return;
+        }
+        try {
+          const data = await api.get(`/api/admin/netease/qr/${encodeURIComponent(session)}`);
+          if (!session) return;
+          if (data.code === 801) {
+            setQrStatus(t("等待扫码…"));
+          } else if (data.code === 802) {
+            setQrStatus(t("已扫码，请在手机上确认"));
+          } else if (data.code === 803) {
+            stopQr();
+            Toast.success(t("网易云已连接"));
+            paintNeteaseCard(data.account);
+            return;
+          } else if (data.code === 800) {
+            stopQr();
+            Toast.warn(t("二维码已过期，请重新获取"));
+            return;
+          }
+          timer = window.setTimeout(poll, 2000);
+        } catch (err) {
+          stopQr();
+          Toast.error(err.message || "扫码状态查询失败");
+        }
+      }
+
+      card.querySelector('[data-ng-act="login"]')?.addEventListener("click", async (event) => {
+        const button = event.currentTarget;
+        button.disabled = true;
+        try {
+          const data = await api.post("/api/admin/netease/qr", {});
+          if (!document.contains(card)) return;
+          session = data.session;
+          if (qrBox) qrBox.hidden = false;
+          if (qrImg) qrImg.src = `/api/admin/netease/qr/${encodeURIComponent(session)}.svg`;
+          setQrStatus(t("等待扫码…"));
+          window.clearTimeout(timer);
+          timer = window.setTimeout(poll, 1200);
+          qrBox?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+        } catch (err) {
+          Toast.error(err.message || "二维码获取失败");
+        } finally {
+          button.disabled = false;
+        }
+      });
+
+      card.querySelector('[data-ng-act="cancel"]')?.addEventListener("click", stopQr);
+
+      card.querySelector('[data-ng-act="logout"]')?.addEventListener("click", async () => {
+        const ok = await Dialog.confirm({
+          title: t("退出网易云账号"),
+          message: t(
+            "会清掉后台保存的登录票据，歌词随后退回逐行（没有逐字与翻译）。<br>需要时重新扫码即可。"
+          ),
+          confirmText: t("退出登录"),
+          danger: true,
+        });
+        if (!ok) return;
+        stopQr();
+        try {
+          const data = await api.del("/api/admin/netease", {});
+          Toast.success(t("已退出网易云账号"));
+          paintNeteaseCard(data.account);
+        } catch (err) {
+          Toast.error(err.message || "退出失败");
+        }
+      });
+    }
+
+    bindNeteaseCard();
 
     panel.querySelector('[data-act="purge-logs"]')?.addEventListener("click", purgeLogs);
     panel.querySelector('[data-act="blob-gc"]')?.addEventListener("click", blobGc);

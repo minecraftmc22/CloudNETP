@@ -515,7 +515,10 @@ def fetch_lyrics(song_id: int, provider: str = "") -> dict:
     if (hit := _cache_get(_lyrics_cache, cache_key, LYRICS_TTL)) is not None:
         return hit
     if prov == "netease":
-        data = netease_lyrics(song_id, settings.NETEASE_COOKIE)
+        # Cookie 优先用后台上扫码登录保存的，其次 .env（都在服务端，不下发浏览器）
+        from . import netease_auth
+
+        data = netease_lyrics(song_id, netease_auth.current_cookie())
         data["provider"] = "netease"
     else:
         url = (

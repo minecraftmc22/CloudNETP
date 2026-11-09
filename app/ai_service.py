@@ -16,7 +16,6 @@
 
 from __future__ import annotations
 
-import base64
 import hashlib
 import json
 import logging
@@ -32,7 +31,7 @@ from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from . import node_service, settings_store, storage
+from . import node_service, secret_box, settings_store, storage
 from .config import settings
 from .models import Node, User, utcnow
 from .user_service import ensure_settings, log_action
@@ -142,46 +141,14 @@ class AiError(Exception):
 
 
 # --------------------------------------------------------------------------- #
-# 密钥加解密
+# 密钥加解密（实现见 secret_box，purpose="ai" 的盐值与历史保持一致）
 # --------------------------------------------------------------------------- #
-_FERNET = None
-
-
-def _fernet():
-    global _FERNET
-    if _FERNET is None:
-        from cryptography.fernet import Fernet
-
-        digest = hashlib.sha256(f"cloudnetp-ai:{settings.SECRET_KEY}".encode()).digest()
-        _FERNET = Fernet(base64.urlsafe_b64encode(digest))
-    return _FERNET
-
-
 def encrypt_key(raw: str) -> str:
-    text = (raw or "").strip()
-    if not text:
-        return ""
-    try:
-        return "enc:" + _fernet().encrypt(text.encode()).decode()
-    except Exception:  # pragma: no cover - 加密库异常时退化成明文，别丢用户配置
-        logger.warning("AI 密钥加密失败，改为明文保存", exc_info=True)
-        return "raw:" + text
+    return secret_box.encrypt(raw, "ai")
 
 
 def decrypt_key(stored: str) -> str:
-    text = (stored or "").strip()
-    if not text:
-        return ""
-    if text.startswith("raw:"):
-        return text[4:]
-    if not text.startswith("enc:"):
-        return text
-    try:
-        return _fernet().decrypt(text[4:].encode()).decode()
-    except Exception:
-        # SECRET_KEY 变了（例如临时密钥重启）：当作没配置，让用户重填
-        logger.warning("AI 密钥解密失败（SECRET_KEY 可能已变），请重新填写")
-        return ""
+    return secret_box.decrypt(stored, "ai")
 
 
 def mask_key(key: str) -> str:

@@ -57,6 +57,8 @@ ACTIONS: dict[str, dict[str, str]] = {
     "admin_blob_unblock": {"label": "解除文件拉黑", "tone": "warn", "group": "管理"},
     "admin_db_refresh": {"label": "刷新数据库配置", "tone": "warn", "group": "管理"},
     "admin_db_reconnect": {"label": "手动切换数据库", "tone": "danger", "group": "管理"},
+    "admin_netease_login": {"label": "网易云扫码登录", "tone": "info", "group": "管理"},
+    "admin_netease_logout": {"label": "退出网易云账号", "tone": "warn", "group": "管理"},
 }
 
 UNKNOWN = {"label": "其它操作", "tone": "info", "group": "其它"}

@@ -822,3 +822,101 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* ------------------------------------------------------------------ */
+/* 网易云歌词卡片：账号行 / 扫码登录                                   */
+/* ------------------------------------------------------------------ */
+.ng-user {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+.ng-user .admin-avatar {
+  width: 30px;
+  height: 30px;
+}
+.ng-user__text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  line-height: 1.25;
+}
+.ng-user__text b {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 160px;
+}
+.ng-user__text small {
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+.ng-qr {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin: 0 18px 12px;
+  padding: 14px;
+  border-radius: var(--radius-m);
+  border: 1px solid var(--stroke-hair);
+  background: var(--fill-subtle);
+}
+.ng-qr[hidden] {
+  display: none;
+}
+.ng-qr__img {
+  flex: none;
+  width: 168px;
+  height: 168px;
+  display: block;
+  border-radius: var(--radius-s);
+  /* 二维码本身是白底，再垫一层防止缩放时出现透明边 */
+  background: #fff;
+}
+.ng-qr__side {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.ng-qr__title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-1);
+}
+.ng-qr__hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-3);
+}
+.ng-qr__status {
+  margin: 0;
+  min-height: 18px;
+  font-size: 12px;
+  color: var(--accent);
+}
+.ng-qr__side .btn {
+  align-self: flex-start;
+  margin-top: 2px;
+}
+
+@media (max-width: 560px) {
+  .ng-qr {
+    flex-direction: column;
+    align-items: flex-start;
+    margin: 0 var(--sp-3) 12px;
+  }
+  .ng-qr__img {
+    width: 148px;
+    height: 148px;
+    align-self: center;
+  }
+}

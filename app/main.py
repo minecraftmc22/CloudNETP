@@ -69,6 +69,10 @@ async def lifespan(app: FastAPI):
     )
     if settings.SECRET_KEY_IS_EPHEMERAL:
         logger.warning("SECRET_KEY 未配置，使用临时密钥：重启后所有会话失效，请在 .env 中设置。")
+    # 网易云 Cookie 读进内存：取歌词的路径就不用每次查库；失败时自动退回 .env
+    from . import netease_auth
+
+    netease_auth.hydrate()
     _startup_maintenance()
     # 自动更新看门狗：默认关闭，管理员在后台开启后每 6 小时检查一次
     from . import update_service
