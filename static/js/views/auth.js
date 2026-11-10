@@ -9,6 +9,7 @@
 import { api, ApiError } from "../api.js";
 import { H, LANGS, getLang, setLang, t } from "../i18n.js";
 import { PASSWORD_MAX, passwordProblem, strengthOf } from "../password.js";
+import { renderAnnounce } from "../ui/announce.js";
 
 // 注意是函数：模块加载时语言还没初始化，模板必须在渲染时现算
 // 勾选状态放在模块作用域：登录页切语言会整块重绘，勾过的不该被清掉
@@ -50,6 +51,8 @@ const template = () => H`
         <div class="auth-card__title" data-title>欢迎回来</div>
         <div class="auth-card__sub" data-sub>登录后继续管理你的文件</div>
       </div>
+
+      <div class="announce announce--card" data-auth-announce hidden></div>
 
       <div class="segmented" data-segmented>
         <div class="segmented__thumb" data-thumb></div>
@@ -202,7 +205,6 @@ const template = () => H`
 
       <div class="auth-foot">
         <span data-version>CloudNETP</span>
-        <span data-announcement></span>
       </div>
     </div>
   </div>
@@ -222,7 +224,7 @@ export function renderAuth(root, { meta = {}, onSuccess }) {
   const titleEl = el("[data-title]");
   const subEl = el("[data-sub]");
   const versionEl = el("[data-version]");
-  const announcementEl = el("[data-announcement]");
+  const announceEl = el("[data-auth-announce]");
   const accountLabel = el("[data-account-label]");
   const accountInput = form.querySelector('[name="account"]');
   const accountHint = el("[data-account-hint]");
@@ -260,7 +262,7 @@ export function renderAuth(root, { meta = {}, onSuccess }) {
   });
 
   versionEl.textContent = `${meta.appName || "CloudNETP"} v${meta.version || "0.1.0"}`;
-  if (meta.announcement) announcementEl.textContent = meta.announcement;
+  renderAnnounce(announceEl, meta.announcement, { card: true });
 
   let mode = "login";
   let captchaId = "";

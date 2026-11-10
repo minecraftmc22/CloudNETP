@@ -11,7 +11,8 @@
   z-index: 2;
   height: 100vh;
   display: grid;
-  grid-template-rows: var(--titlebar-h) 1fr;
+  /* 标题栏 / 公告（有才占位）/ 内容 */
+  grid-template-rows: var(--titlebar-h) auto minmax(0, 1fr);
 }
 
 /* ------------------------------------------------------------
@@ -511,4 +512,76 @@
   .view-head {
     padding: var(--sp-3);
   }
+}
+
+/* ------------------------------------------------------------
+   站内公告：标题栏下面一整条；登录页里是卡片里的一条（--card）
+   ------------------------------------------------------------ */
+.announce {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--stroke-hair);
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: var(--text-2);
+}
+.announce[hidden] {
+  display: none;
+}
+.announce__icon {
+  display: flex;
+  flex: none;
+  margin-top: 2px;
+  color: var(--accent);
+}
+.announce__text {
+  flex: 1;
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.announce.is-open .announce__text {
+  display: block;
+  overflow: visible;
+}
+.announce__more {
+  flex: none;
+  align-self: center;
+  font-size: 11.5px;
+  color: var(--accent);
+  white-space: nowrap;
+}
+.announce__more[hidden] {
+  display: none;
+}
+.announce__close {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-xs);
+  color: var(--text-3);
+  transition: color var(--dur-fast) var(--ease-standard),
+    background var(--dur-fast) var(--ease-standard);
+}
+.announce__close:hover {
+  color: var(--text-1);
+  background: color-mix(in srgb, var(--text-1) 8%, transparent);
+}
+.announce--card {
+  margin: 0 0 12px;
+  padding: 9px 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, transparent);
+  border-radius: var(--radius-s);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  font-size: 12px;
 }

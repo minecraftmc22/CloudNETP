@@ -946,6 +946,30 @@ a.setting-row--link:hover .setting-row__chevron {
   transform: translateY(24px) scale(0.94);
   pointer-events: none;
 }
+/* 滚轮改大小时的小提示：贴在脚下，一秒后自动淡出 */
+.mascot__size {
+  position: absolute;
+  /* 贴在左侧空地里：脚下是屏幕边缘，放下面会被裁掉 */
+  right: calc(100% + 8px);
+  bottom: 26%;
+  translate: 6px 0;
+  padding: 1px 8px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--stroke-hair);
+  background: var(--acrylic-strong);
+  backdrop-filter: blur(12px);
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--text-2);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--dur-fast) var(--ease-standard),
+    translate var(--dur-fast) var(--ease-fluent);
+}
+.mascot__size.is-on {
+  opacity: 1;
+  translate: 0 0;
+}
 .mascot__stage {
   position: relative;
   width: 100%;

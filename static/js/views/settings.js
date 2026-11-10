@@ -16,7 +16,7 @@ import {
   patchSettingsLocal,
   rememberBackgroundLuma,
 } from "../theme.js";
-import { getMascotScale, setMascotScale } from "../ui/live2d.js";
+import { getMascotScale, isMascotWheelZoom, setMascotScale, setMascotWheelZoom } from "../ui/live2d.js";
 import { isMascotLocked, setMascotLocked } from "../ui/mascot-actions.js";
 import { mountAiSettings } from "../ui/ai-config.js";
 
@@ -310,6 +310,16 @@ export function renderSettings(root) {
                   <span class="opacity-item__val" data-mascot-size-val>${mascotScale}%</span>
                 </label>
               </div>
+            </div>
+            <div class="setting-row">
+              <div class="setting-row__main">
+                <div class="setting-row__label">滚轮缩放</div>
+                <div class="setting-row__desc">鼠标停在她身上时，滚轮上下就能改大小（一格约 5%）；关掉后滚轮照常滚动页面</div>
+              </div>
+              <label class="switch">
+                <input type="checkbox" data-mascot-wheel ${isMascotWheelZoom() ? "checked" : ""}>
+                <span class="switch__track"><span class="switch__knob"></span></span>
+              </label>
             </div>
             <div class="setting-row">
               <div class="setting-row__main">
@@ -874,6 +884,30 @@ export function renderSettings(root) {
     paintMascotSize();
     setMascotScale(mascotSize.value);
   });
+
+  /* --- 滚轮缩放开关：和 live2d 的滚轮监听共用一份状态（按设备记） --- */
+  const wheelSwitch = root.querySelector("[data-mascot-wheel]");
+  wheelSwitch?.addEventListener("change", () => {
+    setMascotWheelZoom(wheelSwitch.checked);
+    Toast.info(
+      wheelSwitch.checked
+        ? t("滚轮缩放已开启，鼠标停在她身上滚一下试试")
+        : t("滚轮缩放已关闭，滚轮恢复滚动页面")
+    );
+  });
+
+  // 滚轮改了大小，这里滑块与百分比要跟着动
+  const onMascotResize = (event) => {
+    if (!root.isConnected) {
+      window.removeEventListener("mascot:resize", onMascotResize);
+      return;
+    }
+    const percent = Number(event.detail?.percent);
+    if (!mascotSize || !Number.isFinite(percent)) return;
+    mascotSize.value = String(percent);
+    paintMascotSize();
+  };
+  window.addEventListener("mascot:resize", onMascotResize);
 
   /* --- 重置看板娘位置：清掉本机记住的偏移，交给 live2d 模块套用 --- */
   root.querySelector("[data-mascot-reset]")?.addEventListener("click", () => {

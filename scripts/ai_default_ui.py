@@ -103,6 +103,9 @@ def main() -> None:
         )
         con.commit()
         plain = con.execute("select id, token_version from users where username = 'defaultui'").fetchone()
+    # 库里可能留着线上实例保存过的默认接口（优先级高于 .env），清掉才能让本次的 env 生效
+    con.execute("delete from system_settings where k = 'ai_default_config'")
+    con.commit()
     con.close()
     if not admin:
         raise SystemExit("库里没有管理员，先手动建一个再来跑这个脚本")

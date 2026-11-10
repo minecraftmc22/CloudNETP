@@ -16,6 +16,7 @@ import {
 import { startPetals, stopPetals } from "./petals.js";
 import { Dialog } from "./ui/dialog.js";
 import { avatarMarkup } from "./ui/avatar.js";
+import { renderAnnounce } from "./ui/announce.js";
 import { Toast } from "./ui/toast.js";
 import { openMenu } from "./ui/menu.js";
 import { installState, promptInstall, registerPwa } from "./pwa.js";
@@ -71,6 +72,10 @@ async function boot() {
   registerPwa();
   applyCachedAppearance();
   watchSystemTheme();
+  // 后台改完站点设置（公告 / 站名）会广播一次，这里跟着刷新，不用刷新页面
+  window.addEventListener("meta:change", (event) => {
+    renderAnnounce(el("announce"), event.detail?.meta?.announcement);
+  });
 
   let meta = null;
   try {
@@ -79,6 +84,7 @@ async function boot() {
     el("brand-name").textContent = meta.appName || "CloudNETP";
     el("brand-version").textContent = `v${meta.version || "0.1.0"}`;
     document.title = `${meta.appName || "CloudNETP"} · ${t("樱色云盘")}`;
+    renderAnnounce(el("announce"), meta.announcement);
   } catch {
     /* 元信息失败不阻塞登录 */
   }
@@ -132,6 +138,8 @@ function enterApp(user) {
   }
   el("auth-root").hidden = true;
   el("shell").hidden = false;
+  // 登录进来再刷一次：公告可能是刚在后台改的
+  renderAnnounce(el("announce"), store.get().meta?.announcement);
 
   applyAppearance(user.settings || {});
   paintUserChip(user);

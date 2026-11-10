@@ -1054,4 +1054,10 @@ export default {
   "已停止": "Stopped",
   "已删除这条消息": "Message deleted",
   "确认删除": "Confirm delete",
+  "展开": "Expand",
+  "关闭这条公告": "Dismiss this announcement",
+  "滚轮缩放": "Wheel zoom",
+  "鼠标停在她身上时，滚轮上下就能改大小（一格约 5%）；关掉后滚轮照常滚动页面": "Hover over her and scroll to resize (about 5% per notch). Turn this off and the wheel scrolls the page again",
+  "滚轮缩放已开启，鼠标停在她身上滚一下试试": "Wheel zoom is on - hover over her and scroll",
+  "滚轮缩放已关闭，滚轮恢复滚动页面": "Wheel zoom is off; the wheel scrolls the page again",
 };

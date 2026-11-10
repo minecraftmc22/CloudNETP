@@ -26,6 +26,7 @@ const POLL_MS = 40000;
 const STORE_KEY = "mascot-model";
 const SIZE_KEY = "mascot-size";
 const POS_KEY = "mascot-pos";
+const WHEEL_KEY = "mascot-wheel";
 /** 内容高度占舞台高度的比例（1 = 正好铺满，不裁切） */
 const FILL = 1;
 
@@ -75,6 +76,26 @@ export function setMascotScale(percent) {
   }
   window.dispatchEvent(new CustomEvent("mascot:resize", { detail: { percent: value } }));
   return value;
+}
+
+/** 悬停时能不能用滚轮改大小（设置 → 装饰 里的开关，按设备记住） */
+export function isMascotWheelZoom() {
+  try {
+    return localStorage.getItem(WHEEL_KEY) !== "0";
+  } catch {
+    return true;
+  }
+}
+
+export function setMascotWheelZoom(on) {
+  const enabled = Boolean(on);
+  try {
+    localStorage.setItem(WHEEL_KEY, enabled ? "1" : "0");
+  } catch {
+    /* 隐私模式忽略 */
+  }
+  window.dispatchEvent(new CustomEvent("mascot:wheel-zoom", { detail: { enabled } }));
+  return enabled;
 }
 
 function readSavedPos() {
@@ -502,6 +523,45 @@ export function initLive2DMascot({ stage, host, bubble, pick, pickLabel, onPoke,
 
   applyOffset();
 
+  /* ---------------- 悬停滚轮改大小 ---------------- */
+
+  let sizeTag = null;
+  let sizeTimer = 0;
+  let wheelDelta = 0;
+  let wheelFrame = 0;
+
+  function showSizeTag(percent) {
+    if (!host) return;
+    if (!sizeTag) {
+      sizeTag = document.createElement("span");
+      sizeTag.className = "mascot__size";
+      sizeTag.setAttribute("aria-hidden", "true");
+      host.appendChild(sizeTag);
+    }
+    sizeTag.textContent = `${percent}%`;
+    sizeTag.classList.add("is-on");
+    window.clearTimeout(sizeTimer);
+    sizeTimer = window.setTimeout(() => sizeTag?.classList.remove("is-on"), 900);
+  }
+
+  function onHostWheel(event) {
+    if (!host || host.classList.contains("is-hidden")) return;
+    // 关掉开关就让页面照常滚动，别把滚轮吞掉
+    if (!isMascotWheelZoom()) return;
+    event.preventDefault();
+    wheelDelta += event.deltaY;
+    if (wheelFrame) return;
+    wheelFrame = window.requestAnimationFrame(() => {
+      wheelFrame = 0;
+      const delta = wheelDelta;
+      wheelDelta = 0;
+      if (!delta) return;
+      // 一格滚轮约 100，触控板一次只给几十：折算成 2~8 个百分点
+      const step = Math.max(-8, Math.min(8, Math.round(-delta / 14))) || (delta < 0 ? 2 : -2);
+      showSizeTag(setMascotScale(getMascotScale() + step));
+    });
+  }
+
   function say(fn) {
     if (typeof fn === "function") fn();
     else if (bubble) {
@@ -562,6 +622,8 @@ export function initLive2DMascot({ stage, host, bubble, pick, pickLabel, onPoke,
     host?.addEventListener("pointercancel", onHostCancel);
     // 指针捕获被系统收走时也要收尾，避免卡在拖动状态
     host?.addEventListener("lostpointercapture", (event) => endDrag(event, true));
+    // 悬停时滚轮改大小（设置 → 装饰 里可关）
+    host?.addEventListener("wheel", onHostWheel, { passive: false });
     // 设置页改大小后重新贴合画布
     window.addEventListener("mascot:resize", onResize);
     window.setTimeout(() => {

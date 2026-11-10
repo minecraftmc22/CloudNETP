@@ -2470,6 +2470,8 @@ export function renderAdmin(root) {
       const version = document.getElementById("brand-version");
       if (version) version.textContent = `v${meta.version}`;
       document.title = `${t("管理后台")} · ${name}`;
+      // 主界面那边挂着同一条公告，改完立刻同步（不用刷新）
+      window.dispatchEvent(new CustomEvent("meta:change", { detail: { meta } }));
     } catch {
       /* 同步失败不影响设置已保存 */
     }
