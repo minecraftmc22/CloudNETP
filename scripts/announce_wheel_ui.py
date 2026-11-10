@@ -153,6 +153,26 @@ def main() -> None:
                 else None,
             )
 
+            def layout() -> dict:
+                """外壳三行的实际位置：用来抓「公告留空导致内容区只占半屏」这类回归"""
+                return page.evaluate(
+                    """() => {
+                        const box = (sel) => {
+                            const el = document.querySelector(sel);
+                            if (!el) return null;
+                            const r = el.getBoundingClientRect();
+                            return { top: Math.round(r.top), bottom: Math.round(r.bottom), h: Math.round(r.height) };
+                        };
+                        return {
+                            tb: box('.titlebar'),
+                            bar: box('#announce'),
+                            body: box('.app-body'),
+                            main: box('#view-root'),
+                            vh: window.innerHeight,
+                        };
+                    }"""
+                )
+
             def open_admin_site() -> None:
                 page.goto(f"{base}/#/admin", wait_until="domcontentloaded")
                 page.wait_for_selector('[data-tab="settings"]', timeout=20000)
@@ -189,6 +209,12 @@ def main() -> None:
             check("在标题栏下面", geo["barTop"] >= geo["tbBottom"] - 1, str(geo))
             check("内容区被推到公告下面", geo["bodyTop"] >= geo["barBottom"] - 1, str(geo))
             check("有关闭按钮", geo["close"])
+            lay = layout()
+            check(
+                "公告在时内容区仍铺满",
+                lay["body"]["bottom"] >= lay["vh"] - 2 and lay["main"]["bottom"] <= lay["vh"] + 2,
+                str(lay),
+            )
             page.screenshot(path=str(OUT / "announce_main.png"), full_page=False)
 
             print("\n[B] 切到别的地方也还在")
@@ -282,10 +308,29 @@ def main() -> None:
             page.set_viewport_size({"width": 1440, "height": 980})
             page.wait_for_timeout(400)
 
-            print("\n[G] 清空公告就消失")
+            print("\n[G] 清空公告就消失，且内容区不能被挤成半屏")
             open_admin_site()
             save_site("")
             check("空公告不占位", page.locator("#announce").is_hidden())
+            page.goto(f"{base}/#/files", wait_until="domcontentloaded")
+            page.wait_for_timeout(900)
+            lay = layout()
+            check("公告行高度为 0", (lay["bar"]["h"] if lay["bar"] else 0) == 0, str(lay["bar"]))
+            check(
+                "内容区紧贴标题栏",
+                lay["body"]["top"] == lay["tb"]["bottom"],
+                f'{lay["body"]["top"]} vs {lay["tb"]["bottom"]}',
+            )
+            check(
+                "内容区铺满到底部",
+                lay["body"]["h"] >= lay["vh"] - lay["tb"]["h"] - 2,
+                f'{lay["body"]["h"]} / {lay["vh"]} - {lay["tb"]["h"]}',
+            )
+            check(
+                "视图根节点也铺满",
+                lay["main"]["h"] >= lay["vh"] - lay["tb"]["h"] - 20,
+                str(lay["main"]),
+            )
 
             print("\n[H] 悬停看板娘滚轮改大小")
             page.goto(f"{base}/#/files", wait_until="domcontentloaded")

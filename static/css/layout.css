@@ -14,6 +14,17 @@
   /* 标题栏 / 公告（有才占位）/ 内容 */
   grid-template-rows: var(--titlebar-h) auto minmax(0, 1fr);
 }
+/* 必须点名行号：公告 hidden 时不占格子，靠自动排布的话内容区会掉进 auto 行，
+   1fr 留给空白，结果就是内容区只画了半屏（公告留空时的那个 UI bug） */
+.app-shell > .titlebar {
+  grid-row: 1;
+}
+.app-shell > .announce {
+  grid-row: 2;
+}
+.app-shell > .app-body {
+  grid-row: 3;
+}
 
 /* ------------------------------------------------------------
    标题栏
