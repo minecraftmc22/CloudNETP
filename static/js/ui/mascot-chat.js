@@ -349,8 +349,8 @@ function appendUser(item) {
     .join("");
   row.innerHTML = H`
     <div class="mchat__line">
-      <button class="mchat__retry" type="button" data-act="retry" hidden>
-        <svg class="icon icon--s"><use href="#i-refresh"/></svg><span>${t("重新发送")}</span>
+      <button class="mchat__retry" type="button" data-act="retry" aria-label="${t("重新发送")}" hidden>
+        <svg class="icon icon--s"><use href="#i-refresh"/></svg>
       </button>
       <div class="mchat__col">
         ${thumbs ? `<div class="mchat__thumbs">${thumbs}</div>` : ""}

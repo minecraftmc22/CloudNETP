@@ -1375,20 +1375,22 @@ html[data-ai="off"] .mascot__act[data-mascot-act="chat"] {
   flex: none;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  justify-content: center;
+  /* 只有图标，不放文字：26px 的圆形按钮，失败了才出现 */
+  width: 26px;
   height: 26px;
-  padding: 0 9px;
   border-radius: var(--radius-pill);
   border: 1px solid color-mix(in srgb, var(--danger) 36%, transparent);
   background: var(--danger-soft);
-  font-size: 11.5px;
-  line-height: 1;
   color: var(--danger);
-  white-space: nowrap;
-  transition: background var(--dur-fast) var(--ease-standard);
+  transition: background var(--dur-fast) var(--ease-standard),
+    transform var(--dur-fast) var(--ease-fluent);
 }
 .mchat__retry:hover {
   background: color-mix(in srgb, var(--danger) 20%, transparent);
+}
+.mchat__retry:active {
+  transform: scale(0.94);
 }
 .mchat__retry[hidden] {
   display: none;

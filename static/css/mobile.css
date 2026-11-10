@@ -851,6 +851,11 @@
   .mchat__ops {
     opacity: 1;
   }
+  /* 只有图标的重发按钮，触屏上给足点击面积 */
+  .mchat__retry {
+    width: 32px;
+    height: 32px;
+  }
   .mchat__op {
     padding: 4px 9px;
     font-size: 11.5px;

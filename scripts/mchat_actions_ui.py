@@ -215,8 +215,13 @@ def main() -> None:
             page.wait_for_selector(".mchat__retry:not([hidden])", timeout=15000)
             check("用户消息渲染出来了", page.locator(".mchat__msg.is-me").count() == 1)
             retry = page.locator(".mchat__retry").first
-            check("重新发送按钮可见", retry.is_visible())
-            check("按钮文案", retry.inner_text().strip() == "重新发送", retry.inner_text().strip())
+            check("重发按钮可见", retry.is_visible())
+            check("按钮上没有任何文字", retry.inner_text().strip() == "", repr(retry.inner_text()))
+            check("只有图标，无障碍名还在", retry.get_attribute("aria-label") == "重新发送",
+                  str(retry.get_attribute("aria-label")))
+            size = retry.bounding_box()
+            check("是 26px 的圆形按钮", bool(size and abs(size["width"] - 26) < 1.5 and abs(size["height"] - 26) < 1.5),
+                  str(size))
             check("空回答的泡泡被收掉", page.locator(".mchat__msg.is-bot").count() == 0)
             notice = page.locator(".mchat__notice").first
             check("错误提示带上了原因", "上游冒烟失败" in notice.inner_text(), notice.inner_text())
