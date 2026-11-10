@@ -8,7 +8,7 @@
  */
 
 import { escapeHtml } from "../api.js";
-import { H, getLang } from "../i18n.js";
+import { H, getLang, t } from "../i18n.js";
 import { renderMarkdown } from "./markdown.js";
 import { Toast } from "./toast.js";
 
@@ -25,7 +25,7 @@ const state = {
   ready: false,
   vision: false,
   model: "",
-  messages: [], // {role, content, images?}
+  messages: [], // {uid, role, content, images?, el?, errEl?, failed?}
   images: [], // 待发送的 data URL
   ctrl: null,
   panel: null,
@@ -37,8 +37,13 @@ const state = {
   attachEl: null,
   imageBtn: null,
   fileInput: null,
+  editBar: null,
   greeting: true,
+  editing: null, // {uid} 正在编辑哪条已发送的消息
 };
+
+// 每条消息一个稳定 id：删除 / 编辑之后数组下标会变，靠它定位
+let uidSeq = 0;
 
 let configTimer = 0;
 
@@ -72,6 +77,10 @@ function ensurePanel() {
     </div>
     <div class="mchat__feed" data-mchat-feed></div>
     <form class="mchat__compose" data-mchat-form>
+      <div class="mchat__editing" data-mchat-editing hidden>
+        <span>${t("正在编辑已发送的消息")}</span>
+        <button type="button" data-mchat-edit-cancel>${t("取消")}</button>
+      </div>
       <div class="mchat__attach" data-mchat-attach hidden></div>
       <textarea class="mchat__input" data-mchat-input rows="1" maxlength="4000"
                 placeholder="和 CDP娘 说点什么…"></textarea>
@@ -98,6 +107,9 @@ function ensurePanel() {
   state.attachEl = panel.querySelector("[data-mchat-attach]");
   state.imageBtn = panel.querySelector("[data-mchat-image]");
   state.fileInput = panel.querySelector("[data-mchat-file]");
+  state.editBar = panel.querySelector("[data-mchat-editing]");
+
+  panel.querySelector("[data-mchat-edit-cancel]").addEventListener("click", cancelEdit);
 
   panel.querySelector("[data-mchat-close]").addEventListener("click", closeMascotChat);
   panel.querySelector("[data-mchat-new]").addEventListener("click", () => {
@@ -136,6 +148,14 @@ function ensurePanel() {
       send(chip.dataset.say);
       return;
     }
+    const button = event.target.closest("[data-act]");
+    if (!button) return;
+    const item = itemOf(button);
+    if (!item) return;
+    const act = button.dataset.act;
+    if (act === "retry") retry(item);
+    else if (act === "edit") startEdit(item);
+    else if (act === "del") confirmRemove(button, item);
   });
 
   document.addEventListener("keydown", (event) => {
@@ -290,9 +310,16 @@ function resetChat() {
   state.images = [];
   state.greeting = true;
   state.feed.innerHTML = "";
+  clearEdit();
   renderAttach();
   renderGreeting();
   autoGrow();
+}
+
+/** 从被点的按钮找到它所在的消息对象（DOM 上只存 uid） */
+function itemOf(node) {
+  const uid = Number(node.closest(".mchat__msg")?.dataset.uid ?? -1);
+  return state.messages.find((m) => m.uid === uid) || null;
 }
 
 function renderGreeting() {
@@ -312,32 +339,49 @@ function timeNow() {
   return H`${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
 }
 
-function appendUser(text, images) {
+function appendUser(item) {
   state.feed.querySelector(".mchat__hello")?.remove();
   const row = document.createElement("div");
   row.className = "mchat__msg is-me";
-  const thumbs = (images || [])
+  row.dataset.uid = String(item.uid);
+  const thumbs = (item.images || [])
     .map((url) => H`<img class="mchat__thumb" src="${url}" alt="附件">`)
     .join("");
   row.innerHTML = H`
-    ${thumbs ? `<div class="mchat__thumbs">${thumbs}</div>` : ""}
-    ${text ? `<div class="mchat__bubble">${escapeHtml(text)}</div>` : ""}
-    <time class="mchat__time">${timeNow()}</time>`;
+    <div class="mchat__line">
+      <button class="mchat__retry" type="button" data-act="retry" hidden>
+        <svg class="icon icon--s"><use href="#i-refresh"/></svg><span>${t("重新发送")}</span>
+      </button>
+      <div class="mchat__col">
+        ${thumbs ? `<div class="mchat__thumbs">${thumbs}</div>` : ""}
+        ${item.content ? `<div class="mchat__bubble">${escapeHtml(item.content)}</div>` : ""}
+      </div>
+    </div>
+    <time class="mchat__time">${timeNow()}</time>
+    <div class="mchat__ops">
+      <button class="mchat__op" type="button" data-act="edit">${t("编辑")}</button>
+      <button class="mchat__op" type="button" data-act="del">${t("删除")}</button>
+    </div>`;
   state.feed.appendChild(row);
   scrollFeed();
+  return row;
 }
 
-function appendBot() {
+function appendBot(item) {
   state.feed.querySelector(".mchat__hello")?.remove();
   const row = document.createElement("div");
   row.className = "mchat__msg is-bot";
+  row.dataset.uid = String(item.uid);
   row.innerHTML = H`
     <details class="mchat__think" hidden>
-      <summary class="mchat__think-head">思考过程</summary>
+      <summary class="mchat__think-head">${t("思考过程")}</summary>
       <div class="mchat__think-body"></div>
     </details>
     <div class="mchat__tools"></div>
-    <div class="mchat__bubble mchat__bubble--bot is-streaming"></div>`;
+    <div class="mchat__bubble mchat__bubble--bot is-streaming"></div>
+    <div class="mchat__ops">
+      <button class="mchat__op" type="button" data-act="del">${t("删除")}</button>
+    </div>`;
   state.feed.appendChild(row);
   scrollFeed();
   return {
@@ -355,6 +399,7 @@ function appendNotice(text, tone = "info") {
   row.textContent = text;
   state.feed.appendChild(row);
   scrollFeed();
+  return row;
 }
 
 function scrollFeed(force = false) {
@@ -477,13 +522,26 @@ function shrinkImage(file) {
 /* ------------------------------------------------------------------ */
 function historyPayload() {
   const tail = state.messages.slice(-HISTORY_LIMIT);
-  const lastUserIndex = tail.map((m) => m.role).lastIndexOf("user");
-  return tail.map((message, index) => ({
-    role: message.role,
-    content: message.content,
-    // 历史图片不再重发（既贵又慢），只带最新那条
-    images: index === lastUserIndex ? message.images || [] : [],
-  }));
+  const lastUser = tail.map((m) => m.role).lastIndexOf("user");
+  const out = [];
+  tail.forEach((message, index) => {
+    const previous = out[out.length - 1];
+    // 删掉一条回答后可能出现两条连着说的同角色消息，有的接口（Anthropic）会直接拒收，先合并
+    if (previous && previous.role === message.role) {
+      previous.content = [previous.content, message.content].filter(Boolean).join("\n\n");
+      if (index === lastUser && message.images?.length) previous.images = message.images;
+      return;
+    }
+    out.push({
+      role: message.role,
+      content: message.content,
+      // 历史图片不再重发（既贵又慢），只带最新那条
+      images: index === lastUser ? message.images || [] : [],
+    });
+  });
+  // 第一条提问被删掉后可能以 assistant 开头，首条必须是 user
+  while (out.length && out[0].role !== "user") out.shift();
+  return out;
 }
 
 async function send(text) {
@@ -497,7 +555,7 @@ async function send(text) {
     if (!state.ready) {
       const off = document.documentElement.dataset.ai === "off";
       appendNotice(
-        off ? "管理员已关闭 AI 功能，暂时聊不了" : "还没配置 AI 接口，去「设置 → 看板娘 → 对话设置」填一下吧",
+        off ? t("管理员已关闭 AI 功能，暂时聊不了") : t("还没配置 AI 接口，去「设置 → 看板娘 → 对话设置」填一下吧"),
         "warn"
       );
       if (state.banner) state.banner.hidden = false;
@@ -505,19 +563,29 @@ async function send(text) {
     }
   }
 
+  // 编辑已发送的消息：改完再发，等同于从那条重新开始，后面的问答一起作废
+  const editingUid = state.editing?.uid;
+  if (editingUid) {
+    const at = state.messages.findIndex((m) => m.uid === editingUid);
+    if (at >= 0) dropFrom(at);
+    clearEdit();
+  }
+
   state.input.value = "";
   autoGrow();
   state.images = [];
   renderAttach();
 
-  state.messages.push({ role: "user", content, images });
-  appendUser(content, images);
+  const item = { uid: ++uidSeq, role: "user", content, images };
+  state.messages.push(item);
+  item.el = appendUser(item);
 
-  await streamReply();
+  await streamReply(item);
 }
 
-async function streamReply() {
-  const target = appendBot();
+async function streamReply(item) {
+  const reply = { uid: ++uidSeq, role: "assistant", content: "" };
+  const target = appendBot(reply);
   const ctrl = new AbortController();
   state.ctrl = ctrl;
   setBusy(true);
@@ -525,6 +593,7 @@ async function streamReply() {
   let text = "";
   let thinking = "";
   let serverError = "";
+  let stopped = false;
 
   try {
     const res = await fetch("/api/ai/chat", {
@@ -578,29 +647,151 @@ async function streamReply() {
     });
   } catch (err) {
     if (err.name === "AbortError") {
-      appendNotice("已停止", "muted");
+      stopped = true;
     } else {
-      serverError = err.message || "对话失败";
+      serverError = err.message || t("对话失败");
     }
   } finally {
     window.clearTimeout(renderTimer);
     renderTimer = 0;
     target.bubble.classList.remove("is-streaming");
-    target.bubble.innerHTML = renderMarkdown(text) || (serverError ? "" : "<p>……</p>");
     if (target.row.querySelector(".mchat__think-body")?.textContent) {
       target.think.open = false;
     }
     setBusy(false);
     state.ctrl = null;
 
+    // 失败：一个字没吐出来就把空泡泡收掉，只在用户那条消息左边亮出「重新发送」；
+    // 已经吐了一半就留着，让用户至少能看到收到哪儿了。
+    const failed = Boolean(serverError) || (stopped && !text.trim());
+    reply.content = text;
+    if (text.trim()) {
+      target.bubble.innerHTML = renderMarkdown(text);
+      reply.el = target.row;
+      state.messages.push(reply);
+    } else {
+      target.row.remove();
+    }
+    markFailed(item, failed);
     if (serverError) {
-      appendNotice(serverError, "warn");
-      if (text) state.messages.push({ role: "assistant", content: text });
-    } else if (text) {
-      state.messages.push({ role: "assistant", content: text });
+      item.errEl = appendNotice(serverError, "warn");
+    } else if (failed) {
+      item.errEl = appendNotice(t("已停止，这次没收到回复"), "muted");
+    } else if (stopped) {
+      appendNotice(t("已停止"), "muted");
     }
     scrollFeed();
   }
+}
+
+/** 给用户消息打「失败」标记：左边那句「重新发送」只在这时露出来 */
+function markFailed(item, failed) {
+  item.failed = Boolean(failed);
+  if (!item.el) return;
+  item.el.classList.toggle("is-failed", item.failed);
+  const button = item.el.querySelector('[data-act="retry"]');
+  if (button) button.hidden = !item.failed;
+}
+
+async function retry(item) {
+  if (state.busy || item.role !== "user") return;
+  const at = state.messages.indexOf(item);
+  if (at < 0) return;
+  // 这一轮之后的回答（含半截的）都作废，重新问一次
+  dropFrom(at + 1);
+  markFailed(item, false);
+  item.errEl?.remove();
+  item.errEl = null;
+  await streamReply(item);
+}
+
+/** 从 index 开始（含）把消息与对应的 DOM 一起丢掉 */
+function dropFrom(index) {
+  for (let i = state.messages.length - 1; i >= index; i -= 1) {
+    const message = state.messages[i];
+    message.el?.remove();
+    message.errEl?.remove();
+    if (state.editing?.uid === message.uid) clearEdit();
+  }
+  state.messages.length = Math.min(Math.max(0, index), state.messages.length);
+}
+
+function removeItem(item) {
+  const at = state.messages.indexOf(item);
+  if (at < 0) return;
+  // 删掉自己的提问时，顺带把它的回答一起删掉，免得留下没头没尾的一段
+  const withReply = item.role === "user" && state.messages[at + 1]?.role === "assistant";
+  const count = withReply ? 2 : 1;
+  const removed = state.messages.splice(at, count);
+  removed.forEach((message) => {
+    message.el?.remove();
+    message.errEl?.remove();
+    if (state.editing?.uid === message.uid) clearEdit();
+  });
+  Toast.success(t("已删除这条消息"));
+}
+
+/** 删除要按两下（第二下 3 秒内有效），比弹窗轻，也不至于误删 */
+function confirmRemove(button, item) {
+  if (state.busy) return;
+  if (button.dataset.armed === "1") {
+    window.clearTimeout(Number(button.dataset.timer || 0));
+    delete button.dataset.armed;
+    button.textContent = t("删除");
+    removeItem(item);
+    return;
+  }
+  button.dataset.armed = "1";
+  button.textContent = t("确认删除");
+  const timer = window.setTimeout(() => {
+    delete button.dataset.armed;
+    button.textContent = t("删除");
+  }, 3000);
+  button.dataset.timer = String(timer);
+}
+
+/* ------------------------------------------------------------------ */
+/* 编辑已发送的消息                                                    */
+/* ------------------------------------------------------------------ */
+function startEdit(item) {
+  if (state.busy || item.role !== "user" || !item.el) return;
+  if (state.editing?.uid === item.uid) {
+    state.input.focus();
+    return;
+  }
+  clearEdit();
+  state.editing = { uid: item.uid };
+  item.el.classList.add("is-editing");
+  state.input.value = item.content || "";
+  state.images = (item.images || []).slice(0, MAX_IMAGES);
+  renderAttach();
+  autoGrow();
+  if (state.editBar) state.editBar.hidden = false;
+  state.input.focus();
+  const end = state.input.value.length;
+  state.input.setSelectionRange(end, end);
+}
+
+function clearEdit() {
+  const uid = state.editing?.uid;
+  if (uid) {
+    state.messages
+      .find((m) => m.uid === uid)
+      ?.el?.classList.remove("is-editing");
+  }
+  state.editing = null;
+  if (state.editBar) state.editBar.hidden = true;
+}
+
+/** 取消编辑：把放回输入框的内容与图片清掉，原来的消息不动 */
+function cancelEdit() {
+  if (!state.editing) return;
+  clearEdit();
+  state.input.value = "";
+  autoGrow();
+  state.images = [];
+  renderAttach();
+  state.input.focus();
 }
 
 function stopStream() {

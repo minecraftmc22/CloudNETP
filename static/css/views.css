@@ -1349,6 +1349,105 @@ html[data-ai="off"] .mascot__act[data-mascot-act="chat"] {
   border-radius: 10px;
   border: 1px solid var(--stroke-hair);
 }
+/* 用户消息：左边「重新发送」+ 右边气泡；气泡下面一行「编辑 / 删除」 */
+.mchat__line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  /* 撑满一行：气泡的百分比宽度要对着整行算，否则会被算成极小值 */
+  width: 100%;
+}
+.is-me .mchat__line {
+  justify-content: flex-end;
+}
+.mchat__col {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  align-items: flex-end;
+  min-width: 0;
+  max-width: 88%;
+}
+.mchat__col .mchat__bubble {
+  max-width: 100%;
+}
+.mchat__retry {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 9px;
+  border-radius: var(--radius-pill);
+  border: 1px solid color-mix(in srgb, var(--danger) 36%, transparent);
+  background: var(--danger-soft);
+  font-size: 11.5px;
+  line-height: 1;
+  color: var(--danger);
+  white-space: nowrap;
+  transition: background var(--dur-fast) var(--ease-standard);
+}
+.mchat__retry:hover {
+  background: color-mix(in srgb, var(--danger) 20%, transparent);
+}
+.mchat__retry[hidden] {
+  display: none;
+}
+.mchat__msg.is-failed .mchat__bubble {
+  border-color: color-mix(in srgb, var(--danger) 32%, var(--stroke));
+}
+.mchat__msg.is-editing .mchat__bubble {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+.mchat__ops {
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease-standard);
+}
+.is-me .mchat__ops {
+  justify-content: flex-end;
+}
+.mchat__msg:hover .mchat__ops,
+.mchat__msg:focus-within .mchat__ops {
+  opacity: 1;
+}
+.mchat__op {
+  padding: 2px 7px;
+  border-radius: var(--radius-xs);
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--text-3);
+  transition: color var(--dur-fast) var(--ease-standard),
+    background var(--dur-fast) var(--ease-standard);
+}
+.mchat__op:hover {
+  color: var(--text-1);
+  background: color-mix(in srgb, var(--text-1) 8%, transparent);
+}
+.mchat__op[data-armed="1"] {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+.mchat__editing {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 9px;
+  border-radius: var(--radius-s);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  font-size: 11.5px;
+  color: var(--text-2);
+}
+.mchat__editing[hidden] {
+  display: none;
+}
+.mchat__editing button {
+  font-size: 11.5px;
+  color: var(--accent);
+}
 /* 思考过程：默认折叠，流式时展开 */
 .mchat__think {
   border-left: 2px solid color-mix(in srgb, var(--accent) 40%, var(--stroke));

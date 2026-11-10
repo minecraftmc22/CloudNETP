@@ -845,3 +845,14 @@
     gap: 8px;
   }
 }
+
+/* 气泡下的「编辑 / 删除」：触屏没有 hover，常驻显示，并放大点击区域 */
+@media (pointer: coarse) {
+  .mchat__ops {
+    opacity: 1;
+  }
+  .mchat__op {
+    padding: 4px 9px;
+    font-size: 11.5px;
+  }
+}

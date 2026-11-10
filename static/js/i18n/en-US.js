@@ -1045,4 +1045,13 @@ export default {
   "启用 WebDAV": "Enable WebDAV",
   "关掉后所有账号的 /dav 都不可用（返回 404）；用户也能在自己的设置里单独关掉。对应 .env 的 WEBDAV_ENABLED，这里保存的值优先": "Turning this off makes /dav unavailable for every account (404). Users can also switch it off for themselves. Maps to WEBDAV_ENABLED in .env; the value saved here wins",
   "如果资源管理器报「找不到网络名」或一直连不上，先确认 Windows 的 WebClient 服务在运行：管理员身份打开命令提示符，执行 {cmd} 后再试。": "If Explorer says the network name cannot be found, or it never connects, make sure the Windows WebClient service is running: open an elevated Command Prompt, run {cmd}, then try again.",
+  "正在编辑已发送的消息": "Editing a sent message",
+  "重新发送": "Send again",
+  "管理员已关闭 AI 功能，暂时聊不了": "The admin has turned AI off, so chat is unavailable",
+  "还没配置 AI 接口，去「设置 → 看板娘 → 对话设置」填一下吧": "No AI endpoint yet - set one up in Settings - Mascot - Chat settings",
+  "对话失败": "Chat failed",
+  "已停止，这次没收到回复": "Stopped before any reply arrived",
+  "已停止": "Stopped",
+  "已删除这条消息": "Message deleted",
+  "确认删除": "Confirm delete",
 };
