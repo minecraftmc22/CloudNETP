@@ -66,10 +66,29 @@ function tokenRow(key, title, desc, value) {
 
 function configMarkup() {
   const cfg = state.cfg || {};
+  if (cfg.aiEnabled === false) {
+    return H`<div class="settings-card__note ai-off-note">
+      <svg class="icon icon--s"><use href="#i-info"/></svg>
+      <span>管理员已关闭 AI 功能，看板娘暂时不能对话。需要的话请联系管理员，在 <code>.env</code> 里把 <code>AI_ENABLED</code> 打开后重启服务。</span>
+    </div>`;
+  }
+  const usingDefault = cfg.source === "default";
   const model = cfg.model || "";
   const inList = state.models.includes(model);
   const useCustomModel = !state.models.length || (model && !inList);
   return H`
+    ${
+      usingDefault
+        ? H`<div class="ai-default-banner" data-ai-default>
+            <div class="ai-default-banner__text">
+              <b>正在使用管理员提供的默认接口</b>
+              <small>模型：${escapeHtml(cfg.defaultModel || "默认模型")} · 地址与密钥由管理员保管，不会显示在你的账号里</small>
+            </div>
+            <button class="btn btn--subtle btn--sm" type="button" data-ai-use-own>使用自己的接口</button>
+          </div>`
+        : ""
+    }
+    <div data-ai-form ${usingDefault ? "hidden" : ""}>
     <div class="setting-row setting-row--stack">
       <div class="setting-row__main">
         <div class="setting-row__label">快速选择</div>
@@ -184,6 +203,7 @@ function configMarkup() {
         </div>
       </div>
     </div>
+    </div>
 
     <div class="setting-row setting-row--stack">
       <div class="setting-row__main">
@@ -248,8 +268,10 @@ function configMarkup() {
       </div>
     </div>
 
-    ${tokenRow("maxInput", t("输入上限"), t("历史消息超过这个长度会从最旧的开始丢掉"), cfg.maxInput)}
-    ${tokenRow("maxOutput", t("输出上限"), t("单次回答最多生成多少 token"), cfg.maxOutput)}
+    <div data-ai-tokens-form ${usingDefault ? "hidden" : ""}>
+      ${tokenRow("maxInput", t("输入上限"), t("历史消息超过这个长度会从最旧的开始丢掉"), cfg.maxInput)}
+      ${tokenRow("maxOutput", t("输出上限"), t("单次回答最多生成多少 token"), cfg.maxOutput)}
+    </div>
 
     ${
       state.isAdmin
@@ -306,10 +328,21 @@ export async function mountAiSettings(card) {
 
 function bind(body) {
   const base = body.querySelector("[data-ai-base]");
+  // 管理员关掉 AI 时只有一条提示，没有表单可绑
+  if (!base) return;
   const key = body.querySelector("[data-ai-key]");
   const select = body.querySelector("[data-ai-model]");
   const modelInput = body.querySelector("[data-ai-model-input]");
   const status = body.querySelector("[data-ai-status]");
+
+  /* --- 默认接口：展开自己的表单 --- */
+  body.querySelector("[data-ai-use-own]")?.addEventListener("click", () => {
+    const form = body.querySelector("[data-ai-form]");
+    if (form) form.hidden = false;
+    body.querySelector("[data-ai-default]")?.setAttribute("hidden", "");
+    Toast.info("填好地址、密钥和模型后保存，下一条消息就会走你自己的接口");
+    base.focus();
+  });
 
   /* --- 预设 --- */
   body.querySelectorAll("[data-ai-preset]").forEach((button) => {
@@ -511,32 +544,40 @@ function bind(body) {
   const saveTip = body.querySelector("[data-ai-save-status]");
 
   function collectAll() {
-    const patch = {
-      baseUrl: base.value.trim(),
-      protocol: currentProtocol(),
-    };
+    const patch = {};
+    // 用默认接口时接口表单是收起的：只提交权限与轮次，
+    // 否则会把默认模型 / 默认能力写进用户自己的配置，之后换回自己的接口就错位了
+    const form = body.querySelector("[data-ai-form]");
+    const formHidden = Boolean(form?.hidden);
 
-    // 模型：下拉框看得见就用下拉框的值，切到「自定义」时用输入框
-    const customBox = body.querySelector("[data-ai-model-custom]");
-    const picked = customBox && !customBox.hidden ? modelInput?.value.trim() : select?.value;
-    const model = picked === CUSTOM_MODEL ? modelInput?.value.trim() : picked;
-    if (model) patch.model = model;
+    if (!formHidden) {
+      patch.baseUrl = base.value.trim();
+      patch.protocol = currentProtocol();
+
+      // 模型：下拉框看得见就用下拉框的值，切到「自定义」时用输入框
+      const customBox = body.querySelector("[data-ai-model-custom]");
+      const picked = customBox && !customBox.hidden ? modelInput?.value.trim() : select?.value;
+      const model = picked === CUSTOM_MODEL ? modelInput?.value.trim() : picked;
+      if (model) patch.model = model;
+
+      ["maxInput", "maxOutput"].forEach((field) => {
+        const wrap = body.querySelector(`[data-ai-tokens="${field}"]`);
+        if (!wrap) return;
+        if (wrap.querySelector(`[data-ai-default="${field}"]`).checked) {
+          patch[field] = 0; // 0 = 用模型提供商默认值
+          return;
+        }
+        const chip = wrap.querySelector("[data-ai-token].is-active");
+        const custom = wrap.querySelector(`[data-ai-token-input="${field}"]`);
+        const raw = custom?.value ? Number(custom.value) : chip ? Number(chip.dataset.value) : 0;
+        patch[field] = Number.isFinite(raw) && raw > 0 ? Math.max(1024, Math.round(raw)) : 0;
+      });
+    }
 
     body.querySelectorAll("[data-ai-flag]").forEach((input) => {
+      // 接口相关的开关（工具 / 图片 / 思考）跟着表单一起跳过；权限开关始终提交
+      if (formHidden && input.closest("[data-ai-form]")) return;
       patch[input.dataset.aiFlag] = input.checked;
-    });
-
-    ["maxInput", "maxOutput"].forEach((field) => {
-      const wrap = body.querySelector(`[data-ai-tokens="${field}"]`);
-      if (!wrap) return;
-      if (wrap.querySelector(`[data-ai-default="${field}"]`).checked) {
-        patch[field] = 0; // 0 = 用模型提供商默认值
-        return;
-      }
-      const chip = wrap.querySelector("[data-ai-token].is-active");
-      const custom = wrap.querySelector(`[data-ai-token-input="${field}"]`);
-      const raw = custom?.value ? Number(custom.value) : chip ? Number(chip.dataset.value) : 0;
-      patch[field] = Number.isFinite(raw) && raw > 0 ? Math.max(1024, Math.round(raw)) : 0;
     });
 
     const chipRounds = roundsWrap?.querySelector("[data-ai-round].is-active");

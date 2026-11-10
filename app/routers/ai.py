@@ -18,7 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
-from .. import ai_service as ai
+from .. import ai_defaults, ai_service as ai
 from ..db import get_db
 from ..deps import get_current_user, require_admin
 from ..models import User
@@ -60,6 +60,8 @@ def update_config(
     payload: AiConfigIn, request: Request, db: DbSession, user: CurrentUser
 ) -> dict:
     check_origin(request)
+    if not ai_defaults.ai_enabled():
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "管理员已关闭 AI 功能")
     # 服务层用前端那套 camelCase 键名，这里必须按别名导出
     patch = payload.model_dump(exclude_none=True, by_alias=True)
     cfg = ai.save_config(db, user.id, patch)
@@ -71,6 +73,8 @@ def update_config(
 @router.post("/probe")
 def probe(payload: AiProbeIn, request: Request, db: DbSession, user: CurrentUser) -> dict:
     check_origin(request)
+    if not ai_defaults.ai_enabled():
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "管理员已关闭 AI 功能")
     saved = ai.load_config(db, user.id)
     cfg = {
         "baseUrl": ai.normalize_base(payload.base_url or saved["baseUrl"]),
@@ -117,7 +121,9 @@ def chat(
     payload: AiChatIn, request: Request, db: DbSession, user: CurrentUser
 ) -> StreamingResponse:
     check_origin(request)
-    cfg = ai.load_config(db, user.id)
+    if not ai_defaults.ai_enabled():
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "管理员已关闭 AI 功能")
+    cfg, _ = ai.effective_config(db, user.id)
     if not cfg["baseUrl"] or not cfg["key"]:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,

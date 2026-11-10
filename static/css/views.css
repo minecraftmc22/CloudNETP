@@ -1101,6 +1101,10 @@ a.setting-row--link:hover .setting-row__chevron {
     border-color var(--dur-fast) var(--ease-standard),
     transform var(--dur-fast) var(--ease-fluent);
 }
+/* 管理员在 .env 里关掉 AI 后，操作条上的「对话」也跟着消失 */
+html[data-ai="off"] .mascot__act[data-mascot-act="chat"] {
+  display: none;
+}
 .mascot__act .icon {
   display: block;
   width: 13px;
@@ -1436,6 +1440,43 @@ a.setting-row--link:hover .setting-row__chevron {
   vertical-align: 1px;
   font-size: 10.5px;
   padding: 1px 6px;
+}
+/* 管理员提供了默认接口：普通用户只看到这条，不显示地址与密钥 */
+.ai-default-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 11px 14px;
+  border: 1px solid var(--stroke-strong);
+  border-radius: var(--radius-m);
+  background: var(--fill-subtle);
+}
+.ai-default-banner__text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.ai-default-banner__text b {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-1);
+}
+.ai-default-banner__text small {
+  font-size: 12px;
+  color: var(--text-3);
+}
+/* 管理员关掉 AI 时，整块只剩一条提示 */
+.ai-off-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  line-height: 1.75;
+}
+.ai-off-note .icon {
+  flex: none;
+  margin-top: 3px;
 }
 /* 会改动网盘的工具（新建/写入/改名/复制/移动）标成琥珀色，和只读操作区分开 */
 .mchat__tool.is-write {

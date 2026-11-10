@@ -310,6 +310,13 @@ export function renderSettings(root) {
             </div>
             <div class="setting-row">
               <div class="setting-row__main">
+                <div class="setting-row__label">重置看板娘位置</div>
+                <div class="setting-row__desc">把她放回右下角的默认位置；大小、模型和显示开关都不变</div>
+              </div>
+              <button class="btn btn--sm" type="button" data-mascot-reset>重置位置</button>
+            </div>
+            <div class="setting-row">
+              <div class="setting-row__main">
                 <div class="setting-row__label">锁定看板娘（鼠标穿透）</div>
                 <div class="setting-row__desc">锁定后鼠标直接穿过她，不会挡住下面的文件；也解锁在这里</div>
               </div>
@@ -325,7 +332,7 @@ export function renderSettings(root) {
           <div class="settings-card__head"><svg class="icon icon--s"><use href="#i-chat"/></svg>看板娘 · 对话设置</div>
           <div class="settings-card__note">
             给她接上大模型，右下角就能聊两句。密钥只存在你自己的账号里（服务端加密保存，接口只回掩码）；
-            填好地址和密钥后点「测试连接」会自动拉取模型列表
+            管理员也可以提供一套默认接口，没自己配置时自动使用
           </div>
           <div class="settings-card__body" data-ai-body>
             <div class="settings-card__note settings-loading"><span class="spinner"></span> 正在读取配置…</div>
@@ -836,6 +843,12 @@ export function renderSettings(root) {
   mascotSize?.addEventListener("input", () => {
     paintMascotSize();
     setMascotScale(mascotSize.value);
+  });
+
+  /* --- 重置看板娘位置：清掉本机记住的偏移，交给 live2d 模块套用 --- */
+  root.querySelector("[data-mascot-reset]")?.addEventListener("click", () => {
+    window.dispatchEvent(new CustomEvent("mascot:reset"));
+    Toast.info(t("看板娘已回到默认位置"));
   });
 
   /* --- 看板娘锁定（鼠标穿透）：和悬停条上的「锁定」共用一份状态 --- */

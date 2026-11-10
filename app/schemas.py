@@ -309,6 +309,25 @@ class AdminLyricsIn(CamelModel):
     clear_cookie: bool = False
 
 
+class AdminAiDefaultIn(CamelModel):
+    """后台保存「AI 默认接口」。
+
+    地址 / 模型留空 = 该字段回落到 .env；key 传空串 = 继续用 .env 的，
+    ``__keep__``（或省略）= 不改；其余字段省略 = 不改。
+    """
+
+    enabled: bool | None = None
+    base_url: str | None = Field(default=None, max_length=300)
+    key: str | None = Field(default=None, max_length=400)
+    model: str | None = Field(default=None, max_length=120)
+    protocol: Literal["auto", "openai", "anthropic"] | None = None
+    vision: bool | None = None
+    thinking: bool | None = None
+    tools: bool | None = None
+    max_input: int | None = Field(default=None, ge=0, le=2_000_000)
+    max_output: int | None = Field(default=None, ge=0, le=2_000_000)
+
+
 class AdminLyricsTestIn(CamelModel):
     """测试歌词库连通性：可以带上还没保存的地址/密钥先试。"""
 

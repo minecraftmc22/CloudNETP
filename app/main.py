@@ -77,6 +77,10 @@ async def lifespan(app: FastAPI):
     from . import lyrics_config
 
     lyrics_config.hydrate()
+    # AI 默认接口（后台可覆盖 .env）也是同一套路
+    from . import ai_defaults
+
+    ai_defaults.hydrate()
     _startup_maintenance()
     # 自动更新看门狗：默认关闭，管理员在后台开启后每 6 小时检查一次
     from . import update_service

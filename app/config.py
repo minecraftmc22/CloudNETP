@@ -103,7 +103,7 @@ def _compose_database_url() -> str:
 class Settings:
     # ---- 应用 ----
     APP_NAME: str = _get("APP_NAME", "CloudNETP")
-    VERSION: str = "0.3.57"
+    VERSION: str = "0.3.58"
     DEBUG: bool = _get_bool("DEBUG", True)
 
     # ---- 监听与对外地址 ----
@@ -192,6 +192,23 @@ class Settings:
     # ---- Live2D 看板娘 ----
     # 模型根目录（默认项目根下的 live2d/），对外挂载为 /live2d；模型放 live2d/model/<模型名>/
     LIVE2D_DIR: Path = Path(_get("LIVE2D_DIR") or str(BASE_DIR / "live2d")).resolve()
+
+    # ---- 看板娘 AI 对话 ----
+    # 总开关：false 时整块 AI 功能不可用（对话入口隐藏，接口 403）。改完要重启。
+    AI_ENABLED: bool = _get_bool("AI_ENABLED", True)
+    # 默认接口：开启后用户不用自己填 API（后台「看板娘 AI」卡片里也能改，优先级高于这里）。
+    # 默认接口的地址与密钥只对管理员可见，普通用户只拿到「已由管理员提供」这个状态。
+    AI_DEFAULT_ENABLED: bool = _get_bool("AI_DEFAULT_ENABLED", False)
+    AI_DEFAULT_BASE_URL: str = _get("AI_DEFAULT_BASE_URL").strip()
+    AI_DEFAULT_API_KEY: str = _get("AI_DEFAULT_API_KEY")
+    AI_DEFAULT_MODEL: str = _get("AI_DEFAULT_MODEL").strip()
+    # 高级配置：自定义协议 / 图片输入 / 思考模式 / 工具调用 / 输入输出上限
+    AI_DEFAULT_PROTOCOL: str = _get("AI_DEFAULT_PROTOCOL", "auto").strip().lower()
+    AI_DEFAULT_VISION: bool = _get_bool("AI_DEFAULT_VISION", False)
+    AI_DEFAULT_THINKING: bool = _get_bool("AI_DEFAULT_THINKING", False)
+    AI_DEFAULT_TOOLS: bool = _get_bool("AI_DEFAULT_TOOLS", True)
+    AI_DEFAULT_MAX_INPUT: int = _get_int("AI_DEFAULT_MAX_INPUT", 0)
+    AI_DEFAULT_MAX_OUTPUT: int = _get_int("AI_DEFAULT_MAX_OUTPUT", 0)
 
     # ---- 邮件服务（暂未接入：留空时所有发信接口返回「未配置」）----
     # 目前验证码只落服务端内存、不发信，接口与限流逻辑已经就绪，

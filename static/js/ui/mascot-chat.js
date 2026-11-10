@@ -205,6 +205,11 @@ export function isMascotChatOpen() {
   return state.open;
 }
 
+/** 应用启动时先拉一次配置：管理员关掉 AI 时，操作条上的「对话」按钮立即收起 */
+export function primeChatConfig() {
+  refreshConfig(true);
+}
+
 export function openMascotChat() {
   const panel = ensurePanel();
   panel.classList.add("is-open");
@@ -240,11 +245,21 @@ async function refreshConfig(force = false) {
     if (!res.ok) throw new Error(String(res.status));
     const data = await res.json();
     const cfg = data.config || {};
+    const aiOn = cfg.aiEnabled !== false;
+    // 总开关关掉时把操作条上的「对话」按钮一起收起来（CSS 按这个属性隐藏）
+    document.documentElement.dataset.ai = aiOn ? "on" : "off";
     state.ready = Boolean(cfg.ready);
-    state.vision = Boolean(cfg.vision);
-    state.model = cfg.model || "";
+    state.vision = aiOn && Boolean(cfg.vision);
+    // 用默认接口时用户看不到地址，但模型名可以显示（来自 defaultModel）
+    state.model = cfg.model || cfg.defaultModel || "";
     if (state.modelEl) {
-      state.modelEl.textContent = state.ready ? state.model : cfg.hasKey ? "还没选模型" : "未配置";
+      state.modelEl.textContent = !aiOn
+        ? "已关闭"
+        : state.ready
+          ? state.model || "默认接口"
+          : cfg.hasKey
+            ? "还没选模型"
+            : "未配置";
     }
     if (state.imageBtn) state.imageBtn.hidden = !state.vision;
     if (state.banner) {
@@ -252,9 +267,13 @@ async function refreshConfig(force = false) {
       if (!state.ready) {
         const text = state.banner.querySelector("[data-mchat-banner-text]");
         if (text) {
-          text.textContent = cfg.baseUrl
-            ? "还差一步：填好密钥和模型就能聊了"
-            : "先去填一下 API 地址和密钥吧";
+          text.textContent = !aiOn
+            ? "管理员已关闭 AI 功能"
+            : cfg.source === "default"
+              ? "默认接口还没配完整，联系管理员看看"
+              : cfg.baseUrl
+                ? "还差一步：填好密钥和模型就能聊了"
+                : "先去填一下 API 地址和密钥吧";
         }
       }
     }
@@ -476,7 +495,11 @@ async function send(text) {
   if (!state.ready) {
     await refreshConfig(true);
     if (!state.ready) {
-      appendNotice("还没配置 AI 接口，去「设置 → 看板娘 → 对话设置」填一下吧", "warn");
+      const off = document.documentElement.dataset.ai === "off";
+      appendNotice(
+        off ? "管理员已关闭 AI 功能，暂时聊不了" : "还没配置 AI 接口，去「设置 → 看板娘 → 对话设置」填一下吧",
+        "warn"
+      );
       if (state.banner) state.banner.hidden = false;
       return;
     }

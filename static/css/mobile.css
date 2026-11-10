@@ -836,3 +836,12 @@
     display: none;
   }
 }
+
+/* AI 默认接口提示：手机上按钮换行，别把文字挤成一列 */
+@media (max-width: 640px) {
+  .ai-default-banner {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+}

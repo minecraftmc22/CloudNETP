@@ -343,11 +343,19 @@ export function initLive2DMascot({ stage, host, bubble, pick, pickLabel, onPoke,
   function destroy() {
     state.destroyed = true;
     window.clearInterval(pollTimer);
+    window.removeEventListener("mascot:reset", resetPlacement);
     if (state.model) state.model.destroy();
     if (state.app) state.app.destroy(true, { children: true });
     state.app = null;
     state.model = null;
   }
+
+  /** 设置页「重置看板娘位置」：回到默认偏移，并清掉本机记住的位置 */
+  function resetPlacement() {
+    state.offset = { dx: 0, dy: 0 };
+    applyOffset(true);
+  }
+  window.addEventListener("mascot:reset", resetPlacement);
 
   /* ---------------- 交互 ---------------- */
 

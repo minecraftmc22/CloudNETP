@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response,
 from sqlalchemy.orm import Session
 
 from .. import admin_service as admin
+from .. import ai_defaults
 from .. import dav_auth as da
 from .. import db_failover
 from .. import lyrics_config
@@ -26,6 +27,7 @@ from ..db import get_db
 from ..deps import require_admin
 from ..models import User
 from ..schemas import (
+    AdminAiDefaultIn,
     AdminDbReconnectIn,
     AdminGcIn,
     AdminLogPurgeIn,
@@ -496,6 +498,47 @@ def netease_logout(request: Request, db: DbSession, me: AdminUser) -> dict:
     log_action(db, "admin_netease_logout", me.id, result, request)
     db.commit()
     return {"result": result, "account": ng.status(db, verify=False)}
+
+
+# --------------------------------------------------------------------------- #
+# 看板娘 AI 默认接口（普通用户看不到，只有管理员能读能改）
+# --------------------------------------------------------------------------- #
+@router.get("/ai")
+def ai_default_status(_: AdminUser) -> dict:
+    """AI 默认接口的生效配置：密钥只回掩码，原文不出服务端。"""
+    return {"config": ai_defaults.snapshot()}
+
+
+@router.put("/ai")
+def ai_default_save(payload: AdminAiDefaultIn, request: Request, db: DbSession, me: AdminUser) -> dict:
+    """保存默认接口（存 system_settings，立即生效）。"""
+    check_origin(request)
+    ai_defaults.save(db, payload.model_dump(exclude_none=True, by_alias=True))
+    config = ai_defaults.snapshot()
+    log_action(
+        db,
+        "admin_ai_default_save",
+        me.id,
+        {
+            "enabled": config["enabled"],
+            "baseUrl": config["baseUrl"],
+            "hasKey": config["hasKey"],
+            "model": config["model"],
+        },
+        request,
+    )
+    db.commit()
+    return {"config": config}
+
+
+@router.delete("/ai")
+def ai_default_clear(request: Request, db: DbSession, me: AdminUser) -> dict:
+    """清掉后台覆盖，全部回到 .env。"""
+    check_origin(request)
+    ai_defaults.clear(db)
+    log_action(db, "admin_ai_default_clear", me.id, {}, request)
+    db.commit()
+    return {"config": ai_defaults.snapshot()}
 
 
 # --------------------------------------------------------------------------- #

@@ -36,7 +36,7 @@ from PIL import Image, ImageOps
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from . import node_service, secret_box, settings_store, storage
+from . import ai_defaults, node_service, secret_box, settings_store, storage
 from .config import settings
 from .models import Node, User, utcnow
 from .user_service import ensure_settings, log_action
@@ -227,13 +227,63 @@ def _clamp_rounds(value: Any) -> int:
     return max(1, min(50, number))
 
 
+def effective_config(db: Session, user_id: int) -> tuple[dict, str]:
+    """实际用来对话的配置：用户自己填全了就用用户的，否则用管理员给的默认接口。
+
+    返回 (配置, 来源)。来源取值：
+    - ``user``    用户自己的地址 / 密钥 / 模型都齐了
+    - ``default`` 落到管理员提供的默认接口（普通用户看不到地址与密钥）
+    - ``none``    两套都没有，前端提示去配置
+    """
+    cfg = load_config(db, user_id)
+    if cfg["baseUrl"] and cfg["key"] and cfg["model"]:
+        return cfg, "user"
+
+    default = ai_defaults.resolved()
+    if default["enabled"] and default["baseUrl"] and default["key"] and default["model"]:
+        merged = dict(DEFAULT_CONFIG)
+        merged.update(
+            baseUrl=default["baseUrl"],
+            key=default["key"],
+            model=default["model"],
+            protocol=default["protocol"],
+            tools=default["tools"],
+            vision=default["vision"],
+            thinking=default["thinking"],
+            maxInput=default["maxInput"],
+            maxOutput=default["maxOutput"],
+        )
+        # 权限与轮次始终听用户自己的：默认接口不改变「谁能读 / 谁能写」
+        merged["readContent"] = cfg["readContent"]
+        merged["writeFiles"] = cfg["writeFiles"]
+        merged["moveFiles"] = cfg["moveFiles"]
+        merged["maxRounds"] = cfg["maxRounds"]
+        return merged, "default"
+    return cfg, "none"
+
+
 def public_config(db: Session, user_id: int) -> dict:
     cfg = load_config(db, user_id)
+    effective, source = effective_config(db, user_id)
     key = cfg.pop("key", "")
     cfg["hasKey"] = bool(key)
     cfg["keyMask"] = mask_key(key)
-    cfg["ready"] = bool(cfg["baseUrl"] and key and cfg["model"])
+    cfg["source"] = source
+    cfg["aiEnabled"] = ai_defaults.ai_enabled()
+    cfg["ready"] = bool(
+        cfg["aiEnabled"] and effective["baseUrl"] and effective["key"] and effective["model"]
+    )
     cfg["presets"] = PRESETS
+    if source == "default":
+        # 默认接口的地址与密钥属于管理员配置，普通用户的响应里不出现。
+        # 注意 cfg 本身只装用户自己的值，默认值只补「能力」相关的字段。
+        cfg["defaultModel"] = effective["model"]
+        cfg["vision"] = effective["vision"]
+        cfg["thinking"] = effective["thinking"]
+        cfg["tools"] = effective["tools"]
+        cfg["protocol"] = effective["protocol"]
+        cfg["maxInput"] = effective["maxInput"]
+        cfg["maxOutput"] = effective["maxOutput"]
     return cfg
 
 

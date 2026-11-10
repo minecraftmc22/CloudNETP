@@ -367,6 +367,141 @@ function lyricsCardMarkup(cfg) {
   </section>`;
 }
 
+function aiCardMarkup(cfg) {
+  const head = `<div class="settings-card__head"><svg class="icon icon--s"><use href="#i-chat"/></svg>${t("看板娘 AI 默认接口")}</div>`;
+  if (!cfg) {
+    return H`<section class="settings-card" data-card="ai">${head}
+      <div class="admin-hint">${t("AI 默认接口读取失败，刷新页面重试")}</div>
+    </section>`;
+  }
+
+  const keyPlaceholder = cfg.hasKey
+    ? cfg.keySource === "env"
+      ? t("沿用 .env 的密钥 {mask}，留空不改", { mask: cfg.keyMask || "••••" })
+      : t("已保存 {mask}，留空不改", { mask: cfg.keyMask || "••••" })
+    : t("默认接口的 API 密钥");
+  const basePlaceholder = cfg.env?.baseUrl
+    ? t("跟随 .env：{value}", { value: cfg.env.baseUrl })
+    : t("https://api.openai.com/v1");
+  const clearKey =
+    cfg.keySource === "admin"
+      ? H`<label class="lyr-clear"><input type="checkbox" data-ai-admin-clear-key>${t("清除已保存的默认密钥")}</label>`
+      : "";
+
+  return H`<section class="settings-card" data-card="ai">${head}
+    <div class="setting-row">
+      <div class="setting-row__main">
+        <div class="setting-row__label">${t("AI 总开关")}<span class="chip ai-perms__flag">.env</span></div>
+        <div class="setting-row__desc">${t(
+          "由 .env 的 AI_ENABLED 控制，改完要重启服务；关掉后对话入口隐藏、接口直接拒绝"
+        )}</div>
+      </div>
+      <span class="chip ${cfg.aiEnabled ? "chip--accent" : ""}">${cfg.aiEnabled ? t("已开启") : t("已关闭")}</span>
+    </div>
+
+    <div class="setting-row">
+      <div class="setting-row__main">
+        <div class="setting-row__label">${t("启用默认接口")}</div>
+        <div class="setting-row__desc">${
+          cfg.enabled
+            ? t("已开启：没自己配接口的用户直接用这套默认值")
+            : t("已关闭：用户需要自己填 API 才能对话")
+        }</div>
+      </div>
+      <label class="switch">
+        <input type="checkbox" data-ai-admin-enabled ${cfg.enabled ? "checked" : ""}>
+        <span class="switch__track"><span class="switch__knob"></span></span>
+      </label>
+    </div>
+
+    <div class="admin-form-grid">
+      <label class="field field--wide">
+        <span class="field__label">${t("API 地址")}</span>
+        <span class="textbox"><input data-ai-admin-base spellcheck="false"
+          placeholder="${escapeHtml(basePlaceholder)}"
+          value="${cfg.baseUrlSource === "admin" ? escapeHtml(cfg.baseUrl) : ""}"></span>
+      </label>
+      <label class="field">
+        <span class="field__label">${t("API 密钥")}</span>
+        <span class="textbox"><input data-ai-admin-key type="password" autocomplete="off"
+          placeholder="${escapeHtml(keyPlaceholder)}"></span>
+        ${clearKey}
+      </label>
+      <label class="field">
+        <span class="field__label">${t("模型名称")}</span>
+        <span class="textbox"><input data-ai-admin-model spellcheck="false"
+          placeholder="${escapeHtml(cfg.env?.model || "gpt-4o-mini")}"
+          value="${cfg.modelSource === "admin" ? escapeHtml(cfg.model) : ""}"></span>
+      </label>
+      <label class="field">
+        <span class="field__label">${t("协议")}</span>
+        <span class="selectbox">
+          <select data-ai-admin-protocol>
+            <option value="auto" ${cfg.protocol === "auto" ? "selected" : ""}>${t("自动判断")}</option>
+            <option value="openai" ${cfg.protocol === "openai" ? "selected" : ""}>OpenAI</option>
+            <option value="anthropic" ${cfg.protocol === "anthropic" ? "selected" : ""}>Anthropic</option>
+          </select>
+          <svg class="icon icon--s"><use href="#i-chevron-down"/></svg>
+        </span>
+      </label>
+    </div>
+
+    <div class="setting-row setting-row--stack">
+      <div class="setting-row__main">
+        <div class="setting-row__label">${t("高级配置")}</div>
+        <div class="setting-row__desc">${t("默认接口的模型能力；用户自己填的接口不受这里影响")}</div>
+      </div>
+      <div class="ai-switches">
+        <label class="ai-line">
+          <span class="switch">
+            <input type="checkbox" data-ai-admin-flag="tools" ${cfg.tools ? "checked" : ""}>
+            <span class="switch__track"><span class="switch__knob"></span></span>
+          </span>
+          <span class="ai-line__text"><b>${t("工具调用")}</b><small>${t("允许 CDP娘 翻目录、搜文件、看容量")}</small></span>
+        </label>
+        <label class="ai-line">
+          <span class="switch">
+            <input type="checkbox" data-ai-admin-flag="vision" ${cfg.vision ? "checked" : ""}>
+            <span class="switch__track"><span class="switch__knob"></span></span>
+          </span>
+          <span class="ai-line__text"><b>${t("图片输入")}</b><small>${t("多模态模型才开；开了「查看文件内容」才能看网盘图片")}</small></span>
+        </label>
+        <label class="ai-line">
+          <span class="switch">
+            <input type="checkbox" data-ai-admin-flag="thinking" ${cfg.thinking ? "checked" : ""}>
+            <span class="switch__track"><span class="switch__knob"></span></span>
+          </span>
+          <span class="ai-line__text"><b>${t("思考模式")}</b><small>${t("推理模型才开，普通模型会报错")}</small></span>
+        </label>
+      </div>
+    </div>
+
+    <div class="admin-form-grid">
+      <label class="field">
+        <span class="field__label">${t("输入上限")}</span>
+        <span class="textbox"><input type="number" min="0" max="2000000" step="1024"
+          data-ai-admin-max-input value="${Number(cfg.maxInput) || 0}"></span>
+        <span class="field__hint">${t("0 = 用服务商默认")}</span>
+      </label>
+      <label class="field">
+        <span class="field__label">${t("输出上限")}</span>
+        <span class="textbox"><input type="number" min="0" max="2000000" step="1024"
+          data-ai-admin-max-output value="${Number(cfg.maxOutput) || 0}"></span>
+        <span class="field__hint">${t("0 = 用服务商默认")}</span>
+      </label>
+    </div>
+
+    <div class="admin-card__foot">
+      <button class="btn btn--accent" type="button" data-ai-admin-save>${t("保存默认接口")}</button>
+      <button class="btn btn--subtle" type="button" data-ai-admin-clear>${t("清空覆盖，回到 .env")}</button>
+      <span class="ai-status" data-ai-admin-status></span>
+    </div>
+    <p class="admin-hint">${t(
+      "地址与密钥只在这个卡片里可见；普通用户只会看到「已由管理员提供默认接口」，接口响应里不含地址与密钥。留空表示沿用 .env。"
+    )}</p>
+  </section>`;
+}
+
 export function renderAdmin(root) {
   const state = {
     tab: "overview",
@@ -1585,18 +1720,21 @@ export function renderAdmin(root) {
     let settings;
     let dbInfo = null;
     let lyrCfg = null;
+    let aiCfg = null;
     // 网易云状态可能要去网易云核对 Cookie（慢/不可达），先占位、拿到再涂，别拖住整页
     const ngAccount = { loading: true };
     try {
-      const [data, dbData, lyrData] = await Promise.all([
+      const [data, dbData, lyrData, aiData] = await Promise.all([
         api.get("/api/admin/settings"),
         // 数据库卡片单独取：这一项失败不该让整个设置页白屏
         api.get("/api/admin/db").catch(() => null),
         api.get("/api/admin/lyrics").catch(() => null),
+        api.get("/api/admin/ai").catch(() => null),
       ]);
       settings = data.settings;
       dbInfo = dbData?.db || null;
       lyrCfg = lyrData?.config || null;
+      aiCfg = aiData?.config || null;
     } catch (err) {
       panel.innerHTML = errorBlock(err.message);
       return;
@@ -1737,6 +1875,8 @@ export function renderAdmin(root) {
       ${neteaseCardMarkup(ngAccount)}
 
       ${lyricsCardMarkup(lyrCfg)}
+
+      ${aiCardMarkup(aiCfg)}
 
       <section class="settings-card">
         <div class="settings-card__head"><svg class="icon icon--s"><use href="#i-database"/></svg>维护</div>
@@ -2058,7 +2198,85 @@ export function renderAdmin(root) {
       });
     }
 
+    /* --- AI 默认接口卡片：保存 / 清空覆盖 --- */
+    function bindAiCard() {
+      const card = panel.querySelector('[data-card="ai"]');
+      if (!card || !card.querySelector("[data-ai-admin-save]")) return;
+
+      const status = card.querySelector("[data-ai-admin-status]");
+      const setStatus = (text, state = "") => {
+        if (!status) return;
+        status.textContent = text || "";
+        if (state) status.dataset.state = state;
+        else status.removeAttribute("data-state");
+      };
+
+      function collect() {
+        const payload = {
+          enabled: Boolean(card.querySelector("[data-ai-admin-enabled]")?.checked),
+          // 空串 = 该字段回落到 .env（与歌词卡片同一个约定）
+          baseUrl: card.querySelector("[data-ai-admin-base]")?.value.trim() || "",
+          model: card.querySelector("[data-ai-admin-model]")?.value.trim() || "",
+          protocol: card.querySelector("[data-ai-admin-protocol]")?.value || "auto",
+          vision: Boolean(card.querySelector('[data-ai-admin-flag="vision"]')?.checked),
+          thinking: Boolean(card.querySelector('[data-ai-admin-flag="thinking"]')?.checked),
+          tools: Boolean(card.querySelector('[data-ai-admin-flag="tools"]')?.checked),
+          maxInput: Math.max(0, Number(card.querySelector("[data-ai-admin-max-input]")?.value) || 0),
+          maxOutput: Math.max(0, Number(card.querySelector("[data-ai-admin-max-output]")?.value) || 0),
+        };
+        const key = card.querySelector("[data-ai-admin-key]")?.value.trim() || "";
+        if (card.querySelector("[data-ai-admin-clear-key]")?.checked) payload.key = "";
+        else if (key) payload.key = key;
+        return payload;
+      }
+
+      card.querySelector("[data-ai-admin-save]")?.addEventListener("click", async (event) => {
+        const button = event.currentTarget;
+        const label = button.textContent;
+        button.disabled = true;
+        button.textContent = t("保存中…");
+        setStatus("");
+        try {
+          const data = await api.put("/api/admin/ai", collect());
+          card.outerHTML = aiCardMarkup(data.config);
+          bindAiCard();
+          Toast.success(t("默认接口已保存"));
+        } catch (err) {
+          setStatus(err.message || t("保存失败"), "bad");
+          Toast.error(err.message || t("保存失败"));
+        } finally {
+          button.disabled = false;
+          button.textContent = label;
+        }
+      });
+
+      card.querySelector("[data-ai-admin-clear]")?.addEventListener("click", async (event) => {
+        const ok = await Dialog.confirm({
+          title: t("清空后台覆盖"),
+          message: t("清空后默认接口会完全跟随 .env，后台保存过的地址、密钥与模型都会丢弃。"),
+          confirmText: t("清空覆盖"),
+          danger: true,
+        });
+        if (!ok) return;
+        const button = event.currentTarget;
+        button.disabled = true;
+        setStatus("");
+        try {
+          const data = await api.delete("/api/admin/ai");
+          card.outerHTML = aiCardMarkup(data.config);
+          bindAiCard();
+          Toast.success(t("已回到 .env 的默认接口"));
+        } catch (err) {
+          setStatus(err.message || t("清空失败"), "bad");
+          Toast.error(err.message || t("清空失败"));
+        } finally {
+          button.disabled = false;
+        }
+      });
+    }
+
     bindLyricsCard();
+    bindAiCard();
 
     panel.querySelector('[data-act="purge-logs"]')?.addEventListener("click", purgeLogs);
     panel.querySelector('[data-act="blob-gc"]')?.addEventListener("click", blobGc);

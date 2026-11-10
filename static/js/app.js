@@ -21,7 +21,7 @@ import { openMenu } from "./ui/menu.js";
 import { installState, promptInstall, registerPwa } from "./pwa.js";
 import { initLive2DMascot } from "./ui/live2d.js";
 import { applyMascotLock, bindMascotActions } from "./ui/mascot-actions.js";
-import { toggleMascotChat } from "./ui/mascot-chat.js";
+import { primeChatConfig, toggleMascotChat } from "./ui/mascot-chat.js";
 import { checkForUpdates } from "./ui/update.js";
 import { renderAuth } from "./views/auth.js";
 import { renderAdmin } from "./views/admin.js";
@@ -508,6 +508,8 @@ function setupMascot(user) {
     onChat: () => toggleMascotChat(),
     onClose: () => hideMascot(),
   });
+  // 先问一次 AI 总开关：关掉时把「对话」按钮收起来（拉不到就按开启处理）
+  primeChatConfig();
 
   mascotLive?.setActive(enabled);
   if (!enabled) return;
