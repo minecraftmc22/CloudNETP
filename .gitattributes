@@ -8,4 +8,8 @@
 *.yml  text eol=lf
 *.yaml text eol=lf
 
+# Docker 构建文件固定 LF：CRLF 会让 RUN 的续行带上 \r，构建时莫名报错
+Dockerfile      text eol=lf
+.dockerignore   text eol=lf
+
 # 其余源码按 Git 默认的自动转换处理

@@ -1,0 +1,42 @@
+# CloudNETP：Docker Compose 部署（SQLite + 本地存储）
+#
+#   1) cp .env.example .env
+#   2) 在 .env 里填一个长随机 SECRET_KEY（python -c "import secrets;print(secrets.token_hex(32))"）
+#   3) docker compose up -d --build
+#   4) 浏览器打开 http://<主机IP>:<PORT>，第一个注册的账号自动成为管理员
+#
+# 数据都在宿主机 ./data：dev.db（SQLite）与 storage/（上传内容）。备份 = 备份这个目录。
+services:
+  cloudnetp:
+    build:
+      context: .
+      args:
+        # 海外构建可以改成 https://pypi.org/simple
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple/}
+    image: cloudnetp:latest
+    container_name: cloudnetp
+    restart: unless-stopped
+    # .env 就是唯一配置来源；下面 environment 里的值会覆盖同名项
+    env_file:
+      - .env
+    environment:
+      HOST: 0.0.0.0
+      # 容器里的时区（只影响日志时间；数据库统一存 UTC）
+      TZ: ${TZ:-Asia/Shanghai}
+    # 左边是宿主机端口，右边是容器端口，都跟着 .env 的 PORT 走（没写就是 8123）
+    ports:
+      - "${PORT:-8123}:${PORT:-8123}"
+    volumes:
+      # 数据库与上传内容；Linux 上需要 sudo chown -R 10001:10001 data（见 README）
+      - ./data:/data
+      # 想换 Live2D 模型又不想重建镜像，把本地目录挂进去即可
+      # - ./live2d:/app/live2d:ro
+    # Linux 上不想 chown 时，把下面两行的注释去掉并改成你自己的 uid / gid（id -u / id -g）
+    # user: "1000:1000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os,urllib.request; urllib.request.urlopen('http://127.0.0.1:%s/api/version' % os.environ.get('PORT', '8123'), timeout=4)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    stop_grace_period: 20s

@@ -84,6 +84,76 @@ Python 3.14 + FastAPI 后端，零构建原生 ES Module 前端；分片秒传�
 
 ## 快速开始
 
+两种装法任选其一：**Docker**（服务器 / NAS 推荐，机器上不用装 Python）或**本地 Python**。
+两者配置方式完全一样 —— 都只读根目录的 `.env`。
+
+### 方式一：Docker 部署（推荐）
+
+镜像里已经带好 Python 与全部依赖，数据只落在宿主机的 `./data`，升级就是重建镜像。
+
+**1. 准备配置**
+
+```bash
+cp .env.example .env
+python -c "import secrets;print(secrets.token_hex(32))"   # 生成一串填进 SECRET_KEY
+```
+
+`.env` 里至少确认这三项：
+
+| 变量 | 说明 |
+| --- | --- |
+| `SECRET_KEY` | 必填一串长随机值；留空则每次重启所有登录会话失效 |
+| `PORT` | 对外端口，compose 的端口映射跟着它走（`.env.example` 里是 `8000`；删掉这行就用镜像默认的 `8123`） |
+| `SITE_URL` | 有域名 / 反向代理时填 `https://pan.example.com`，分享链接与 WebDAV 地址会用它 |
+
+**2. 起服务**
+
+```bash
+docker compose up -d --build      # 首次会构建镜像
+docker compose logs -f            # 看启动日志（含实际监听地址与 WebDAV 地址）
+```
+
+国内默认走阿里云 PyPI 镜像，海外构建可以：
+
+```bash
+PIP_INDEX_URL=https://pypi.org/simple docker compose build
+```
+
+**3. 打开**
+
+`http://<主机IP>:<PORT>`（本机就是 `http://localhost:8000`）。**第一个注册的账号自动成为管理员**。
+容器自带 healthcheck，`docker compose ps` 里显示 `healthy` 就表示接口已经能应答。
+
+**4. 数据在哪**
+
+| 容器内路径 | 宿主机 | 内容 |
+| --- | --- | --- |
+| `/data/dev.db` | `./data/dev.db` | SQLite 数据库（接了 MySQL 后这里只剩容灾副本） |
+| `/data/storage` | `./data/storage` | 上传的原始文件、缩略图、头像、背景图 |
+
+备份 = 复制宿主机上的 `./data` 整个目录。镜像里已经把 `/app/dev.db` 与 `/app/storage`
+软链接到 `/data`，所以 `.env` 里的 `sqlite:///./dev.db`、留空的 `STORAGE_DIR` 不用为容器改。
+
+**5. 常见问题**
+
+- **启动后写文件失败 / 报权限错误**：宿主机 `./data` 属主是 root，而容器里跑的是 uid `10001`。
+  执行一次 `sudo chown -R 10001:10001 data`，或者在 `docker-compose.yml` 里打开
+  `user: "1000:1000"` 注释并改成 `id -u` / `id -g` 的结果。
+- **从本机 `.env` 直接拷过来时**：把 `SSL_CERTFILE` / `SSL_KEYFILE` 留空（容器里没有那些证书路径，
+  填了会启动失败并提示文件不存在），`UPDATE_PROXY` 也别指向 `127.0.0.1`（那是容器自己）。
+- **想用 MySQL**：`docker compose -f docker-compose.mysql.yml up -d --build`。
+  自带 MySQL 8.4（数据在 `mysql-data` 卷里），记得改 `.env` 或 compose 里的 `MYSQL_PASSWORD`。
+  接外部 MySQL 则直接改 `.env` 的 `DATABASE_URL`（容器里访问宿主机用 `host.docker.internal`）。
+- **反向代理 / HTTPS**：容器只提供 HTTP，TLS 交给 Nginx / Caddy，记得转发 `X-Forwarded-Proto`
+  （`TRUST_PROXY` 默认开启），并把 `.env` 的 `SITE_URL` 与 `COOKIE_SECURE=true` 配上。
+- **自动更新不可用**：镜像里没有 `.git`，关于页的「更新」会失败；升级请
+  `docker compose build --pull && docker compose up -d`。
+- **想看/改 Live2D 模型**：`docker-compose.yml` 里有把 `./live2d` 挂进容器的注释，打开即可。
+- **调整上传体积上限 / 配额**：改 `.env` 里的 `MAX_FILE_SIZE_MB` / `DEFAULT_QUOTA_GB` 后
+  `docker compose up -d` 重启即可。
+
+### 方式二：本地安装（Python）
+
 需要 **Python 3.10+**（推荐 3.13 / 3.14）。仓库自带启动脚本，首次运行会自动建 `.venv`、
 装依赖、从 `.env.example` 生成 `.env` 并补一个随机 `SECRET_KEY`；之后每次启动直接跑脚本即可。
 
@@ -167,6 +237,9 @@ python3 -m venv .venv
 
 ```
 start.sh / start.ps1 / start.bat   一键启动（Linux / Windows）
+Dockerfile           镜像构建（python:3.12-slim，数据统一放 /data）
+docker-compose.yml   compose 部署：SQLite + 宿主机 ./data
+docker-compose.mysql.yml  compose 部署：应用 + MySQL 8.4
 run.py               生产入口：读 .env，热重载看 RELOAD
 main.py              开发入口：读 .env + 强制热重载
 app/

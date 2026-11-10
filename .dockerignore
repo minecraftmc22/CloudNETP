@@ -1,0 +1,44 @@
+# 构建上下文瘦身：这些内容进镜像没有意义（或绝对不能进）
+.git
+.github
+.gitignore
+.dockerignore
+docker-compose.yml
+docker-compose.mysql.yml
+.venv
+venv
+__pycache__/
+*.py[cod]
+*.log
+logs/
+
+# 配置与密钥：.env 里是 SECRET_KEY / 各种 token，绝不能烤进镜像
+.env
+.env.*
+!.env.example
+
+# 运行时数据：数据库文件与上传内容都在宿主机 ./data 里
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+*.sqlite
+*.sqlite3
+storage/
+data/
+
+# 本地/编辑器杂项
+.workbuddy/
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# 文档与截图不进镜像
+Wiki/
+docs/
+scripts/*_preview.png

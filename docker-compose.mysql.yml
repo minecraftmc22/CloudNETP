@@ -1,0 +1,65 @@
+# CloudNETP：Docker Compose 部署（自带 MySQL 8.4，适合多用户 / 大文件）
+#
+#   docker compose -f docker-compose.mysql.yml up -d --build
+#
+# 应用本体与 docker-compose.yml 相同，只是多一个 mysql 服务，
+# 并把 DATABASE_URL 指过去（它会覆盖 .env 里的同名项）。
+# 密码请改 .env 里的 MYSQL_PASSWORD / MYSQL_ROOT_PASSWORD，或直接在下面修改。
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: cloudnetp-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-cloudnetp-root}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-cloudnetp}
+      MYSQL_USER: ${MYSQL_USER:-cloudnetp}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-cloudnetp-pass}
+      TZ: ${TZ:-Asia/Shanghai}
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --max-allowed-packet=64M
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  cloudnetp:
+    build:
+      context: .
+      args:
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple/}
+    image: cloudnetp:latest
+    container_name: cloudnetp
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      HOST: 0.0.0.0
+      TZ: ${TZ:-Asia/Shanghai}
+      DATABASE_URL: mysql+pymysql://${MYSQL_USER:-cloudnetp}:${MYSQL_PASSWORD:-cloudnetp-pass}@mysql:3306/${MYSQL_DATABASE:-cloudnetp}?charset=utf8mb4
+      # MySQL 在容器网络里延迟低于公网，容灾默认关掉更省心；需要断网兜底就改回 true
+      DB_FALLBACK_ENABLED: ${DB_FALLBACK_ENABLED:-false}
+    depends_on:
+      mysql:
+        condition: service_healthy
+    ports:
+      - "${PORT:-8123}:${PORT:-8123}"
+    volumes:
+      # 仍然保留 /data：上传的文件、缩略图、头像都在这里
+      - ./data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os,urllib.request; urllib.request.urlopen('http://127.0.0.1:%s/api/version' % os.environ.get('PORT', '8123'), timeout=4)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    stop_grace_period: 20s
+
+volumes:
+  mysql-data:

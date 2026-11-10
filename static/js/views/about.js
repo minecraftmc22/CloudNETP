@@ -68,6 +68,17 @@ const AUTHOR = {
 
 const CHANGELOG = [
   {
+    version: "0.3.66",
+    title: "可以用 Docker 装了",
+    items: [
+      "新增 Dockerfile 与 docker-compose.yml：写好 .env 后 docker compose up -d --build 就能起服务，机器上不用装 Python",
+      "数据统一落在 /data：SQLite 库与上传内容只要把宿主机 ./data 挂进去就持久化，镜像里已把 /app/dev.db、/app/storage 指过去",
+      "另附 docker-compose.mysql.yml：应用 + MySQL 8.4，数据库存在 mysql-data 卷里，等 MySQL 健康后自动启动",
+      "容器以非 root（uid 10001）运行并自带 healthcheck；构建默认走阿里云 PyPI 镜像，海外可用构建参数换源",
+      "README 补齐 Docker 部署一节：配置准备、端口、数据备份，以及权限、证书路径、反向代理这些常见坑",
+    ],
+  },
+  {
     version: "0.3.65",
     title: "分享页能选转存位置了",
     items: [
