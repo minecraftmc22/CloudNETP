@@ -22,6 +22,9 @@ order: 11
 | `DEFAULT_QUOTA_GB` | 新用户默认配额 |
 | `MAX_FILE_SIZE_MB` | 单文件大小上限 |
 | `CHUNK_SIZE_MB` | 分片大小，默认 5 |
+| `WEBDAV_ENABLED` | WebDAV 总开关，`false` 时 `/dav` 的所有方法直接 404（后台「站点」里的开关优先于这里） |
+| `AI_ENABLED` | 看板娘 AI 总开关，`false` 时对话入口隐藏、`/api/ai/*` 返回 403 |
+| `AI_DEFAULT_*` | 一套默认 AI 接口（地址 / 密钥 / 模型 / 协议 / 图片输入 / 思考 / 工具 / 输入输出上限）。配好后用户不用自己填就能聊，地址与密钥只对管理员可见（后台「看板娘 AI 默认接口」可覆盖，优先级更高） |
 | `ALLOW_REGISTER` | 是否开放注册（后台也能开关） |
 | `UPDATE_REPO` / `UPDATE_TOKEN` | 检查更新用的仓库；私有仓库要只读 PAT |
 | `CLOUDNETP_RESTART_CMD` | 自动更新后的重启命令（systemd / nssm 等） |
@@ -114,6 +117,72 @@ sudo journalctl -u cloudnetp -f
 Windows 上可以用 [NSSM](https://nssm.cc/) 把 `run.py` 注册成服务，并把
 `CLOUDNETP_RESTART_CMD` 填成对应的重启命令。
 
+## 用 Docker 跑
+
+仓库自带 `Dockerfile` 与两份 compose，服务器 / NAS 上最省事，宿主机不用装 Python。
+装法见[快速开始 → 方式一：Docker 部署](/guide/start.md)，这里只说运维相关的部分。
+
+| 文件 | 用途 |
+| --- | --- |
+| `Dockerfile` | 基于 `python:3.12-slim`；以 uid `10001` 非 root 运行；healthcheck 打 `/api/version` |
+| `docker-compose.yml` | 应用 + SQLite，数据落在宿主机 `./data` |
+| `docker-compose.mysql.yml` | 应用 + MySQL 8.4（数据在 `mysql-data` 卷），适合多用户 / 大文件 |
+
+### 镜像里做了什么
+
+- 数据库与上传目录通过软链接落到 `/data`（`/app/dev.db` → `/data/dev.db`、
+  `/app/storage` → `/data/storage`），所以 `.env` 里的 `sqlite:///./dev.db` 和留空的
+  `STORAGE_DIR` 不用为容器改。
+- `HOST` 由 compose 固定为 `0.0.0.0`，对外端口跟着 `.env` 的 `PORT`（没写就是 `8123`）。
+- `.env` **不在镜像里**（`.dockerignore` 排除了它），靠 compose 的 `env_file` 在创建容器时注入。
+  所以改完 `.env` 要 `docker compose up -d` **重建容器**；`docker compose restart` 不会重读它。
+- 容器里不是 root。宿主机 `./data` 属主对不上就上传失败，先
+  `sudo chown -R 10001:10001 data`，或打开 compose 里 `user: "1000:1000"` 改成 `id -u` / `id -g`。
+
+### 反向代理 / HTTPS
+
+容器只提供 HTTP，TLS 交给 Nginx / Caddy，配置和上面「开 HTTPS → B」完全一样：
+`client_max_body_size` 要够大、`proxy_buffering off` 必须有，`.env` 里配 `SITE_URL` 与
+`COOKIE_SECURE=true`。`TRUST_PROXY` 默认开，限流与审计能拿到真实 IP。
+
+### 升级
+
+```bash
+docker compose build --pull && docker compose up -d
+```
+
+镜像里没有 `.git`，关于页的「检查更新 / 更新」按钮会失败，这也是 Docker 部署唯一丢掉的便利。
+表结构变动由启动时的补列逻辑处理，不需要手动迁移。
+
+### 备份容器里的数据
+
+SQLite 版（先停容器，避免 WAL 写一半）：
+
+```bash
+docker compose stop cloudnetp
+tar czf cloudnetp-$(date +%F).tar.gz data/
+docker compose start cloudnetp
+```
+
+MySQL 版（应用可以不停，`--single-transaction` 保证一致性）：
+
+```bash
+docker compose -f docker-compose.mysql.yml exec -T mysql \
+  mysqldump -ucloudnetp -p'cloudnetp-pass' --single-transaction cloudnetp | gzip > db-$(date +%F).sql.gz
+```
+
+密码、库名换成你 `.env` 里的值；文件本体仍在 `./data/storage`，一起备份。
+
+### 常见坑
+
+| 现象 | 原因与处理 |
+| --- | --- |
+| 上传报权限错误 / 写不进磁盘 | `./data` 属主是 root，容器跑的是 uid `10001`；`sudo chown -R 10001:10001 data` |
+| 容器起一下就退出，日志提示证书文件不存在 | 从本机 `.env` 直接拷过来的 `SSL_CERTFILE` / `SSL_KEYFILE` 指向容器里没有的路径，留空即可 |
+| 检查更新一直超时 | `UPDATE_PROXY` 还指着 `127.0.0.1`，那在容器里指自己；留空或换成可访问的代理 |
+| 改了 `PORT` 没生效 | 只 `restart` 了；端口映射与 `HOST` 在创建容器时确定，要 `docker compose up -d` |
+| 想换 Live2D 模型不重建镜像 | 打开 `docker-compose.yml` 里 `./live2d:/app/live2d:ro` 那行再 `up -d` |
+
 ## 备份
 
 需要备份的只有两样：
@@ -131,6 +200,11 @@ sqlite3 /opt/CloudNETP/dev.db ".backup '/backup/cloudnetp/dev.db'"
 
 `storage/blob/` 是按内容哈希分片的，同一个文件只有一份，增量拷贝很快。恢复时把两样放回原位即可。
 
+::: tip Docker 部署
+容器里这些路径都在宿主机的 `./data` 下，直接备份这个目录即可，做法见上面的
+[用 Docker 跑 → 备份容器里的数据](/guide/deploy.md#备份容器里的数据)。
+:::
+
 ## 更新
 
 - **后台更新**：管理后台 → 系统设置 → 版本更新 → 点更新。只做 `git pull --ff-only`，然后重启。
@@ -144,8 +218,9 @@ sqlite3 /opt/CloudNETP/dev.db ".backup '/backup/cloudnetp/dev.db'"
   sudo systemctl restart cloudnetp
   ```
 
-- **Docker / 压缩包部署**：重新拉镜像或覆盖文件，数据库结构会在启动时自动补齐
-  （`app/db.py` 里的补列逻辑）。
+- **Docker 部署**：镜像里没有 `.git`，后台更新用不了；升级走
+  `docker compose build --pull && docker compose up -d`（详见上面的「用 Docker 跑」）。
+- **压缩包部署**：覆盖文件后重启，数据库结构会在启动时自动补齐（`app/db.py` 里的补列逻辑）。
 
 ## 安全清单
 

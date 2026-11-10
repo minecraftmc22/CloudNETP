@@ -13,7 +13,7 @@ dir:
 
 | 文档 | 内容 |
 | --- | --- |
-| [1. 快速开始](/guide/start.md) | 环境要求、一键启动、首次访问、第一个管理员账号 |
+| [1. 快速开始](/guide/start.md) | 环境要求、Docker 部署、脚本启动、首次访问、第一个管理员账号 |
 | [2. 注册与登录](/guide/account.md) | 注册规则、图形验证码、找回密码、用户协议与隐私政策 |
 
 ## 日常使用
@@ -33,5 +33,5 @@ dir:
 | --- | --- |
 | [9. 管理后台](/guide/admin.md) | 概览、用户与配额、举报与反馈、审计日志、系统设置 |
 | [10. 数据库容灾](/guide/database.md) | MySQL ↔ SQLite 自动降级与回迁、后台手动切换 |
-| [11. 部署与运维](/guide/deploy.md) | 环境变量、HTTPS、反向代理、systemd、备份与更新 |
+| [11. 部署与运维](/guide/deploy.md) | 环境变量、HTTPS、反向代理、systemd、Docker、备份与更新 |
 | [12. 常见问题](/guide/faq.md) | 打不开、端口占用、上传失败、WebDAV 报错等 |

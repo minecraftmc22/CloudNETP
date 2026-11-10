@@ -46,6 +46,34 @@ lsof -i :8000                     # Linux / macOS
 用 `uvicorn main:app --reload` 起的服会监视整个项目根目录，`storage/` 里的写入也算变更。
 开发请用 `main.py`（`start.sh --dev` / `start.ps1 -Dev`），它只监视 `app/` 与 `static/`。
 
+## Docker
+
+### 容器起来了，但上传报权限错误
+
+宿主机 `./data` 是 root 建的，而容器里进程是 uid `10001`：
+
+```bash
+sudo chown -R 10001:10001 data
+docker compose up -d
+```
+
+不想 chown 就打开 `docker-compose.yml` 里的 `user: "1000:1000"`，改成 `id -u` / `id -g` 的结果。
+
+### 改了 `.env` 但容器里没变
+
+`env_file` 只在**创建容器**时注入，`docker compose restart` 不会重读。改完用
+`docker compose up -d`（镜像没变时不会重新构建）。
+
+### 关于页点「检查更新」一直失败
+
+镜像里没有 `.git`，自动更新对 Docker 部署不可用。升级请
+`docker compose build --pull && docker compose up -d`。
+
+### 端口怎么是 8123 而不是 8000
+
+`8123` 是镜像自己的默认值。compose 的端口映射读 `.env` 的 `PORT`，所以 `.env` 里留着
+`PORT=8000` 就还是 8000；删掉那行才会退回 8123。
+
 ## 上传与预览
 
 ### 上传到一半失败

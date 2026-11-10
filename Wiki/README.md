@@ -28,6 +28,8 @@ features:
     details: 独立空间与配额、角色与封禁、审计日志、孤儿文件清理
   - title: 数据库容灾
     details: 主库断连自动降级本地 SQLite，恢复后自动回迁，后台可手动切换
+  - title: Docker 部署
+    details: 一份 Dockerfile + SQLite / MySQL 两套 compose，数据挂在宿主机 ./data，升级即重建镜像
 footer: PolyForm Noncommercial License 1.0.0 · 数据放在你自己的机器上
 ---
 
@@ -38,6 +40,7 @@ ES Module 前端，界面按 WinUI 3 / Fluent Design 的风格做，右下角常
 
 它不依赖任何云服务：文件落在你指定的磁盘目录，元数据放在 MySQL 或本地 SQLite 里。
 装完之后，局域网内的手机、平板、另一台电脑都能通过浏览器访问，也可以挂成 WebDAV 盘符。
+服务器 / NAS 上可以直接 `docker compose up -d --build`，宿主机不用装 Python。
 
 ![文件管理界面](/images/files.jpg)
 
