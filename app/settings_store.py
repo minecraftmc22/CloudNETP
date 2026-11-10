@@ -18,6 +18,8 @@ DEFAULTS: dict[str, str] = {
     # 管理员联系方式：找回密码走不通时，页面会引导用户直接联系这个邮箱/QQ
     "contact_email": "",
     "contact_qq": "",
+    # WebDAV 总开关（.env 的 WEBDAV_ENABLED 只是初始值，管理员在后台改）
+    "webdav_enabled": "1" if settings.WEBDAV_ENABLED else "0",
     # 管理员开关：登录后自动检查 GitHub main 有没有新版本（只提示，不自动更新）
     "auto_update_check": "0",
     # 管理员开关：后台每 6 小时检查一次，发现新版本自动拉取并重启

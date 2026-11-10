@@ -711,6 +711,7 @@ def update_settings(
         "language",
         "nav_collapsed",
         "share_show_name",
+        "webdav_enabled",
         "lyrics_style",
         "surface_opacity",
     }

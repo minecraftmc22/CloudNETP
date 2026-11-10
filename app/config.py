@@ -103,7 +103,7 @@ def _compose_database_url() -> str:
 class Settings:
     # ---- 应用 ----
     APP_NAME: str = _get("APP_NAME", "CloudNETP")
-    VERSION: str = "0.3.58"
+    VERSION: str = "0.3.59"
     DEBUG: bool = _get_bool("DEBUG", True)
 
     # ---- 监听与对外地址 ----
@@ -192,6 +192,10 @@ class Settings:
     # ---- Live2D 看板娘 ----
     # 模型根目录（默认项目根下的 live2d/），对外挂载为 /live2d；模型放 live2d/model/<模型名>/
     LIVE2D_DIR: Path = Path(_get("LIVE2D_DIR") or str(BASE_DIR / "live2d")).resolve()
+
+    # ---- WebDAV ----
+    # 总开关：false 时 /dav 所有方法直接 404。管理后台「站点」里的开关优先于这里。
+    WEBDAV_ENABLED: bool = _get_bool("WEBDAV_ENABLED", True)
 
     # ---- 看板娘 AI 对话 ----
     # 总开关：false 时整块 AI 功能不可用（对话入口隐藏，接口 403）。改完要重启。

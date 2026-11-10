@@ -324,6 +324,7 @@ def settings_payload(db: Session) -> dict:
         "siteName": values.get("site_name", settings.APP_NAME),
         "siteAnnouncement": values.get("site_announcement", ""),
         "allowRegister": str(values.get("allow_register", "1")).strip() in {"1", "true", "yes", "on"},
+        "webdavEnabled": str(values.get("webdav_enabled", "1")).strip() in {"1", "true", "yes", "on"},
         "defaultQuotaBytes": num("default_quota_bytes"),
         "maxFileSizeBytes": num("max_file_size_bytes"),
         "chunkSizeBytes": num("chunk_size_bytes"),

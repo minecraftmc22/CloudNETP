@@ -1764,6 +1764,16 @@ export function renderAdmin(root) {
             <span class="switch__track"><span class="switch__knob"></span></span>
           </label>
         </div>
+        <div class="setting-row">
+          <div class="setting-row__main">
+            <div class="setting-row__label">启用 WebDAV</div>
+            <div class="setting-row__desc">关掉后所有账号的 /dav 都不可用（返回 404）；用户也能在自己的设置里单独关掉。对应 .env 的 WEBDAV_ENABLED，这里保存的值优先</div>
+          </div>
+          <label class="switch">
+            <input type="checkbox" data-key="webdavEnabled" ${settings.webdavEnabled ? "checked" : ""}>
+            <span class="switch__track"><span class="switch__knob"></span></span>
+          </label>
+        </div>
         <div class="admin-card__foot">
           <button class="btn btn--accent" type="button" data-save="site">保存站点设置</button>
         </div>

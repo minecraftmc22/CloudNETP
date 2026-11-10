@@ -91,6 +91,8 @@ class SettingsIn(CamelModel):
     language: Literal["zh-CN", "en-US"] | None = None
     nav_collapsed: bool | None = None
     share_show_name: bool | None = None
+    # 自己的 WebDAV 开关（关掉后只有自己的 /dav 返回 403）
+    webdav_enabled: bool | None = None
     # 歌词播放器样式（fontSize/hotColor/showTrans），整体覆盖
     lyrics_style: dict | None = None
     # 各模块背景不透明度（nav/titlebar/panel/dialog → 0-100），整体覆盖
@@ -252,6 +254,8 @@ class AdminSettingsIn(CamelModel):
     site_name: str | None = Field(default=None, min_length=1, max_length=64)
     site_announcement: str | None = Field(default=None, max_length=500)
     allow_register: bool | None = None
+    # WebDAV 总开关（关掉后所有用户的 /dav 都 404）
+    webdav_enabled: bool | None = None
     default_quota_bytes: int | None = Field(default=None, ge=0, le=1024**5)
     max_file_size_bytes: int | None = Field(default=None, ge=0, le=1024**5)
     chunk_size_bytes: int | None = Field(default=None, ge=64 * 1024, le=32 * 1024 * 1024)

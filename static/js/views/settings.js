@@ -141,6 +141,9 @@ export function renderSettings(root) {
   const maskedPreview = displayName.slice(0, 2) || "—";
   const savedOpacity = s.surfaceOpacity || {};
   const mascotScale = getMascotScale();
+  // WebDAV：管理员总开关 + 用户自己的开关（老接口没有 davServerEnabled 时按开启处理）
+  const davServerOn = user?.davServerEnabled !== false;
+  const davSelfOn = s.webdavEnabled !== false;
   const opacityRows = [
     ["nav", "侧栏"],
     ["titlebar", "标题栏"],
@@ -358,6 +361,20 @@ export function renderSettings(root) {
         <section class="settings-card">
           <div class="settings-card__head"><svg class="icon icon--s"><use href="#i-database"/></svg>WebDAV</div>
           <div class="settings-card__body">
+            ${
+              davServerOn
+                ? H`
+            <div class="setting-row">
+              <div class="setting-row__main">
+                <div class="setting-row__label">启用我的 WebDAV</div>
+                <div class="setting-row__desc">关掉后你的账号暂时不能挂载，网盘里的文件不受影响，随时可以再打开</div>
+              </div>
+              <label class="switch">
+                <input type="checkbox" data-toggle="webdavEnabled" ${davSelfOn ? "checked" : ""}>
+                <span class="switch__track"><span class="switch__knob"></span></span>
+              </label>
+            </div>
+            <div data-dav-body ${davSelfOn ? "" : "hidden"}>
             <div class="setting-row">
               <div class="setting-row__main">
                 <div class="setting-row__label">挂载地址</div>
@@ -378,6 +395,12 @@ export function renderSettings(root) {
               </div>
               <button class="btn" type="button" data-act="dav-help">连接方法</button>
             </div>
+            </div>`
+                : H`<div class="settings-card__note">
+              <svg class="icon icon--s"><use href="#i-info"/></svg>
+              <span>管理员已关闭 WebDAV，暂时不能挂载。需要的话请联系管理员在「管理后台 → 系统设置」里打开。</span>
+            </div>`
+            }
           </div>
         </section>
 
@@ -482,7 +505,9 @@ export function renderSettings(root) {
   root.querySelector("[data-version]").textContent =
     `${store.get().meta?.appName || "CloudNETP"} v${store.get().meta?.version || "0.1.0"}`;
 
-  /* --- WebDAV 挂载 --- */
+  /* --- WebDAV 挂载（管理员关掉总开关时整块换成提示，不往下绑定） --- */
+  const davUrlEl = root.querySelector("[data-dav-url]");
+  if (davUrlEl) {
   const davUrl = `${siteOrigin()}/dav/`;
   const davHost = davUrl.replace(/^https?:\/\//, "");
   // UNC 写法：\\主机@端口\dav（资源管理器的「映射网络驱动器」也吃这个）
@@ -495,7 +520,7 @@ export function renderSettings(root) {
       return davHost;
     }
   })();
-  root.querySelector("[data-dav-url]").textContent = davHost;
+  davUrlEl.textContent = davHost;
   root.querySelector("[data-dav-user]").textContent = user?.username || "—";
 
   root.querySelector('[data-act="dav-activate"]')?.addEventListener("click", async () => {
@@ -587,9 +612,14 @@ export function renderSettings(root) {
             "Windows 的 WebDAV 客户端默认不允许在 HTTP 上发送明文 Basic 密码（会报 {code}），本站已改用 Digest 认证，{noRegistry}。公网使用仍建议套 HTTPS；通过 WebDAV 删除的文件同样会进回收站。",
             { code: `<code>0x80070043</code>`, noRegistry: `<b>${t("不需要改注册表")}</b>` }
           )}</div>
+          <div class="dav-help__row dav-help__note">${t(
+            "如果资源管理器报「找不到网络名」或一直连不上，先确认 Windows 的 WebClient 服务在运行：管理员身份打开命令提示符，执行 {cmd} 后再试。",
+            { cmd: `<code>net start webclient</code>` }
+          )}</div>
         </div>`,
     });
   });
+  }
 
   /* --- 界面语言：立即生效 + 记到账号 --- */
   root.querySelectorAll("[data-lang]").forEach((btn) => {
@@ -893,6 +923,12 @@ export function renderSettings(root) {
       persist({ [key]: input.checked });
       if (key === "showMascot") {
         document.getElementById("mascot")?.classList.toggle("is-hidden", !input.checked);
+      }
+      if (key === "webdavEnabled") {
+        // 关掉后地址与凭据先收起来，避免"关了还能复制"的错觉
+        root.querySelector("[data-dav-body]")?.toggleAttribute("hidden", !input.checked);
+        if (input.checked) Toast.success(t("WebDAV 已开启，可以继续用原来的地址挂载"));
+        else Toast.info(t("WebDAV 已关闭，你的文件不受影响"));
       }
     });
   });

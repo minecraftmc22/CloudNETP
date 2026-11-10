@@ -33,7 +33,7 @@ from ..config import settings
 from ..models import Node, User, utcnow
 from ..db import get_db
 from ..security import client_ip, verify_password
-from ..settings_store import get_int
+from ..settings_store import get_flag, get_int
 from ..user_service import ensure_settings, log_action
 
 router = APIRouter(tags=["webdav"])
@@ -588,7 +588,16 @@ async def _unlock(request: Request, db: Session, user: User, segments: list[str]
 # 入口
 # --------------------------------------------------------------------------- #
 async def _dispatch(request: Request, path: str, db: Session) -> Response:
+    # 管理员总开关：关掉后连认证都不做，直接当这个功能不存在
+    if not get_flag(db, "webdav_enabled"):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "WebDAV 未开启")
     user = dav_user(request, db)
+    # 用户自己的开关：认证通过后才知道是谁，所以放在这一步
+    if not ensure_settings(db, user.id).webdav_enabled:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "你已关闭自己的 WebDAV，可在「设置 → WebDAV」里重新开启",
+        )
     segments = ds.split_path(path)
     method = request.method.upper()
 

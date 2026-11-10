@@ -1037,4 +1037,12 @@ export default {
   "清空失败": "Failed to clear",
   "看板娘已回到默认位置": "Mascot moved back to its default spot",
   "给她接上大模型，右下角就能聊两句。密钥只存在你自己的账号里（服务端加密保存，接口只回掩码）； 管理员也可以提供一套默认接口，没自己配置时自动使用": "Connect her to an LLM and you can chat in the bottom-right corner. Keys are stored only in your own account (encrypted server-side; the API returns masks only); the admin can also provide a default endpoint, used when you haven't configured your own",
+  "启用我的 WebDAV": "Enable my WebDAV",
+  "关掉后你的账号暂时不能挂载，网盘里的文件不受影响，随时可以再打开": "When off, your account cannot mount the drive; your files are untouched and you can turn it back on anytime",
+  "管理员已关闭 WebDAV，暂时不能挂载。需要的话请联系管理员在「管理后台 → 系统设置」里打开。": "WebDAV is disabled by the admin, so mounting is unavailable. Contact the admin to enable it under Admin - System settings.",
+  "WebDAV 已开启，可以继续用原来的地址挂载": "WebDAV is on — keep using the same address",
+  "WebDAV 已关闭，你的文件不受影响": "WebDAV is off; your files are untouched",
+  "启用 WebDAV": "Enable WebDAV",
+  "关掉后所有账号的 /dav 都不可用（返回 404）；用户也能在自己的设置里单独关掉。对应 .env 的 WEBDAV_ENABLED，这里保存的值优先": "Turning this off makes /dav unavailable for every account (404). Users can also switch it off for themselves. Maps to WEBDAV_ENABLED in .env; the value saved here wins",
+  "如果资源管理器报「找不到网络名」或一直连不上，先确认 Windows 的 WebClient 服务在运行：管理员身份打开命令提示符，执行 {cmd} 后再试。": "If Explorer says the network name cannot be found, or it never connects, make sure the Windows WebClient service is running: open an elevated Command Prompt, run {cmd}, then try again.",
 };

@@ -69,6 +69,8 @@ class UserSetting(Base):
     show_mascot: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     show_petals: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     trash_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # 自己的 WebDAV 是否允许挂载（管理员另有总开关；关掉后本人 /dav 返回 403）
+    webdav_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     # 界面语言（zh-CN / en-US）；空串 = 跟浏览器，前端自己兜底
     language: Mapped[str | None] = mapped_column(String(16), nullable=True)
     view_mode: Mapped[str] = mapped_column(String(8), nullable=False, default="grid")  # grid / list

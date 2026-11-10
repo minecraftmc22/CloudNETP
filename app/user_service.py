@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from .models import AuditLog, User, UserSetting, utcnow
 from .security import client_ip
+from .settings_store import get_flag
 
 
 def ensure_settings(db: Session, user_id: int) -> UserSetting:
@@ -43,6 +44,8 @@ def user_payload(db: Session, user: User) -> dict[str, Any]:
         "usedBytes": user.used_bytes,
         "banned": bool(user.banned),
         "davReady": bool(user.dav_ha1),
+        # 管理员总开关（用户自己的开关在 settings.webdavEnabled）
+        "davServerEnabled": get_flag(db, "webdav_enabled"),
         "createdAt": iso(user.created_at),
         "lastLoginAt": iso(user.last_login_at),
         "settings": {
@@ -55,6 +58,7 @@ def user_payload(db: Session, user: User) -> dict[str, Any]:
             "showMascot": bool(s.show_mascot),
             "showPetals": bool(s.show_petals),
             "trashEnabled": bool(s.trash_enabled),
+            "webdavEnabled": bool(s.webdav_enabled),
             "viewMode": s.view_mode,
             "language": s.language or "",
             "navCollapsed": bool(s.nav_collapsed),

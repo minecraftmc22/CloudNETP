@@ -127,6 +127,8 @@ def init_db() -> None:
 _COLUMN_PATCHES: dict[str, dict[str, str]] = {
     "user_settings": {
         "trash_enabled": "BOOLEAN NOT NULL DEFAULT 1",
+        # 用户自己的 WebDAV 开关：老库补列后默认开启，不影响现有用户
+        "webdav_enabled": "BOOLEAN NOT NULL DEFAULT 1",
         "share_show_name": "BOOLEAN NOT NULL DEFAULT 0",
         "lyrics_style": "JSON NULL",
         "background_image": "VARCHAR(64) NULL",
