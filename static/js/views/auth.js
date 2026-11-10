@@ -676,7 +676,9 @@ export function renderAuth(root, { meta = {}, onSuccess }) {
     }
   });
 
-  setMode("login");
+  // 分享页右上角的「注册」会带 ?mode=register 过来，直接落在注册页签
+  const startMode = new URLSearchParams(location.search).get("mode") === "register" ? "register" : "login";
+  setMode(startMode);
   window.addEventListener("resize", layoutThumb, { passive: true });
   window.requestAnimationFrame(() => {
     layoutThumb();

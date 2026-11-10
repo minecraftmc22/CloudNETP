@@ -64,6 +64,24 @@ const MASCOT_LINES = [
 
 const el = (id) => document.getElementById(id);
 
+/**
+ * 登录后要回到哪里：分享页右上角的「登录 / 注册」会带 ?next=<分享页地址>。
+ * 只接受站内相对路径（挡掉 //evil.com 这类跳转），并且只取一次，之后把参数从地址栏抹掉。
+ */
+function takeNextPath() {
+  const raw = new URLSearchParams(location.search).get("next") || "";
+  if (!raw.startsWith("/") || raw.startsWith("//")) return null;
+  try {
+    const url = new URL(location.href);
+    url.searchParams.delete("next");
+    url.searchParams.delete("mode");
+    history.replaceState(null, "", url.pathname + url.search + url.hash);
+  } catch {
+    /* 地址栏改不动也不影响跳转 */
+  }
+  return raw;
+}
+
 /* ------------------------------------------------------------------ */
 /* 启动                                                               */
 /* ------------------------------------------------------------------ */
@@ -92,6 +110,9 @@ async function boot() {
   try {
     const data = await api.get("/api/me");
     enterApp(data.user);
+    // 已登录但带着 next（比如从分享页点登录又发现本来就没掉登录态），回原页
+    const next = takeNextPath();
+    if (next) location.replace(next);
   } catch (err) {
     if (err instanceof ApiError && err.status === 401) {
       showAuth();
@@ -118,6 +139,12 @@ function showAuth() {
       root.hidden = true;
       root.innerHTML = "";
       enterApp(user);
+      // 从分享页点「登录 / 注册」过来的，登录完直接回那页分享
+      const next = takeNextPath();
+      if (next) {
+        location.replace(next);
+        return;
+      }
       if (firstAdmin) {
         Dialog.alert({
           title: t("你是第一位用户"),

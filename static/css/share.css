@@ -35,13 +35,25 @@ body {
 }
 
 .share-brand {
-  align-self: flex-start;
+  align-self: stretch;
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: space-between;
+  gap: 12px;
   font-size: 13px;
   color: var(--text-2);
   letter-spacing: 0.4px;
+}
+.share-brand__id {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.share-brand__id [data-brand] {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .share-brand .icon {
   width: 16px;
@@ -54,6 +66,66 @@ body {
   border-radius: 7px;
   object-fit: cover;
   box-shadow: 0 4px 12px color-mix(in srgb, var(--accent) 26%, transparent);
+}
+
+/* ---------------- 右上角登录态 ---------------- */
+.share-auth {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+.share-auth[hidden] {
+  display: none;
+}
+.share-auth .btn {
+  height: 30px;
+  padding: 0 13px;
+  font-size: 12.5px;
+  letter-spacing: 0;
+}
+.share-auth__who {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 30px;
+  max-width: 190px;
+  padding: 0 12px 0 4px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--stroke-hair);
+  background: color-mix(in srgb, var(--layer-2) 82%, transparent);
+  color: var(--text-2);
+  font-size: 12.5px;
+  letter-spacing: 0;
+  transition: border-color var(--dur-fast) var(--ease-standard),
+    color var(--dur-fast) var(--ease-standard);
+}
+.share-auth__who:hover {
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  color: var(--text-1);
+}
+.share-auth__who .icon {
+  width: 13px;
+  height: 13px;
+  color: var(--accent);
+}
+.share-auth__avatar {
+  width: 22px;
+  height: 22px;
+  flex: none;
+  border-radius: 50%;
+  object-fit: cover;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+}
+.share-auth__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .share-main {
@@ -454,6 +526,17 @@ body {
   .share-item__size {
     display: none;
   }
+  /* 窄屏：右上角只留图标 + 短文案，别把品牌名挤没了 */
+  .share-auth__who {
+    max-width: 120px;
+    padding-right: 9px;
+  }
+  .share-auth .btn {
+    padding: 0 10px;
+  }
+  .save-tree {
+    max-height: 176px;
+  }
 }
 
 /* ------------------------------------------------------------
@@ -589,6 +672,128 @@ body {
   justify-content: flex-end;
   gap: 10px;
   margin-top: 16px;
+}
+
+/* ---------------- 转存：选目标文件夹 ---------------- */
+.share-modal--wide {
+  width: min(470px, 100%);
+  /* 选择器里是列表与细字，底色比普通提示框更实一点，读起来才不费劲 */
+  background: color-mix(in srgb, var(--dialog-surface) 88%, transparent);
+}
+.save-pick__label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 2px 0 7px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+  letter-spacing: 0.3px;
+}
+.save-pick__label .icon {
+  width: 13px;
+  height: 13px;
+  color: var(--accent);
+}
+.save-crumb {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 30px;
+  padding: 3px 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  border: 1px solid var(--stroke-hair);
+  border-radius: var(--radius-s);
+  background: color-mix(in srgb, var(--layer-2) 60%, transparent);
+}
+.save-crumb::-webkit-scrollbar {
+  display: none;
+}
+.save-crumb button {
+  flex: none;
+  max-width: 130px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 3px 7px;
+  border-radius: var(--radius-xs);
+  font-size: 12.5px;
+  color: var(--text-2);
+  transition: background var(--dur-fast) var(--ease-standard),
+    color var(--dur-fast) var(--ease-standard);
+}
+.save-crumb button:hover {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--text-1);
+}
+.save-crumb button.is-current {
+  color: var(--text-1);
+  font-weight: 600;
+}
+.save-crumb .icon {
+  width: 10px;
+  height: 10px;
+  flex: none;
+  color: var(--text-3);
+}
+.save-tree {
+  margin-top: 8px;
+  max-height: 210px;
+  overflow: auto;
+  border: 1px solid var(--stroke-hair);
+  border-radius: var(--radius-s);
+  background: color-mix(in srgb, var(--layer-2) 46%, transparent);
+}
+.save-tree__row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 9px 11px;
+  font-size: 13px;
+  color: var(--text-1);
+  text-align: left;
+  transition: background var(--dur-fast) var(--ease-standard);
+}
+.save-tree__row + .save-tree__row {
+  border-top: 1px solid var(--stroke-hair);
+}
+.save-tree__row:hover {
+  background: color-mix(in srgb, var(--accent) 11%, transparent);
+}
+.save-tree__row .icon {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  color: var(--accent);
+}
+.save-tree__row span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.save-tree__row .icon--chev {
+  color: var(--text-3);
+}
+.save-tree__empty,
+.save-tree__hint {
+  padding: 16px 12px;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-3);
+  text-align: center;
+}
+.save-tree__hint {
+  margin: 8px 2px 0;
+  padding: 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-2);
+  opacity: 0.72;
+  text-align: left;
 }
 
 /* Markdown / Office 预览：与主应用共用 preview.css 的排版，这里只管容器 */

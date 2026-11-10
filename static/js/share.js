@@ -103,11 +103,11 @@ async function request(path, options = {}) {
 const icon = (name) => `<svg class="icon"><use href="#${name}"/></svg>`;
 
 /* ---------------- 轻量对话框（自定义，不用原生弹窗） ---------------- */
-function showModal({ title, body, confirmText = "确定", danger = false, onConfirm }) {
+function showModal({ title, body, confirmText = "确定", danger = false, wide = false, onConfirm }) {
   const backdrop = document.createElement("div");
   backdrop.className = "share-modal__backdrop";
   backdrop.innerHTML = `
-    <div class="share-modal" role="dialog" aria-modal="true">
+    <div class="share-modal${wide ? " share-modal--wide" : ""}" role="dialog" aria-modal="true">
       <h2 class="share-modal__title">${esc(t(title))}</h2>
       <div class="share-modal__body">${body}</div>
       <div class="share-modal__foot">
@@ -173,6 +173,38 @@ function loadMe() {
   return mePromise;
 }
 
+/** 登录后回到当前分享页（带提取码的链接也要原样带回来） */
+function loginHref(mode) {
+  const params = new URLSearchParams({ next: location.pathname + location.search });
+  if (mode === "register") params.set("mode", "register");
+  return `/?${params.toString()}`;
+}
+
+/**
+ * 右上角：没登录给「登录 / 注册」，登录了显示是谁在看。
+ * 登录态是异步拿的，这里只在拿到结果后渲染一次，拉失败就当未登录。
+ */
+function renderAuthBar() {
+  const host = document.querySelector("[data-auth]");
+  if (!host) return;
+  if (!me) {
+    host.innerHTML = `
+      <a class="btn btn--subtle" href="${loginHref("login")}" data-auth-login>${icon("i-login")}<span>${t("登录")}</span></a>
+      <a class="btn btn--accent" href="${loginHref("register")}" data-auth-register><span>${t("注册")}</span></a>`;
+  } else {
+    const user = me.user || {};
+    const name = user.displayName || user.username || t("我");
+    const face = user.avatarUrl
+      ? `<img class="share-auth__avatar" src="${esc(user.avatarUrl)}" alt="">`
+      : `<span class="share-auth__avatar">${esc(name.slice(0, 1).toUpperCase())}</span>`;
+    host.innerHTML = `
+      <a class="share-auth__who" href="/#/files" title="${t("回到我的网盘")}" data-auth-me>
+        ${face}<span class="share-auth__name">${esc(name)}</span>${icon("i-chevron")}
+      </a>`;
+  }
+  host.hidden = false;
+}
+
 /* ---------------- 举报 ---------------- */
 function openReport() {
   showModal({
@@ -195,7 +227,30 @@ function openReport() {
 
 /* ---------------- 转存到我的网盘 ---------------- */
 /**
- * 转存到我的网盘。
+ * 列出自己网盘里某个目录下的文件夹（只取文件夹，文件不参与选择）。
+ * 与主应用同一个接口，靠同源 Cookie 认人。
+ */
+async function listOwnFolders(parentId) {
+  const params = new URLSearchParams({ sort: "name", order: "asc" });
+  if (parentId !== null && parentId !== undefined) params.set("parentId", String(parentId));
+  const res = await fetch(`/api/nodes?${params.toString()}`, { credentials: "include" });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) {
+    const detail = data && data.detail;
+    throw new Error((detail && t(detail)) || t("无法读取文件夹（{status}）", { status: res.status }));
+  }
+  const crumbs = (data?.breadcrumb || []).map((item, index) =>
+    // 第一项是后端写死的「我的文件」，其余是用户自己的目录名，不能过翻译
+    index === 0 ? { ...item, name: t(item.name) } : item
+  );
+  return {
+    crumbs,
+    folders: (data?.items || []).filter((item) => item.type === "folder"),
+  };
+}
+
+/**
+ * 转存到我的网盘：先选保存位置（可视化浏览自己的文件夹），再确认。
  * @param {Array<{id:number,name:string}>|null} items 要转存的项；传 null / 空数组表示整条分享
  */
 async function saveToMyDrive(items) {
@@ -206,7 +261,8 @@ async function saveToMyDrive(items) {
       "需要登录",
       H`<p class="share-modal__desc">转存到我的网盘需要先登录账号。</p>
        <div class="share-modal__foot" style="margin-top:14px">
-         <a class="btn btn--accent" href="/?next=${encodeURIComponent(location.pathname)}">去登录</a>
+         <a class="btn btn--subtle" href="${loginHref("register")}">${t("注册")}</a>
+         <a class="btn btn--accent" href="${loginHref("login")}">${t("去登录")}</a>
        </div>`
     );
     return;
@@ -221,16 +277,29 @@ async function saveToMyDrive(items) {
       : count > 1
         ? t("这 {n} 个项目", { n: `<b>${count}</b>` })
         : bold(shareName(meta) || t("文件"));
-  showModal({
+
+  // trail：从根到当前浏览目录的面包屑，最后一项就是这次的目标
+  let trail = [{ id: null, name: t("我的文件") }];
+
+  const backdrop = showModal({
+    wide: true,
     title: "转存到我的网盘",
-    body: `<p class="share-modal__desc">${t(
-      "{what}将保存到自己网盘的根目录。文件不会占用额外存储（相同内容只存一份），但会占用你的空间配额。",
-      { what }
-    )}</p>
+    body: H`
+      <p class="share-modal__desc">${t(
+        "{what}会存到你选择的位置。文件不会占用额外存储（相同内容只存一份），但会占用你的空间配额。",
+        { what }
+      )}</p>
+      <div class="save-pick__label">${icon("i-folder")}<span>${t("保存到")}</span></div>
+      <div class="save-crumb" data-save-crumb></div>
+      <div class="save-tree" data-save-tree></div>
+      <p class="save-tree__hint">${t("点文件夹进去选更深的目录，或者直接点「保存到这里」存到当前位置")}</p>
       <p class="share-modal__error" data-modal-error hidden></p>`,
-    confirmText: count > 1 ? t("转存 {n} 项", { n: count }) : "转存",
+    confirmText: "保存到这里",
     onConfirm: async () => {
       const body = count ? { nodeIds: list.map((i) => i.id) } : {};
+      const parentId = trail[trail.length - 1].id;
+      // 根目录不用传，后端缺省就是根
+      if (parentId !== null && parentId !== undefined) body.parentId = parentId;
       const data = await fetch(apiUrl("/save"), {
         method: "POST",
         credentials: "include",
@@ -243,9 +312,67 @@ async function saveToMyDrive(items) {
         payload.count > 1
           ? t("这 {n} 个项目", { n: payload.count })
           : bold(payload.name || shareName(meta) || t("文件"));
-      infoModal("转存成功", `<p class="share-modal__desc">${t("{what}已保存到你的网盘根目录。", { what: savedName })}</p>`);
+      const where = trail.map((item) => esc(item.name)).join(" / ");
+      infoModal(
+        "转存成功",
+        H`<p class="share-modal__desc">${t("{what}已保存到 {where}。", { what: savedName, where: `<b>${where}</b>` })}</p>`
+      );
     },
   });
+
+  const crumbEl = backdrop.querySelector("[data-save-crumb]");
+  const treeEl = backdrop.querySelector("[data-save-tree]");
+  const currentId = () => trail[trail.length - 1].id;
+
+  function paintCrumb() {
+    crumbEl.innerHTML = trail
+      .map(
+        (item, index) =>
+          H`<button type="button" data-index="${index}" class="${
+            index === trail.length - 1 ? "is-current" : ""
+          }">${esc(item.name)}</button>${index < trail.length - 1 ? '<svg class="icon"><use href="#i-chevron"/></svg>' : ""}`
+      )
+      .join("");
+    crumbEl.querySelectorAll("button").forEach((btn, index) => {
+      btn.addEventListener("click", () => {
+        trail = trail.slice(0, index + 1);
+        void loadTree();
+      });
+    });
+    // 目录很深时把当前层级滚到能看见的位置
+    crumbEl.scrollLeft = crumbEl.scrollWidth;
+  }
+
+  async function loadTree() {
+    paintCrumb();
+    treeEl.innerHTML = `<div class="save-tree__empty">${t("加载中…")}</div>`;
+    try {
+      const { folders } = await listOwnFolders(currentId());
+      if (!folders.length) {
+        treeEl.innerHTML = `<div class="save-tree__empty">${t("这里没有子文件夹，直接点「保存到这里」就行")}</div>`;
+        return;
+      }
+      treeEl.innerHTML = folders
+        .map(
+          (folder) => H`
+          <button class="save-tree__row" type="button" data-id="${folder.id}" data-name="${esc(folder.name)}">
+            ${icon("i-folder")}<span>${esc(folder.name)}</span>
+            <svg class="icon icon--chev"><use href="#i-chevron"/></svg>
+          </button>`
+        )
+        .join("");
+      treeEl.querySelectorAll(".save-tree__row").forEach((row) => {
+        row.addEventListener("click", () => {
+          trail = [...trail, { id: Number(row.dataset.id), name: row.dataset.name }];
+          void loadTree();
+        });
+      });
+    } catch (err) {
+      treeEl.innerHTML = H`<div class="save-tree__empty">${esc(err.message)}</div>`;
+    }
+  }
+
+  void loadTree();
 }
 
 /** 分享者标签：关闭「显示完整昵称」时后端只会给出前两个字，头像也不下发 */
@@ -751,6 +878,8 @@ async function syncAccountLang() {
   }
   const lang = normalizeLang(me?.user?.settings?.language);
   if (lang && lang !== getLang()) setLang(lang, { persist: true, silent: true });
+  // 登录态拿到的第一时间把右上角刷出来（未登录也要显示登录入口）
+  renderAuthBar();
 }
 
 async function boot() {

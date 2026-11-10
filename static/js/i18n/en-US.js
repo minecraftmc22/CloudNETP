@@ -1060,4 +1060,13 @@ export default {
   "鼠标停在她身上时，滚轮上下就能改大小（一格约 5%）；关掉后滚轮照常滚动页面": "Hover over her and scroll to resize (about 5% per notch). Turn this off and the wheel scrolls the page again",
   "滚轮缩放已开启，鼠标停在她身上滚一下试试": "Wheel zoom is on - hover over her and scroll",
   "滚轮缩放已关闭，滚轮恢复滚动页面": "Wheel zoom is off; the wheel scrolls the page again",
+  "我": "Me",
+  "回到我的网盘": "Back to my drive",
+  "无法读取文件夹（{status}）": "Couldn't read folders ({status})",
+  "{what}会存到你选择的位置。文件不会占用额外存储（相同内容只存一份），但会占用你的空间配额。": "{what} will be saved to the location you pick. The file takes no extra storage (identical content is stored once), but it does count toward your quota.",
+  "保存到": "Save to",
+  "保存到这里": "Save here",
+  "点文件夹进去选更深的目录，或者直接点「保存到这里」存到当前位置": "Open a folder to go deeper, or just hit \"Save here\" to save at the current location",
+  "{what}已保存到 {where}。": "{what} was saved to {where}.",
+  "这里没有子文件夹，直接点「保存到这里」就行": "No subfolders here — just hit \"Save here\"",
 };
