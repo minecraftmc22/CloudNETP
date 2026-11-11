@@ -1,0 +1,37 @@
+# CloudNETP：直接用 Docker Hub 上构建好的镜像（不在本地构建）
+#
+#   docker compose -f docker-compose.hub.yml up -d              # 跟随 latest
+#   IMAGE_TAG=0.3.67 docker compose -f docker-compose.hub.yml up -d   # 固定版本
+#
+# 镜像由仓库打 tag 时自动构建（.github/workflows/docker-publish.yml），
+# 同时提供 linux/amd64 与 linux/arm64。配置、数据目录、常见坑与 docker-compose.yml 完全一致，
+# 区别只有「跑别人的镜像」而不是「自己 build」。
+
+services:
+  cloudnetp:
+    image: minecraftmc22/cloudnetp:${IMAGE_TAG:-latest}
+    container_name: cloudnetp
+    restart: unless-stopped
+    # 镜像更新后想自动跟着换，就把下面这行改成 always（默认只在本地没有该 tag 时拉取）
+    pull_policy: missing
+    env_file:
+      - .env
+    environment:
+      HOST: 0.0.0.0
+      TZ: ${TZ:-Asia/Shanghai}
+    ports:
+      - "${PORT:-8123}:${PORT:-8123}"
+    volumes:
+      # 数据库与上传内容；Linux 上需要 sudo chown -R 10001:10001 data
+      - ./data:/data
+      # 想换 Live2D 模型又不想重建镜像，把本地目录挂进去即可
+      # - ./live2d:/app/live2d:ro
+    # Linux 上不想 chown 时，把下面两行的注释去掉并改成自己的 uid / gid（id -u / id -g）
+    # user: "1000:1000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os,urllib.request; urllib.request.urlopen('http://127.0.0.1:%s/api/version' % os.environ.get('PORT', '8123'), timeout=4)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    stop_grace_period: 20s

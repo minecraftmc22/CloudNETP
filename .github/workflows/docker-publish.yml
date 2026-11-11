@@ -1,0 +1,179 @@
+name: Build and Push Docker Image
+
+# 把仓库构建成多架构镜像，推到 Docker Hub 的 minecraftmc22/cloudnetp。
+#
+# 触发方式（二选一）：
+#   1) 打 tag 推送（发版用）：
+#        git tag v0.3.67 && git push origin v0.3.67
+#      → minecraftmc22/cloudnetp:0.3.67 + :latest（带 v 不带 v 都认；预发布 tag 如 v0.3.67-rc1 不顶 latest）
+#   2) 手动运行：Actions → Build and Push Docker Image → Run workflow
+#      可自定义镜像 tag（留空则取 app/config.py 的 VERSION），并决定是否更新 latest
+#
+# 需要先在仓库 Settings → Secrets and variables → Actions 里加两个 secret：
+#   DOCKERHUB_USERNAME  Docker Hub 用户名（minecraftmc22）
+#   DOCKERHUB_TOKEN     Docker Hub → Account settings → Security → New Access Token（Read & Write）
+# 没配也能跑：只构建不推送，方便先验证 Dockerfile。
+
+on:
+  push:
+    tags:
+      - "v*"          # v0.3.67
+      - "[0-9]*"      # 0.3.67（不带 v 也认）
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "镜像 tag（留空 = app/config.py 里的 VERSION）"
+        required: false
+        type: string
+      latest:
+        description: "同时把 latest 指向这次构建"
+        required: false
+        type: boolean
+        default: false
+
+# 同一时刻只跑一个镜像构建，避免多标签并发互相顶掉 latest
+concurrency:
+  group: docker-publish
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: minecraftmc22/cloudnetp
+
+jobs:
+  publish:
+    name: 构建并推送
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v4
+
+      - name: 计算镜像 tag
+        id: tag
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+          INPUT_LATEST: ${{ inputs.latest }}
+        run: |
+          set -eu
+          # 版本号以 app/config.py 为准，手动运行时可以作为默认 tag
+          version=$(grep -oE 'VERSION:[[:space:]]*str[[:space:]]*=[[:space:]]*"[^"]+"' app/config.py \
+            | head -1 | sed -E 's/.*"([^"]+)"$/\1/')
+          if [ -z "$version" ]; then
+            echo "::error::没能从 app/config.py 读到 VERSION"
+            exit 1
+          fi
+
+          if [ "$EVENT_NAME" = "push" ]; then
+            tag="$REF_NAME"
+            # 预发布（带 - 的 tag）不覆盖 latest，避免测试版被当成正式版
+            case "$tag" in
+              *-*) latest=false ;;
+              *) latest=true ;;
+            esac
+          else
+            tag="${INPUT_TAG:-$version}"
+            if [ "${INPUT_LATEST:-false}" = "true" ]; then latest=true; else latest=false; fi
+          fi
+
+          # Docker tag 只允许 [A-Za-z0-9_.-]，长度上限 128
+          case "$tag" in
+            v*) image_tag="${tag#v}" ;;
+            *) image_tag="$tag" ;;
+          esac
+          if ! printf '%s' "$image_tag" | grep -qE '^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$'; then
+            echo "::error::镜像 tag 不合法：$tag（只允许字母数字与 _ . -）"
+            exit 1
+          fi
+
+          if [ "$latest" = "true" ]; then
+            refs=$(printf '%s\n%s' "$IMAGE:$image_tag" "$IMAGE:latest")
+          else
+            refs="$IMAGE:$image_tag"
+          fi
+
+          {
+            echo "version=$version"
+            echo "image_tag=$image_tag"
+            echo "latest=$latest"
+            echo "refs<<EOF"
+            echo "$refs"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "构建 tag：$image_tag（latest=$latest，代码版本 $version）" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: 检查 Docker Hub 凭据
+        id: creds
+        env:
+          DH_USER: ${{ secrets.DOCKERHUB_USERNAME }}
+          DH_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          if [ -n "$DH_USER" ] && [ -n "$DH_TOKEN" ]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::没配 DOCKERHUB_USERNAME / DOCKERHUB_TOKEN，这次只构建镜像、不推送"
+          fi
+
+      # arm64 靠 QEMU 模拟；buildx 负责交叉构建与缓存
+      - name: 准备 QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: 准备 Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 登录 Docker Hub
+        if: steps.creds.outputs.ok == 'true'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: 构建并推送
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          # NAS / 树莓派也要用得上，两种架构一起做
+          platforms: linux/amd64,linux/arm64
+          push: ${{ steps.creds.outputs.ok == 'true' }}
+          tags: ${{ steps.tag.outputs.refs }}
+          labels: |
+            org.opencontainers.image.title=CloudNETP
+            org.opencontainers.image.description=自托管的二次元个人网盘
+            org.opencontainers.image.version=${{ steps.tag.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.licenses=PolyForm-Noncommercial-1.0.0
+          # 层缓存放 GitHub Actions 缓存，第二次构建会快很多
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: 写摘要
+        if: always()
+        env:
+          IMAGE_TAG: ${{ steps.tag.outputs.image_tag }}
+          PUSHED: ${{ steps.creds.outputs.ok }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          {
+            echo "## CloudNETP 镜像"
+            echo
+            if [ "$PUSHED" = "true" ]; then
+              echo "已推送 \`minecraftmc22/cloudnetp:$IMAGE_TAG\`（linux/amd64 + linux/arm64）"
+              echo
+              echo '```bash'
+              echo "docker pull minecraftmc22/cloudnetp:$IMAGE_TAG"
+              echo '```'
+              echo
+              echo "digest: \`$DIGEST\`"
+            else
+              echo "只构建、未推送（缺 Docker Hub 凭据）。"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

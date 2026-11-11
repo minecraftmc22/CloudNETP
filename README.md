@@ -15,7 +15,9 @@
   <img alt="i18n" src="https://img.shields.io/badge/i18n-%E4%B8%AD%E6%96%87%20%2F%20English-f9a8d4">
   <img alt="License" src="https://img.shields.io/badge/License-PolyForm%20Noncommercial-c084fc">
   <a href="https://minecraftmc22.github.io/CloudNETP/"><img alt="文档" src="https://img.shields.io/badge/%E6%96%87%E6%A1%A3-GitHub%20Pages-f472b6?logo=readthedocs&logoColor=white"></a>
+  <a href="https://hub.docker.com/r/minecraftmc22/cloudnetp"><img alt="Docker Hub" src="https://img.shields.io/badge/Docker-minecraftmc22%2Fcloudnetp-2496ED?logo=docker&logoColor=white"></a>
   <a href="https://github.com/minecraftmc22/CloudNETP/actions/workflows/deploy-wiki.yml"><img alt="Deploy Wiki" src="https://github.com/minecraftmc22/CloudNETP/actions/workflows/deploy-wiki.yml/badge.svg"></a>
+  <a href="https://github.com/minecraftmc22/CloudNETP/actions/workflows/docker-publish.yml"><img alt="Docker Image" src="https://github.com/minecraftmc22/CloudNETP/actions/workflows/docker-publish.yml/badge.svg"></a>
 </p>
 
 Python 3.14 + FastAPI 后端，零构建原生 ES Module 前端；分片秒传、在线预览、分享链接、WebDAV、管理后台与看板娘 AI 助手一应俱全，多用户各占独立空间与配额。
@@ -146,11 +148,33 @@ PIP_INDEX_URL=https://pypi.org/simple docker compose build
   接外部 MySQL 则直接改 `.env` 的 `DATABASE_URL`（容器里访问宿主机用 `host.docker.internal`）。
 - **反向代理 / HTTPS**：容器只提供 HTTP，TLS 交给 Nginx / Caddy，记得转发 `X-Forwarded-Proto`
   （`TRUST_PROXY` 默认开启），并把 `.env` 的 `SITE_URL` 与 `COOKIE_SECURE=true` 配上。
-- **自动更新不可用**：镜像里没有 `.git`，关于页的「更新」会失败；升级请
-  `docker compose build --pull && docker compose up -d`。
+- **自动更新不可用**：镜像里没有 `.git`，关于页的「更新」会失败；自己构建的用
+  `docker compose build --pull && docker compose up -d`，用发布镜像的用
+  `docker compose -f docker-compose.hub.yml pull && docker compose -f docker-compose.hub.yml up -d`。
 - **想看/改 Live2D 模型**：`docker-compose.yml` 里有把 `./live2d` 挂进容器的注释，打开即可。
 - **调整上传体积上限 / 配额**：改 `.env` 里的 `MAX_FILE_SIZE_MB` / `DEFAULT_QUOTA_GB` 后
   `docker compose up -d` 重启即可。
+
+**6. 或者直接用发布好的镜像**
+
+不想在机器上构建也行：仓库每次打 tag 都会由 GitHub Actions 构建多架构镜像（amd64 + arm64）
+推到 Docker Hub，`docker-compose.hub.yml` 就是给这种用法准备的，`.env`、`./data`、端口跟上面一模一样：
+
+```bash
+docker compose -f docker-compose.hub.yml up -d                    # 跟随 latest
+IMAGE_TAG=0.3.67 docker compose -f docker-compose.hub.yml up -d   # 固定版本
+```
+
+| 镜像 tag | 含义 |
+| --- | --- |
+| `latest` | 最近一次正式发布的 tag（预发布 tag 不会顶掉它） |
+| `0.3.67` | 与 `app/config.py` 的 `VERSION` 一致；打 `v0.3.67` 时镜像名里不带 `v` |
+| `0.3.67-beta` | 手动运行工作流时自定义的 tag |
+
+维护者发版：`git tag v0.3.67 && git push origin v0.3.67`，然后到 Actions 的
+「Build and Push Docker Image」看进度。仓库要在 Settings → Secrets 里配好
+`DOCKERHUB_USERNAME` 与 `DOCKERHUB_TOKEN`（Docker Hub 的 Read & Write Access Token）；
+没配时工作流只构建镜像、跳过推送。
 
 ### 方式二：本地安装（Python）
 
@@ -240,6 +264,7 @@ start.sh / start.ps1 / start.bat   一键启动（Linux / Windows）
 Dockerfile           镜像构建（python:3.12-slim，数据统一放 /data）
 docker-compose.yml   compose 部署：SQLite + 宿主机 ./data
 docker-compose.mysql.yml  compose 部署：应用 + MySQL 8.4
+docker-compose.hub.yml    compose 部署：直接用 Docker Hub 上发布好的镜像
 run.py               生产入口：读 .env，热重载看 RELOAD
 main.py              开发入口：读 .env + 强制热重载
 app/
@@ -269,6 +294,7 @@ docs/
 Wiki/                使用文档（VuePress + vuepress-theme-hope，含操作截图）
 .github/workflows/
   deploy-wiki.yml    推送 Wiki/ 时自动构建并发布到 GitHub Pages
+  docker-publish.yml 打 tag 时构建镜像（amd64 + arm64）并推送到 Docker Hub
 sql/schema.sql       MySQL 建表参考
 ```
 

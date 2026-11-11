@@ -29,7 +29,7 @@ features:
   - title: 数据库容灾
     details: 主库断连自动降级本地 SQLite，恢复后自动回迁，后台可手动切换
   - title: Docker 部署
-    details: 一份 Dockerfile + SQLite / MySQL 两套 compose，数据挂在宿主机 ./data，升级即重建镜像
+    details: 一份 Dockerfile + SQLite / MySQL / 发布镜像三套 compose，数据挂在宿主机 ./data，升级就是换镜像
 footer: PolyForm Noncommercial License 1.0.0 · 数据放在你自己的机器上
 ---
 

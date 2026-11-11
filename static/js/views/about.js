@@ -68,6 +68,17 @@ const AUTHOR = {
 
 const CHANGELOG = [
   {
+    version: "0.3.67",
+    title: "镜像自动发布了",
+    items: [
+      "新增 GitHub Actions 工作流：打 tag 推上去就自动构建镜像并推到 Docker Hub 的 minecraftmc22/cloudnetp，不用再自己 build",
+      "一次构建同时出 linux/amd64 与 linux/arm64，NAS 和树莓派也能直接拉；预发布 tag（带 - 的）不会顶掉 latest",
+      "手动运行也支持：在 Actions 里点 Run workflow，自己填镜像 tag（留空取版本号），并决定要不要更新 latest",
+      "新增 docker-compose.hub.yml：不改任何配置，docker compose -f docker-compose.hub.yml up -d 就能拉起发布好的镜像，固定版本用 IMAGE_TAG=0.3.67",
+      "没配 Docker Hub 密钥时会跳过推送、只构建镜像，方便先验证 Dockerfile；README 与文档站同步补上镜像地址、tag 规则和发布步骤",
+    ],
+  },
+  {
     version: "0.3.66",
     title: "可以用 Docker 装了",
     items: [

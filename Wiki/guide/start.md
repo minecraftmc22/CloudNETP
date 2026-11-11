@@ -93,6 +93,24 @@ docker compose -f docker-compose.mysql.yml up -d --build
 密码改 `.env` 的 `MYSQL_ROOT_PASSWORD` / `MYSQL_PASSWORD`。接外部 MySQL 就直接改 `.env` 的
 `DATABASE_URL`，容器里访问宿主机用 `host.docker.internal`。
 
+### 7. 或者直接用发布好的镜像
+
+不想在本机构建也行。仓库每次打 tag 都会由 GitHub Actions 构建多架构镜像（amd64 + arm64）推到
+Docker Hub，`.env`、`./data`、端口都和上面一样，只是不再 `build`：
+
+```bash
+docker compose -f docker-compose.hub.yml up -d                    # 跟随 latest
+IMAGE_TAG=0.3.67 docker compose -f docker-compose.hub.yml up -d   # 固定版本
+```
+
+| 镜像 tag | 含义 |
+| --- | --- |
+| `latest` | 最近一次正式发布的 tag（预发布 tag 不会顶掉它） |
+| `0.3.67` | 与 `app/config.py` 的 `VERSION` 一致；打 `v0.3.67` 时镜像名里不带 `v` |
+| `0.3.67-beta` | 手动运行工作流时自定义的 tag |
+
+升级就是换 tag 重新拉：`docker compose -f docker-compose.hub.yml pull` 后 `up -d`。
+
 ::: tip 还有这些和容器相关
 反向代理、HTTPS、备份、镜像升级注意事项都收在[部署与运维 → 用 Docker 跑](/guide/deploy.md#用-docker-跑)。
 :::

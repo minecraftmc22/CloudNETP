@@ -125,8 +125,13 @@ Windows 上可以用 [NSSM](https://nssm.cc/) 把 `run.py` 注册成服务，并
 | 文件 | 用途 |
 | --- | --- |
 | `Dockerfile` | 基于 `python:3.12-slim`；以 uid `10001` 非 root 运行；healthcheck 打 `/api/version` |
-| `docker-compose.yml` | 应用 + SQLite，数据落在宿主机 `./data` |
+| `docker-compose.yml` | 应用 + SQLite，本地构建镜像，数据落在宿主机 `./data` |
 | `docker-compose.mysql.yml` | 应用 + MySQL 8.4（数据在 `mysql-data` 卷），适合多用户 / 大文件 |
+| `docker-compose.hub.yml` | 不本地构建，直接拉 Docker Hub 上发布好的 `minecraftmc22/cloudnetp` |
+
+镜像由 `.github/workflows/docker-publish.yml` 发布：打 `v*` tag 推上去就自动构建
+（linux/amd64 + linux/arm64）并推送，同时打上 `latest`；预发布 tag（带 `-`）不顶 `latest`。
+手动发布到 Actions 里点 Run workflow，可自定义 tag、决定是否更新 `latest`。
 
 ### 镜像里做了什么
 
@@ -147,8 +152,17 @@ Windows 上可以用 [NSSM](https://nssm.cc/) 把 `run.py` 注册成服务，并
 
 ### 升级
 
+自己构建的：
+
 ```bash
 docker compose build --pull && docker compose up -d
+```
+
+用发布镜像的（`docker-compose.hub.yml`）：
+
+```bash
+docker compose -f docker-compose.hub.yml pull && docker compose -f docker-compose.hub.yml up -d
+IMAGE_TAG=0.3.67 docker compose -f docker-compose.hub.yml up -d   # 固定到某个版本
 ```
 
 镜像里没有 `.git`，关于页的「检查更新 / 更新」按钮会失败，这也是 Docker 部署唯一丢掉的便利。

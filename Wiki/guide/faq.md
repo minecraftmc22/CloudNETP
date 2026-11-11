@@ -74,6 +74,12 @@ docker compose up -d
 `8123` 是镜像自己的默认值。compose 的端口映射读 `.env` 的 `PORT`，所以 `.env` 里留着
 `PORT=8000` 就还是 8000；删掉那行才会退回 8123。
 
+### 拉镜像报 `manifest unknown` / `not found`
+
+说明这个 tag 还没发布过。镜像由仓库打 tag 后自动构建，先确认 Docker Hub 上有对应标签
+（`latest` 与版本号两种），或者干脆用 `docker-compose.yml` 在本机构建。
+`IMAGE_TAG` 写错版本号也是这个报错。
+
 ## 上传与预览
 
 ### 上传到一半失败
