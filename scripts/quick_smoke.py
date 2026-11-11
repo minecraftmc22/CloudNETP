@@ -3,7 +3,8 @@
 
 用库副本起独立实例（不动真实库），把三条链路各跑一遍：
 
-  A 扫码直传：建会话 → 匿名 init/分片/complete → 文件落在指定目录 → 撤销后 410
+  A 扫码直传：建会话 → 未登录/别人被挡（401/403）→ 本 init/分片/complete →
+    文件落在指定目录 → 撤销后 410
   B 站内快传：A 发给 B → B 根目录出现副本 → 收件箱未读数 → 标已读 → 发给自己报错
   C 取件码：建码 → 匿名查码 → 匿名下载 → 次数用完 410 → 文件夹被拒 → 撤销 410
   D 越权：B 撤销 A 的会话必须 404
@@ -225,19 +226,39 @@ def main() -> int:
         check("返回 token 与 url", bool(drop.get("token")) and str(drop.get("url", "")).startswith("/drop/"), str(drop.get("url")))
 
         token = drop.get("token")
-        status, meta = call(base, "GET", f"/api/public/quick/drop/{token}")
-        check("匿名读取会话 200", status == 200, str(status))
-        check("目标目录名正确", (meta.get("drop") or {}).get("folder") == "手机相册", str((meta.get("drop") or {}).get("folder")))
-
-        payload = "hello 快传".encode("utf-8") * 500
-        status, init = call(
+        status, _ = call(base, "GET", f"/api/public/quick/drop/{token}")
+        check("未登录读会话 401", status == 401, str(status))
+        status, _ = call(base, "GET", f"/api/public/quick/drop/{token}", b_cookie)
+        check("别人读会话 403", status == 403, str(status))
+        status, _ = call(
             base,
             "POST",
             f"/api/public/quick/drop/{token}/init",
             None,
-            {"name": "相册-01.txt", "size": len(payload), "mime": "text/plain", "chunkSize": 0},
+            {"name": "x.txt", "size": 10, "chunkSize": 0},
         )
-        check("匿名 init 200", status == 200, str(status))
+        check("未登录上传 401", status == 401, str(status))
+        status, meta = call(base, "GET", f"/api/public/quick/drop/{token}", a_cookie)
+        check("本人读取会话 200", status == 200, str(status))
+        check("目标目录名正确", (meta.get("drop") or {}).get("folder") == "手机相册", str((meta.get("drop") or {}).get("folder")))
+
+        payload = "hello 快传".encode("utf-8") * 500
+        status, _ = call(
+            base,
+            "POST",
+            f"/api/public/quick/drop/{token}/init",
+            b_cookie,
+            {"name": "x.txt", "size": len(payload), "chunkSize": 0},
+        )
+        check("别人 init 403", status == 403, str(status))
+        status, init = call(
+            base,
+            "POST",
+            f"/api/public/quick/drop/{token}/init",
+            a_cookie,
+            {"name": "相册-01.txt", "size": len(payload), "mime": "text/plain"},
+        )
+        check("本人 init 200", status == 200, str(status))
         sid = init.get("sessionId")
         if not sid:
             raise SystemExit(f"init 没给 sessionId：{init}")
@@ -248,24 +269,29 @@ def main() -> int:
                 base,
                 f"/api/public/quick/drop/{token}/{sid}/{index}",
                 payload[start : start + chunk],
+                a_cookie,
             )
-            check(f"匿名分片 {index} 200", status == 200, str(status))
-        status, done = call(base, "POST", f"/api/public/quick/drop/{token}/{sid}/complete")
-        check("匿名 complete 200", status == 200, str(status))
+            check(f"本人分片 {index} 200", status == 200, str(status))
+        status, _ = call(base, "POST", f"/api/public/quick/drop/{token}/{sid}/complete", b_cookie)
+        check("别人 complete 403", status == 403, str(status))
+        status, done = call(
+            base, "POST", f"/api/public/quick/drop/{token}/{sid}/complete", a_cookie
+        )
+        check("本人 complete 200", status == 200, str(status))
         node_id = (done.get("node") or {}).get("id")
 
         status, listing = call(base, "GET", f"/api/nodes?parentId={target_id}", a_cookie)
         names = [item["name"] for item in listing.get("items") or []]
         check("文件落在指定目录", "相册-01.txt" in names, str(names))
 
-        status, meta = call(base, "GET", f"/api/public/quick/drop/{token}")
+        status, meta = call(base, "GET", f"/api/public/quick/drop/{token}", a_cookie)
         check("会话里能看到已收文件", (meta.get("drop") or {}).get("count") == 1, str((meta.get("drop") or {}).get("count")))
 
         status, _ = call(base, "DELETE", f"/api/quick/drops/{drop.get('id')}", b_cookie)
         check("别人撤销 404", status == 404, str(status))
         status, _ = call(base, "DELETE", f"/api/quick/drops/{drop.get('id')}", a_cookie)
         check("主人撤销 200", status == 200, str(status))
-        status, _ = call(base, "GET", f"/api/public/quick/drop/{token}")
+        status, _ = call(base, "GET", f"/api/public/quick/drop/{token}", a_cookie)
         check("撤销后 410", status == 410, str(status))
 
         # ---------------- B 站内快传 ----------------

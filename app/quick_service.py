@@ -174,6 +174,16 @@ def load_drop(db: Session, token: str) -> QuickTransfer:
     return qt
 
 
+def load_drop_for(db: Session, token: str, user: User) -> QuickTransfer:
+    """上传侧入口：链接可以公开看，但只有发起人本人能往里传。"""
+    qt = load_drop(db, token)
+    if qt.owner_id != user.id:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, "这不是你的快传，只有发起人本人能往这个目录上传"
+        )
+    return qt
+
+
 def drop_public(db: Session, qt: QuickTransfer) -> dict:
     owner = db.get(User, qt.owner_id)
     target = db.get(Node, qt.target_id) if qt.target_id else None

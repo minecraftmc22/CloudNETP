@@ -7,8 +7,10 @@
   [B] 扫码直传：生成后出现二维码 SVG 与可复制链接
   [C] 取件码：选文件 → 生成 6 位码 → 列表里能看到这个码
   [D] 公开取件页：输入码后列出文件，下载链接可用
-  [E] 扫码直传页（390px 宽）：选文件真的传上去，文件出现在目标目录
-  [F] 390px 窄屏：标签页与卡片不横向溢出
+  [E] 扫码直传页：未登录先被挡住，登录链接带 next 回跳；登录后自动回到上传页
+  [F] 扫码直传页（390px 宽、已登录）：选文件真的传上去，文件出现在网盘
+  [G] 390px 窄屏：标签页与卡片不横向溢出
+  [H] 登录页底部有「有取件码？去取件」入口，指向 /pickup
 
     ./.venv/Scripts/python.exe scripts/quick_ui.py
 """
@@ -260,10 +262,37 @@ def main() -> int:
             check("下载链接可用", resp.status == 200 and body == payload, f"{resp.status} {len(body)}")
             page2.screenshot(path=str(OUT / "quick_pickup_public.png"), full_page=False)
 
-            print("\n[E] 扫码直传页：真的传一个文件")
+            print("\n[E] 扫码直传页：未登录先挡一道")
+            ctx0, page0, errors0 = make_page(width=390, height=844)
+            page0.goto(base + drop_url, wait_until="domcontentloaded")
+            page0.wait_for_selector(".quick-pub__title", timeout=20000)
+            gate_text = page0.locator(".quick-pub__title").inner_text()
+            check("未登录提示要登录", "登录" in gate_text, gate_text)
+            gate_href = page0.locator('.quick-actions a[href*="next="]').first.get_attribute("href") or ""
+            check("登录链接带 next 回跳", "next=" in gate_href and "drop" in gate_href, gate_href)
+            check("页面上没有上传区", page0.locator(".quick-drop").count() == 0)
+            page0.screenshot(path=str(OUT / "quick_drop_gate.png"), full_page=False)
+
+            # 点「登录 / 注册」→ 登录 → 应该自动回到这个上传页
+            page0.locator('.quick-actions a[href*="next="]').first.click()
+            page0.wait_for_selector('form[data-form] [name="account"]', timeout=20000)
+            page0.fill('[name="account"]', admin[1])
+            page0.fill('[name="password"]', PASSWORD)
+            page0.evaluate(
+                """() => {
+                    const box = document.querySelector('input[data-agree]');
+                    if (box) { box.checked = true; box.dispatchEvent(new Event('change', { bubbles: true })); }
+                }"""
+            )
+            page0.click("[data-submit]")
+            page0.wait_for_url("**/drop/**", timeout=40000)
+            page0.wait_for_selector(".quick-drop", timeout=40000)
+            check("登录后自动回到上传页", "/drop/" in page0.url, page0.url)
+
+            print("\n[F] 扫码直传页：登录后真的传一个文件")
             local = tmp / "手机照片.txt"
             local.write_bytes(b"from-phone" * 300)
-            ctx3, page3, errors3 = make_page(width=390, height=844)
+            ctx3, page3, errors3 = make_page(session_token, width=390, height=844)
             page3.goto(base + drop_url, wait_until="domcontentloaded")
             page3.wait_for_selector(".quick-drop", timeout=20000)
             title = page3.locator(".quick-pub__title").inner_text()
@@ -278,7 +307,7 @@ def main() -> int:
             names = [item["name"] for item in listing.get("items") or []]
             check("文件真的落进网盘", "手机照片.txt" in names, str(names))
 
-            print("\n[F] 390px 窄屏不溢出")
+            print("\n[G] 390px 窄屏不溢出")
             ctx4, page4, errors4 = make_page(session_token, width=390, height=844)
             page4.goto(base + "/#/quick", wait_until="domcontentloaded")
             page4.wait_for_selector(".quick-tabs", timeout=20000)
@@ -294,8 +323,25 @@ def main() -> int:
             check("标签栏自身可滚动不撑破", metrics["tabs"] >= metrics["tabsBox"], str(metrics))
             page4.screenshot(path=str(OUT / "quick_mobile.png"), full_page=False)
 
-            print("\n[G] 控制台无报错")
-            for name, errs in (("应用内", errors), ("取件页", errors2), ("直传页", errors3), ("窄屏", errors4)):
+            print("\n[H] 登录页有取件入口")
+            ctx5, page5, errors5 = make_page(width=1440, height=1000)
+            page5.goto(base + "/", wait_until="domcontentloaded")
+            page5.wait_for_selector(".auth-foot", timeout=20000)
+            foot = page5.locator(".auth-foot__link")
+            check("登录页有取件链接", foot.count() == 1, str(foot.count()))
+            check("取件链接指向 /pickup", foot.get_attribute("href") == "/pickup", str(foot.get_attribute("href")))
+            check("取件链接文案", "取件" in foot.inner_text(), foot.inner_text())
+            page5.screenshot(path=str(OUT / "quick_login_foot.png"), full_page=False)
+
+            print("\n[I] 控制台无报错")
+            for name, errs in (
+                ("应用内", errors),
+                ("取件页", errors2),
+                ("未登录直传页", errors0),
+                ("直传页", errors3),
+                ("窄屏", errors4),
+                ("登录页", errors5),
+            ):
                 check(f"{name}无 JS 异常", not errs, "; ".join(errs[:2]))
 
             browser.close()

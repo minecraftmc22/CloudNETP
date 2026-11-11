@@ -169,20 +169,22 @@ def revoke_pickup(qt_id: int, request: Request, db: DbSession, user: CurrentUser
 
 
 # --------------------------------------------------------------------------- #
-# 公开：扫码直传
+# 扫码直传（上传侧一律要求登录，且必须是会话发起人）
 # --------------------------------------------------------------------------- #
+# 取件码可以匿名下载，上传不行：链接一旦外泄，谁都能往你的目录里塞东西，
+# 还会吃掉你的配额。所以扫码只是省掉「找目录」这一步，不省登录。
 @router.get("/public/quick/drop/{token}")
-def drop_meta(token: str, db: DbSession) -> dict:
-    qt = qs.load_drop(db, token)
+def drop_meta(token: str, db: DbSession, user: CurrentUser) -> dict:
+    qt = qs.load_drop_for(db, token, user)
     return {"drop": qs.drop_public(db, qt)}
 
 
 @router.post("/public/quick/drop/{token}/init")
 def drop_init(
-    token: str, body: QuickDropInitIn, request: Request, db: DbSession
+    token: str, body: QuickDropInitIn, request: Request, db: DbSession, user: CurrentUser
 ) -> dict:
     check_origin(request)
-    qt = qs.load_drop(db, token)
+    qt = qs.load_drop_for(db, token, user)
     owner = db.get(User, qt.owner_id)
     if owner is None or owner.banned:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "会话主人已不可用")
@@ -218,9 +220,10 @@ async def drop_chunk(
     index: int,
     request: Request,
     db: DbSession,
+    user: CurrentUser,
 ) -> dict:
     check_origin(request)
-    qt = qs.load_drop(db, token)
+    qt = qs.load_drop_for(db, token, user)
     declared = request.headers.get("content-length")
     if declared and declared.isdigit() and int(declared) > MAX_BODY:
         raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "分片过大")
@@ -240,10 +243,11 @@ def drop_complete(
     session_id: str,
     request: Request,
     db: DbSession,
+    user: CurrentUser,
     sha256: str | None = Query(default=None, min_length=64, max_length=64),
 ) -> dict:
     check_origin(request)
-    qt = qs.load_drop(db, token)
+    qt = qs.load_drop_for(db, token, user)
     owner = db.get(User, qt.owner_id)
     if owner is None:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "会话主人已不可用")

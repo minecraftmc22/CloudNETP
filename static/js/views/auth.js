@@ -205,6 +205,10 @@ const template = () => H`
 
       <div class="auth-foot">
         <span data-version>CloudNETP</span>
+        <a class="auth-foot__link" href="/pickup">
+          <svg class="icon"><use href="#i-bolt"/></svg>
+          <span>${t("有取件码？去取件")}</span>
+        </a>
       </div>
     </div>
   </div>

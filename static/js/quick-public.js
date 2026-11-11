@@ -64,7 +64,11 @@ function expiryText(iso) {
 async function apiGet(path) {
   const res = await fetch(path, { credentials: "same-origin", headers: { Accept: "application/json" } });
   const data = await res.json().catch(() => null);
-  if (!res.ok) throw new Error(data?.detail || t("请求失败（{status}）", { status: res.status }));
+  if (!res.ok) {
+    const err = new Error(data?.detail || t("请求失败（{status}）", { status: res.status }));
+    err.status = res.status;
+    throw err;
+  }
   return data;
 }
 
@@ -92,6 +96,63 @@ async function copyText(text) {
 function card(inner, { center = false } = {}) {
   root.innerHTML = H`<section class="share-card${center ? " share-card--center" : ""}">${inner}</section>`;
   return root.querySelector("section");
+}
+
+/** 当前登录用户；未登录返回 null（/api/me 401 是正常情况） */
+async function currentUser() {
+  try {
+    const res = await fetch("/api/me", {
+      credentials: "same-origin",
+      headers: { Accept: "application/json" },
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data?.user || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 扫码直传的上传闸门：必须登录，且必须是发起人本人。
+ * 取件码不受影响——匿名下载仍然照旧。
+ */
+function renderLoginGate(kind) {
+  const needLogin = kind === "login";
+  card(
+    H`
+    <div class="quick-pub">
+      <div class="quick-pub__head">
+        <svg class="icon"><use href="#i-lock"/></svg>
+        <span>${t("扫码直传")}</span>
+      </div>
+      <div class="quick-pub__title">${
+        needLogin ? t("扫码直传需要先登录") : t("这条快传不是你的")
+      }</div>
+      <div class="quick-pub__sub">${
+        needLogin
+          ? t("上传会记在你的配额上，所以链接外泄也不会被人往你的网盘里塞东西。登录后会自动回到这个页面。")
+          : t("只有发起人本人能往这个目录上传。想取别人发给你的文件，用取件码就行。")
+      }</div>
+      <div class="quick-actions" style="justify-content:center">
+        ${
+          needLogin
+            ? H`<a class="btn btn--accent" href="/?next=${encodeURIComponent(
+                location.pathname + location.search
+              )}">
+                <svg class="icon icon--s"><use href="#i-arrow-up-right"/></svg>
+                <span>${t("登录 / 注册")}</span>
+              </a>`
+            : ""
+        }
+        <a class="btn btn--subtle" href="/pickup">
+          <svg class="icon icon--s"><use href="#i-lock"/></svg>
+          <span>${t("去取件")}</span>
+        </a>
+      </div>
+      <div class="quick-note">${t("取件码下载不需要登录，只有往网盘里传才要。")}</div>
+    </div>`
+  );
 }
 
 /* ================================================================== */
@@ -222,7 +283,7 @@ function renderDrop(data) {
         owner: esc(data.owner),
         folder: esc(data.folder),
       })}</div>
-      <div class="quick-pub__sub">${expiryText(data.expiresAt)} · ${t("文件直接存进这台服务器，手机不用登录")}</div>
+      <div class="quick-pub__sub">${expiryText(data.expiresAt)} · ${t("已登录，文件直接存进这台服务器")}</div>
 
       <div class="quick-drop" data-drop tabindex="0" role="button">
         <svg class="icon"><use href="#i-upload"/></svg>
@@ -397,10 +458,20 @@ async function boot() {
   }
 
   if (mode === "drop") {
+    // 上传必须登录：先问一次当前账号，未登录直接给登录入口（带 next 跳回来）
+    const user = await currentUser();
+    if (!user) {
+      renderLoginGate("login");
+      return;
+    }
     try {
       const data = await apiGet(`/api/public/quick/drop/${encodeURIComponent(dropToken)}`);
       renderDrop(data.drop);
     } catch (err) {
+      if (err.status === 403) {
+        renderLoginGate("owner");
+        return;
+      }
       card(
         H`
         <div class="empty">

@@ -25,7 +25,7 @@ const PICKUP_USES = [
 ];
 
 const TABS = [
-  { key: "drop", label: "扫码直传", icon: "i-upload", desc: "手机扫码，把相册里的东西直接传进网盘" },
+  { key: "drop", label: "扫码直传", icon: "i-upload", desc: "手机扫码登录后，把相册里的东西直接传进指定目录" },
   { key: "send", label: "发给用户", icon: "i-share", desc: "直接投递到对方的网盘根目录，不用提取码" },
   { key: "pickup", label: "取件码", icon: "i-key", desc: "生成 6 位码，谁拿到都能取，到期自动失效" },
 ];
@@ -150,8 +150,8 @@ export function renderQuick(root) {
           <svg class="icon icon--s"><use href="#i-upload"/></svg>
           <span data-i18n="手机扫码，直接传进这个目录">${t("手机扫码，直接传进这个目录")}</span>
         </div>
-        <div class="quick-card__desc" data-i18n="电脑这边生成一次链接，手机扫码打开就能选照片和文件；文件落在你选的目录里，不用在手机上登录账号。">
-          ${t("电脑这边生成一次链接，手机扫码打开就能选照片和文件；文件落在你选的目录里，不用在手机上登录账号。")}
+        <div class="quick-card__desc" data-i18n="电脑这边生成一次链接，手机扫码登录后就能选照片和文件，直接落进你选的目录，不用在手机上找目录。">
+          ${t("电脑这边生成一次链接，手机扫码登录后就能选照片和文件，直接落进你选的目录，不用在手机上找目录。")}
         </div>
         <div class="quick-fields">
           <div class="quick-field" style="flex:1 1 220px">
