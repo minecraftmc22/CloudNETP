@@ -220,6 +220,7 @@ from .routers import dav as dav_router  # noqa: E402
 from .routers import feedback as feedback_router  # noqa: E402
 from .routers import live2d as live2d_router  # noqa: E402
 from .routers import nodes as nodes_router  # noqa: E402
+from .routers import quick as quick_router  # noqa: E402
 from .routers import shares as shares_router  # noqa: E402
 from .routers import update as update_router  # noqa: E402
 from .routers import uploads as uploads_router  # noqa: E402
@@ -227,6 +228,7 @@ from .routers import uploads as uploads_router  # noqa: E402
 app.include_router(auth_router.router)
 app.include_router(nodes_router.router)
 app.include_router(shares_router.router)
+app.include_router(quick_router.router)
 app.include_router(uploads_router.router)
 app.include_router(admin_router.router)
 app.include_router(dav_router.router)
@@ -242,6 +244,18 @@ def share_page(token: str) -> FileResponse:
     return FileResponse(STATIC_DIR / "share.html", headers={"Cache-Control": "no-cache"})
 
 
+@app.get("/pickup", include_in_schema=False)
+def pickup_page() -> FileResponse:
+    """免登录取件页：输 6 位取件码下载文件。"""
+    return FileResponse(STATIC_DIR / "quick.html", headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/drop/{token}", include_in_schema=False)
+def drop_page(token: str) -> FileResponse:
+    """扫码直传页：手机扫码后打开这里，往会话主人的目录里传文件。"""
+    return FileResponse(STATIC_DIR / "quick.html", headers={"Cache-Control": "no-cache"})
+
+
 # --------------------------------------------------------------------------- #
 # 路径式入口 → hash 路由
 # --------------------------------------------------------------------------- #
@@ -249,7 +263,9 @@ def share_page(token: str) -> FileResponse:
 # （旧书签、外部链接、手敲），这类请求以前直接 404。
 # 这里把已知视图名 302 到 /#/<视图>；Location 自带 fragment，
 # 浏览器不会继承原来的 #/admin，所以最终就是干净的 /#/admin。
-VIEW_ROUTES = frozenset({"files", "shares", "trash", "settings", "about", "feedback", "admin"})
+VIEW_ROUTES = frozenset(
+    {"files", "shares", "quick", "trash", "settings", "about", "feedback", "admin"}
+)
 
 
 @app.get("/{view}", include_in_schema=False)

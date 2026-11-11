@@ -1,6 +1,6 @@
 ---
 title: 看板娘与 AI 对话
-order: 7
+order: 8
 ---
 
 # 看板娘与 AI 对话

@@ -242,6 +242,40 @@ class ShareSaveIn(CamelModel):
 
 
 # --------------------------------------------------------------------------- #
+# 快传
+# --------------------------------------------------------------------------- #
+class QuickDropIn(CamelModel):
+    # 手机扫码后文件落在哪个目录，缺省是自己的根目录
+    parent_id: int | None = None
+    minutes: int = Field(default=30, ge=5, le=720)
+
+
+class QuickSendIn(CamelModel):
+    node_ids: list[int] = Field(min_length=1, max_length=100)
+    to_username: str = Field(min_length=1, max_length=32)
+    message: str | None = Field(default=None, max_length=200)
+
+
+class QuickPickupIn(CamelModel):
+    node_ids: list[int] = Field(min_length=1, max_length=100)
+    days: int = Field(default=7, ge=1, le=30)
+    max_uses: int | None = Field(default=None, ge=1, le=10_000)
+
+
+class QuickReadIn(CamelModel):
+    # 不传 = 全部标为已读
+    ids: list[int] | None = Field(default=None, max_length=200)
+
+
+class QuickDropInitIn(CamelModel):
+    name: str = Field(min_length=1, max_length=255)
+    size: int = Field(ge=1)
+    sha256: str | None = Field(default=None, max_length=64)
+    mime: str | None = Field(default=None, max_length=127)
+    chunk_size: int | None = Field(default=None, ge=0)
+
+
+# --------------------------------------------------------------------------- #
 # 管理后台
 # --------------------------------------------------------------------------- #
 class AdminUserPatchIn(CamelModel):

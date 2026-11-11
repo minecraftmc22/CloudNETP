@@ -74,6 +74,7 @@ Python 3.14 + FastAPI 后端，零构建原生 ES Module 前端；分片秒传�
 - **版本检查与更新**：关于页可手动检查；管理员可开启自动检查提示，或在后台手动/自动更新（git fast-forward + 重启，要求 main 分支、工作区干净）
 - **分享链接**：有效期 / 提取码（scrypt 哈希存储）/ 下载次数上限、独立公开页；合集链接支持勾选转存，转存时可以在弹窗里浏览自己的文件夹、选好目标目录再存；双击文件就地预览。访客未登录时分享页右上角会显示「登录 / 注册」，登录后自动跳回原来那条分享链接（提取码一并带上）
 - **回收站**：保留期自动清理、可整体关闭（需抄写服务端签发的一次性验证码）
+- **快传**：三种「不等你进网盘也能拿到文件」的方式——①扫码直传：电脑生成二维码 / 一次性链接，手机扫码打开就能选照片和文件，直接落进指定目录，手机上不用登录；②发给用户：选中文件或文件夹填对方用户名，直接复制进对方根目录（同内容只占一份磁盘）并带附言与未读提示；③取件码：生成 6 位码，任何人打开 `/pickup` 输码即可下载，可设有效期与下载次数，撤销 / 过期 / 用完即失效
 - **站内公告**：管理员在「系统设置 → 站点 → 公告」里写一条，登录页卡片里与主界面标题栏下方都会显示；超过三行折叠成「展开」，关掉后按内容记在本机，改了内容会再出现一次
 - **管理后台**：运行概览、用户管理（配额 / 封禁 / 重置密码 / 角色 / 级联删除）、系统设置、审计日志（35 类动作）、孤儿文件清理
 - **WebDAV**：`/dav` 直接挂载（Windows 资源管理器 / Finder / RaiDrive），Digest + Basic 认证、PROPFIND / LOCK / MOVE / COPY 全支持，写入同样受配额与审计约束；`.env` 的 `WEBDAV_ENABLED` 是总开关（管理后台「站点」里可改，后台优先），每个用户也能在自己的「设置 → WebDAV」里单独关掉
@@ -270,19 +271,22 @@ main.py              开发入口：读 .env + 强制热重载
 app/
   config.py          .env 解析与配置
   db.py              引擎 / 会话 / 建表
-  models.py          9 张表的 ORM 模型
+  models.py          数据表 ORM 模型（用户 / 节点 / 分享 / 快传 …）
   security.py        scrypt 哈希、HMAC 令牌、限流
   storage.py         blob 内容寻址存储、Range 响应
   node_service.py    目录树与回收站逻辑
   upload_service.py  分片上传、合并、秒传
   share_service.py   分享链接与访问控制
+  quick_service.py   快传：扫码直传会话、站内投递、取件码
   admin_service.py   管理后台统计与维护
   dav_service.py     WebDAV 路径解析、multistatus 拼装、内存锁、子树复制
   ai_service.py      看板娘 AI：配置、模型探测、SSE 流式、工具调用、系统提示词
-  routers/           auth / nodes / uploads / shares / admin / dav / ai / live2d
+  routers/           auth / nodes / uploads / shares / quick / admin / dav / ai / live2d
 static/
-  css/               theme / layout / components / views / files / viewer / admin / share / legal
+  css/               theme / layout / components / views / files / viewer / admin / share / quick / legal
   js/                api / store / theme / uploader / sha256 / i18n / views / ui
+  quick.html         快传公开页（/pickup 取件、/drop/<token> 手机上传）
+  vendor/qrcode.js   内置二维码生成（MIT，不依赖外网）
   terms.html         用户协议（/terms）
   privacy.html       隐私政策（/privacy）
 scripts/

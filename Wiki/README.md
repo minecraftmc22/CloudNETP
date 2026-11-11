@@ -22,6 +22,8 @@ features:
     details: 有效期 / 提取码 / 次数上限，独立公开页，合集可勾选转存
   - title: WebDAV
     details: 挂到 Windows 资源管理器、Finder 或 RaiDrive，写入同样受配额与审计约束
+  - title: 快传
+    details: 电脑出二维码手机扫码直传、文件直接投递到对方网盘、6 位取件码免登录取件
   - title: 看板娘 AI
     details: CDP娘 可拖动可对话，SSE 流式输出、工具调用，读写权限分开授权
   - title: 多用户与配额
@@ -53,6 +55,7 @@ ES Module 前端，界面按 WinUI 3 / Fluent Design 的风格做，右下角常
 | 传文件、整理目录、找回删除的文件 | [文件管理](/guide/files.md) |
 | 在浏览器里看图片、听歌、看文档 | [在线预览](/guide/preview.md) |
 | 把文件分享给同学 | [分享链接](/guide/share.md) |
+| 手机扫码直接传、发给其他用户、6 位取件码 | [快传](/guide/quick.md) |
 | 把网盘挂成本地盘符 | [WebDAV 挂载](/guide/webdav.md) |
 | 和看板娘聊天、让它帮忙找文件 | [看板娘与 AI 对话](/guide/mascot.md) |
 | 换主题、壁纸、界面语言 | [外观与个性化](/guide/appearance.md) |

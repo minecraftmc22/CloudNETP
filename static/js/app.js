@@ -30,6 +30,7 @@ import { renderAbout } from "./views/about.js";
 import { renderFiles } from "./views/files.js";
 import { renderSettings } from "./views/settings.js";
 import { renderFeedback } from "./views/feedback.js";
+import { renderQuick } from "./views/quick.js";
 import { renderShares } from "./views/shares.js";
 import { renderTrash } from "./views/trash.js";
 
@@ -37,6 +38,7 @@ const NAV_ITEMS = [
   { group: "空间" },
   { route: "files", label: "我的文件", icon: "i-folder" },
   { route: "shares", label: "我的分享", icon: "i-share" },
+  { route: "quick", label: "快传", icon: "i-bolt" },
   { route: "trash", label: "回收站", icon: "i-trash" },
   { group: "系统" },
   { route: "settings", label: "设置", icon: "i-settings" },
@@ -47,6 +49,7 @@ const NAV_ITEMS = [
 const TITLES = {
   files: "我的文件",
   shares: "我的分享",
+  quick: "快传",
   trash: "回收站",
   settings: "设置",
   feedback: "意见反馈",
@@ -352,6 +355,7 @@ function route() {
 
   if (name === "files") renderFiles(root, { user });
   else if (name === "shares") renderShares(root, { user });
+  else if (name === "quick") renderQuick(root, { user });
   else if (name === "trash") renderTrash(root, { user });
   else if (name === "settings") renderSettings(root);
   else if (name === "feedback") renderFeedback(root);

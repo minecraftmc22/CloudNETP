@@ -231,6 +231,48 @@ class BlockedBlob(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
 
 
+class QuickTransfer(Base):
+    """快传：一张表装三种形态，靠 kind 区分。
+
+    - drop   扫码直传：token 是手机端的凭据，target_id 是上传落地目录，uses 记已收文件数
+    - send   站内快传：owner_id 发送者、peer_id 接收者，node_ids 是接收方那边复制出的副本
+    - pickup 免登录取件码：code 是 6 位口令，node_ids 是要交付的文件，uses 记下载次数
+    """
+
+    __tablename__ = "quick_transfers"
+
+    id: Mapped[int] = mapped_column(AutoPK, primary_key=True, autoincrement=True)
+    kind: Mapped[str] = mapped_column(String(8), nullable=False)
+    owner_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    # send 的接收者 / drop 无 / pickup 无
+    peer_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
+    # drop 的目标目录
+    target_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    token: Mapped[str] = mapped_column(String(43), unique=True, nullable=False, index=True)
+    # pickup 的取件码（明文：它就是访问凭据本身，等同短口令，靠限流防枚举）
+    code: Mapped[str | None] = mapped_column(String(12), nullable=True, index=True)
+    # JSON 数组：pickup 的交付文件 / send 复制出来的副本
+    node_ids: Mapped[str | None] = mapped_column(Text, nullable=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    size: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    message: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # send：接收方是否已读
+    seen: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    uses: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    max_uses: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    revoked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
+
+    __table_args__ = (
+        CheckConstraint("kind IN ('drop', 'send', 'pickup')", name="ck_quick_kind"),
+        Index("idx_quick_owner", "owner_id", "kind", "created_at"),
+        Index("idx_quick_peer", "peer_id", "kind", "created_at"),
+    )
+
+
 class Feedback(Base):
     """用户意见反馈：建议 / 问题 / 其他，管理员在后台标记处理。"""
 
