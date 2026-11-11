@@ -84,6 +84,8 @@ class UserSetting(Base):
     # 看板娘 AI 对话配置（JSON：provider/baseUrl/model/tools/vision/thinking/protocol/
     # maxInput/maxOutput，以及加密后的 key）；空对象 = 还没配置
     ai_config: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    # 同意《快传使用规范》的时间；NULL = 还没同意（创建快传前必须同意一次）
+    quick_terms_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 class AudioPref(Base):
@@ -203,6 +205,8 @@ class ShareReport(Base):
 
     id: Mapped[int] = mapped_column(AutoPK, primary_key=True, autoincrement=True)
     share_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    # 来自快传取件码的举报：记 quick_transfers.id，此时 share_id 为 0（没有分享记录）
+    quick_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
     token: Mapped[str] = mapped_column(String(43), nullable=False)
     # 单文件分享记录文件哈希；文件夹分享为 NULL（审核通过只撤销该分享）
     blob_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)

@@ -1198,9 +1198,11 @@ export function renderAdmin(root) {
     const reporter = `${escapeHtml(report.reporter || t("匿名"))}${
       report.reporterIp ? H` · ${escapeHtml(report.reporterIp)}` : ""
     }`;
+    const isQuick = report.source === "quick";
+    const sourceLabel = isQuick ? t("取件码") : t("链接");
     const shareState = report.shareActive
-      ? H`<span class="admin-badge is-warn">链接仍有效</span>`
-      : H`<span class="admin-badge">链接已失效</span>`;
+      ? H`<span class="admin-badge is-warn">${t("{label}仍有效", { label: sourceLabel })}</span>`
+      : H`<span class="admin-badge">${t("{label}已失效", { label: sourceLabel })}</span>`;
     const actions = [];
     if (report.status === "pending") {
       actions.push(
@@ -1340,10 +1342,17 @@ export function renderAdmin(root) {
     await Dialog.alert({
       title: t("举报详情 · {name}", { name: report.firstName }),
       message: H`
-        <div class="dialog__hint">${t("分享链接 /s/{token}（{state}）", {
-          token: escapeHtml(report.token),
-          state: t(report.shareActive ? "仍有效" : "已失效"),
-        })}</div>
+        <div class="dialog__hint">${
+          report.source === "quick"
+            ? t("快传取件码 {code}（{state}）", {
+                code: escapeHtml(report.code || ""),
+                state: t(report.shareActive ? "仍有效" : "已失效"),
+              })
+            : t("分享链接 /s/{token}（{state}）", {
+                token: escapeHtml(report.token),
+                state: t(report.shareActive ? "仍有效" : "已失效"),
+              })
+        }</div>
         ${
           report.blobSha256
             ? H`<div class="dialog__hint">${t("哈希值：{hash}", {

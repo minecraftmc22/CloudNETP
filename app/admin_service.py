@@ -19,6 +19,7 @@ from .models import (
     Blob,
     BlockedBlob,
     Node,
+    QuickTransfer,
     Share,
     ShareReport,
     UploadSession,
@@ -587,6 +588,15 @@ def list_reports(
         ).all():
             active_shares[sid] = (not revoked, token)
 
+    # 来自快传取件码的举报：分享表里没有记录，取件码状态要单独查
+    quick_map: dict[int, QuickTransfer] = {}
+    quick_ids = {r.quick_id for r in rows if r.quick_id}
+    if quick_ids:
+        for qt in db.scalars(
+            select(QuickTransfer).where(QuickTransfer.id.in_(quick_ids))
+        ).all():
+            quick_map[qt.id] = qt
+
     # 代表文件节点：单文件举报按哈希找同内容的节点，用来给列表上类型图标/缩略图
     node_by_sha: dict[str, Node] = {}
     if shas:
@@ -649,12 +659,26 @@ def list_reports(
     items = []
     for r in rows:
         rep_node = _node_of(r)
+        qt = quick_map.get(r.quick_id) if r.quick_id else None
+        if r.quick_id:
+            quick_alive = bool(
+                qt
+                and not qt.revoked
+                and (qt.expires_at is None or qt.expires_at > utcnow())
+            )
+            source_url = f"/pickup?code={qt.code}" if qt else ""
+        else:
+            quick_alive = active_shares.get(r.share_id, (False, ""))[0]
+            source_url = f"/s/{r.token}"
         items.append(
             {
                 "id": r.id,
+                "source": "quick" if r.quick_id else "share",
+                "quickId": r.quick_id,
+                "code": qt.code if qt else None,
                 "shareId": r.share_id,
                 "token": r.token,
-                "url": f"/s/{r.token}",
+                "url": source_url,
                 "blobSha256": r.blob_sha256,
                 "nodeId": rep_node.id if rep_node else None,
                 "firstName": r.first_name,
@@ -672,7 +696,7 @@ def list_reports(
                 "createdAt": _iso_or_none(r.created_at),
                 "blocked": bool(r.blob_sha256 and r.blob_sha256 in blocked),
                 "refCount": ref_counts.get(r.blob_sha256, 0) if r.blob_sha256 else 0,
-                "shareActive": active_shares.get(r.share_id, (False, ""))[0],
+                "shareActive": quick_alive,
             }
         )
     return {"items": items, "total": int(total), "page": page, "pageSize": page_size}
@@ -763,12 +787,24 @@ def report_files(db: Session, report_id: int) -> dict:
                 "missing": not storage.blob_path(n.blob_sha256).is_file() if n.blob_sha256 else True,
             }
         )
+    qt = db.get(QuickTransfer, report.quick_id) if report.quick_id else None
+    if qt is not None:
+        source_url = f"/pickup?code={qt.code}"
+        source_active = bool(
+            not qt.revoked and (qt.expires_at is None or qt.expires_at > utcnow())
+        )
+    else:
+        source_url = f"/s/{report.token}"
+        source_active = bool(share and not share.revoked)
     return {
         "reportId": report.id,
+        "source": "quick" if report.quick_id else "share",
+        "quickId": report.quick_id,
+        "code": qt.code if qt else None,
         "shareId": report.share_id,
         "token": report.token,
-        "url": f"/s/{report.token}",
-        "shareActive": bool(share and not share.revoked),
+        "url": source_url,
+        "shareActive": source_active,
         "reason": report.reason or "",
         "firstName": report.first_name,
         "isFolder": bool(report.is_folder),
@@ -854,10 +890,16 @@ def approve_report(db: Session, report_id: int, admin: User) -> dict:
                 )
             )
         blocked_now = True
-    # 对应分享立即失效
-    share = db.get(Share, report.share_id)
-    if share:
-        share.revoked = True
+    # 对应分享 / 取件码立即失效
+    if report.quick_id:
+        qt = db.get(QuickTransfer, report.quick_id)
+        if qt:
+            qt.revoked = True
+            qt.updated_at = utcnow()
+    else:
+        share = db.get(Share, report.share_id)
+        if share:
+            share.revoked = True
     return {"blocked": blocked_now, "sha256": report.blob_sha256}
 
 

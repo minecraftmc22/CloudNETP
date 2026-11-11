@@ -24,7 +24,9 @@ from ..schemas import (
     QuickDropInitIn,
     QuickPickupIn,
     QuickReadIn,
+    QuickReportIn,
     QuickSendIn,
+    QuickTermsIn,
 )
 from ..security import check_origin, client_ip, normalize_name
 from ..user_service import log_action
@@ -46,6 +48,25 @@ def _nodes_of(db: Session, user: User, ids: list[int]) -> list[Node]:
     if len(clean) > qs.MAX_ITEMS:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"一次最多 {qs.MAX_ITEMS} 项")
     return [ns.get_node(db, user.id, node_id) for node_id in clean]
+
+
+# --------------------------------------------------------------------------- #
+# 使用规范（先同意再创建）
+# --------------------------------------------------------------------------- #
+@router.get("/quick/terms")
+def read_terms(db: DbSession, user: CurrentUser) -> dict:
+    return qs.terms_of(db, user.id)
+
+
+@router.post("/quick/terms")
+def accept_terms(body: QuickTermsIn, request: Request, db: DbSession, user: CurrentUser) -> dict:
+    check_origin(request)
+    if not body.accepted:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "需要勾选同意才能使用快传")
+    state = qs.accept_terms(db, user)
+    log_action(db, "quick_terms", user.id, {"accepted": True}, request)
+    db.commit()
+    return state
 
 
 # --------------------------------------------------------------------------- #
@@ -188,6 +209,8 @@ def drop_init(
     owner = db.get(User, qt.owner_id)
     if owner is None or owner.banned:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "会话主人已不可用")
+    # 客户端声明的哈希先拦一道（省掉白传一轮分片）；真正的判定在 complete 用服务端算的哈希
+    qs.assert_upload_allowed(db, body.sha256)
     result = us.init_upload(
         db,
         owner,
@@ -251,7 +274,21 @@ def drop_complete(
     owner = db.get(User, qt.owner_id)
     if owner is None:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "会话主人已不可用")
-    result = us.complete_upload(db, owner, session_id, sha256)
+
+    def guard(real_sha: str, _size: int) -> None:
+        qs.assert_upload_allowed(db, real_sha)
+
+    try:
+        result = us.complete_upload(db, owner, session_id, sha256, guard=guard)
+    except HTTPException as exc:
+        # 命中黑名单：这次上传直接作废，分片不留在盘上占空间
+        if exc.status_code == status.HTTP_403_FORBIDDEN:
+            try:
+                us.abort_upload(db, owner.id, session_id)
+            except HTTPException:
+                pass
+            db.commit()
+        raise
     node = db.get(Node, int(result["node"]["id"]))
     if node is not None:
         qs.note_drop_upload(db, qt, node)
@@ -314,3 +351,31 @@ def pickup_download(
     return storage.file_response(
         storage.blob_path(node.blob_sha256), node.name, node.mime, request
     )
+
+
+@router.post("/public/quick/pickup/{code}/report")
+def pickup_report(
+    code: str, body: QuickReportIn, request: Request, db: DbSession
+) -> dict:
+    """取件页举报单个文件：匿名可提交，进管理后台的举报审核队列。"""
+    ip = client_ip(request)
+    qs.pickup_guard(ip)
+    try:
+        qt = qs.find_pickup(db, code)
+    except HTTPException:
+        qs.pickup_miss(ip)
+        raise
+    qs.pickup_hit(ip)
+
+    node_id = body.node_id
+    node = qs.pickup_node(db, qt, node_id)
+    report = qs.report_pickup(db, qt, node, reason=body.reason, ip=ip)
+    log_action(
+        db,
+        "quick_report",
+        None,
+        {"pickup": qt.id, "name": node.name, "reportId": report.id},
+        request,
+    )
+    db.commit()
+    return {"reported": True, "id": report.id}

@@ -275,6 +275,16 @@ class QuickDropInitIn(CamelModel):
     chunk_size: int | None = Field(default=None, ge=0)
 
 
+class QuickTermsIn(CamelModel):
+    # 只接受「同意」；传 False 视为没同意，直接 400
+    accepted: bool = False
+
+
+class QuickReportIn(CamelModel):
+    node_id: int | None = None
+    reason: str | None = Field(default=None, max_length=200)
+
+
 # --------------------------------------------------------------------------- #
 # 管理后台
 # --------------------------------------------------------------------------- #

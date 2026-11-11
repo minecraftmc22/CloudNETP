@@ -23,7 +23,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from . import node_service as ns
-from .models import Node, QuickTransfer, User, utcnow
+from .models import BlockedBlob, Node, QuickTransfer, ShareReport, User, UserSetting, utcnow
 from .share_service import CODE_ALPHABET, is_blocked
 
 DROP_MINUTES = (10, 30, 60, 120)
@@ -31,6 +31,10 @@ PICKUP_DAYS = (1, 3, 7, 30)
 PICKUP_CODE_LEN = 6
 FLASH_MESSAGE_MAX = 200
 MAX_ITEMS = 100
+
+# 与前端提示、管理后台文案保持一致：命中黑名单时对外只说这一句
+BLOCKED_UPLOAD_MSG = "此文件包含法律禁止的内容，无法上传"
+TERMS_REQUIRED_MSG = "请先阅读并同意快传使用规范"
 
 # 取件码是可枚举的短口令，按 IP 限流：10 分钟内最多试 12 次，成功一次就清零
 _PICKUP_WINDOW = 10 * 60
@@ -78,6 +82,45 @@ def _summary(nodes: list[Node]) -> tuple[str, int, int]:
     if len(nodes) == 1:
         return nodes[0].name, total, 1
     return f"{len(nodes)} 个项目", total, len(nodes)
+
+
+# --------------------------------------------------------------------------- #
+# 使用规范：必须先同意，且上传内容要过黑名单
+# --------------------------------------------------------------------------- #
+def terms_of(db: Session, user_id: int) -> dict:
+    row = db.get(UserSetting, user_id)
+    at = row.quick_terms_at if row else None
+    return {"accepted": at is not None, "acceptedAt": _iso(at)}
+
+
+def accept_terms(db: Session, user: User) -> dict:
+    row = db.get(UserSetting, user.id)
+    if row is None:
+        # 正常注册时会建，这里兜一下历史账号
+        row = UserSetting(user_id=user.id)
+        db.add(row)
+    if row.quick_terms_at is None:
+        row.quick_terms_at = utcnow()
+        db.flush()
+    return terms_of(db, user.id)
+
+
+def require_terms(db: Session, user: User) -> None:
+    """创建任何快传之前都要同意一次规范（后端把关，不只靠前端弹窗）。"""
+    if terms_of(db, user.id)["accepted"]:
+        return
+    raise HTTPException(status.HTTP_403_FORBIDDEN, TERMS_REQUIRED_MSG)
+
+
+def assert_upload_allowed(db: Session, sha256: str | None) -> None:
+    """命中被举报确认的黑名单就不给传。
+
+    只在服务端算出的哈希上判断（complete 阶段），客户端声明的哈希只当提前拦截，
+    否则改个 sha256 就能绕过。
+    """
+    digest = (sha256 or "").strip().lower()
+    if digest and is_blocked(db, digest):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, BLOCKED_UPLOAD_MSG)
 
 
 def id_list(qt: QuickTransfer) -> list[int]:
@@ -144,6 +187,7 @@ def payload(db: Session, qt: QuickTransfer, *, with_code: bool = True) -> dict:
 # --------------------------------------------------------------------------- #
 def create_drop(db: Session, user: User, *, parent_id: int | None, minutes: int) -> QuickTransfer:
     minutes = max(5, min(720, int(minutes or 30)))
+    require_terms(db, user)
     ns.require_parent(db, user.id, parent_id)
     target = db.get(Node, parent_id) if parent_id else None
     qt = QuickTransfer(
@@ -219,6 +263,25 @@ def note_drop_upload(db: Session, qt: QuickTransfer, node: Node) -> None:
 # --------------------------------------------------------------------------- #
 # 站内快传（send）
 # --------------------------------------------------------------------------- #
+def _has_blocked_content(db: Session, user_id: int, node: Node) -> bool:
+    """文件（或文件夹里任意一层）是否含已被举报确认的内容。"""
+    if node.type == "file":
+        return bool(node.blob_sha256 and is_blocked(db, node.blob_sha256))
+    ids = ns.subtree_ids(db, user_id, node.id)
+    if not ids:
+        return False
+    shas = db.scalars(
+        select(Node.blob_sha256).where(
+            Node.id.in_(ids), Node.type == "file", Node.blob_sha256.is_not(None)
+        )
+    ).all()
+    if not shas:
+        return False
+    return db.scalars(
+        select(BlockedBlob.sha256).where(BlockedBlob.sha256.in_(set(shas))).limit(1)
+    ).first() is not None
+
+
 def send_files(
     db: Session,
     sender: User,
@@ -227,6 +290,11 @@ def send_files(
     to_username: str,
     message: str | None,
 ) -> QuickTransfer:
+    require_terms(db, sender)
+    for node in nodes:
+        if _has_blocked_content(db, sender.id, node):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, f"「{node.name}」{BLOCKED_UPLOAD_MSG}")
+
     receiver = db.scalars(select(User).where(User.username == to_username.strip())).first()
     if receiver is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "找不到这个用户")
@@ -348,6 +416,7 @@ def create_pickup(
     db: Session, user: User, nodes: list[Node], *, days: int, max_uses: int | None
 ) -> QuickTransfer:
     days = max(1, min(30, int(days or 7)))
+    require_terms(db, user)
     if any(node.type != "file" for node in nodes):
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST, "取件码只支持文件，文件夹请用分享链接"
@@ -448,6 +517,40 @@ def pickup_node(db: Session, qt: QuickTransfer, node_id: int | None) -> Node:
     if is_blocked(db, node.blob_sha256):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "该文件已被举报确认，禁止下载")
     return node
+
+
+def report_pickup(
+    db: Session, qt: QuickTransfer, node: Node, *, reason: str | None, ip: str | None
+) -> ShareReport:
+    """取件页的举报：落在分享举报表里，管理员用同一套审核流程拉黑哈希。
+
+    同一个取件码里的同一个文件重复举报不重复入库，避免刷屏。
+    """
+    sha = node.blob_sha256 or ""
+    if sha:
+        exists = db.scalars(
+            select(ShareReport).where(
+                ShareReport.quick_id == qt.id,
+                ShareReport.blob_sha256 == sha,
+                ShareReport.status == "pending",
+            )
+        ).first()
+        if exists is not None:
+            return exists
+    report = ShareReport(
+        share_id=0,
+        quick_id=qt.id,
+        token=qt.token,
+        blob_sha256=sha or None,
+        first_name=node.name,
+        size=int(node.size or 0),
+        is_folder=False,
+        reason=(reason or "").strip()[:FLASH_MESSAGE_MAX],
+        reporter_ip=ip,
+    )
+    db.add(report)
+    db.flush()
+    return report
 
 
 def list_for_user(db: Session, user_id: int, kind: str, limit: int = 100) -> list[dict]:

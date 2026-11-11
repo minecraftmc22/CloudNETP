@@ -3,12 +3,16 @@
 
 用库副本起独立实例，Playwright 驱动本机 Chrome：
 
+  [A0] 第一次进快传先看到使用规范：勾选前不能继续，同意后进入正文并显示警示横幅
   [A] 侧栏有「快传」入口，点进去是三个标签页
   [B] 扫码直传：生成后出现二维码 SVG 与可复制链接
   [C] 取件码：选文件 → 生成 6 位码 → 列表里能看到这个码
   [D] 公开取件页：输入码后列出文件，下载链接可用
+  [D2] 取件页每个文件带「举报」按钮，提交后弹「举报已提交」
+  [D3] 后台「举报审核」能看到这条举报，并标明来源是取件码
   [E] 扫码直传页：未登录先被挡住，登录链接带 next 回跳；登录后自动回到上传页
-  [F] 扫码直传页（390px 宽、已登录）：选文件真的传上去，文件出现在网盘
+  [F] 扫码直传页（390px 宽、已登录）：选文件真的传上去，文件出现在网盘；
+      上传命中黑名单的文件被拒，页面直接显示「此文件包含法律禁止的内容」
   [G] 390px 窄屏：标签页与卡片不横向溢出
   [H] 登录页底部有「有取件码？去取件」入口，指向 /pickup
 
@@ -17,6 +21,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import socket
@@ -115,16 +120,30 @@ def main() -> int:
     snapshot_db(db_copy)
 
     con = sqlite3.connect(str(db_copy))
-    try:
-        con.execute("delete from quick_transfers")
-    except sqlite3.OperationalError:
-        pass
+    for stmt in ("delete from quick_transfers", "delete from share_reports"):
+        try:
+            con.execute(stmt)
+        except sqlite3.OperationalError:
+            pass
     admin = con.execute(
         "select id, username, token_version from users where role = 1 order by id limit 1"
     ).fetchone()
     if not admin:
         raise SystemExit("库里没有管理员，先手动建一个再来跑这个脚本")
+    # 造一份「已被举报确认」的内容，用来验证上传侧的拦截提示
+    illegal = b"blocked-by-ui-test" * 20
+    illegal_sha = hashlib.sha256(illegal).hexdigest()
+    con.execute(
+        "insert or replace into blocked_blobs (sha256, reason, blocked_by, created_at)"
+        " values (?,?,?,datetime('now'))",
+        (illegal_sha, "UI 测试拉黑", admin[0]),
+    )
     con.execute("update users set password_hash=? where id=?", (hash_password(PASSWORD), admin[0]))
+    try:
+        # 规范同意状态是账号级的，跑第二遍要回到「没同意过」
+        con.execute("update user_settings set quick_terms_at=NULL where user_id=?", (admin[0],))
+    except sqlite3.OperationalError:
+        pass
     con.commit()
     con.close()
 
@@ -209,10 +228,21 @@ def main() -> int:
                 )
                 return ctx, page, errors
 
-            print("\n[A] 侧栏入口与三个标签页")
+            print("\n[A0] 使用规范闸门")
             ctx, page, errors = make_page(session_token)
             page.goto(base + "/#/quick", wait_until="domcontentloaded")
+            page.wait_for_selector(".quick-gate", timeout=20000)
+            check("未同意先看到规范", page.locator(".quick-gate").count() == 1)
+            check("同意按钮默认禁用", page.locator("[data-accept]").is_disabled())
+            check("正文被挡住", not page.locator(".quick-tabs").is_visible())
+            check("规范里写明封号与法律责任", "法律责任" in page.locator(".quick-gate__list").inner_text())
+            page.screenshot(path=str(OUT / "quick_terms.png"), full_page=False)
+            page.locator(".quick-agree").click()
+            check("勾选后可点同意", not page.locator("[data-accept]").is_disabled())
+            page.locator("[data-accept]").click()
             page.wait_for_selector(".quick-tabs .quick-tab", timeout=20000)
+
+            print("\n[A] 侧栏入口与三个标签页")
             nav_item = page.locator('.nav-item[data-route="quick"]')
             check("侧栏有快传", nav_item.count() == 1, str(nav_item.count()))
             check("导航高亮", "is-active" in (nav_item.get_attribute("class") or ""))
@@ -220,6 +250,8 @@ def main() -> int:
             check("三个标签页", len(tabs) == 3, str(tabs))
             check("标签顺序", [x.strip() for x in tabs] == ["扫码直传", "发给用户", "取件码"], str(tabs))
             check("标题是快传", page.locator(".view-title span").first.inner_text().strip() == "快传")
+            warn = page.locator(".quick-warn").inner_text()
+            check("页面有禁止上传警示", "禁止上传法律禁止的文件" in warn and "封号" in warn, warn[:40])
 
             print("\n[B] 扫码直传：生成二维码")
             page.locator('[data-act="new-drop"]').click()
@@ -262,6 +294,37 @@ def main() -> int:
             check("下载链接可用", resp.status == 200 and body == payload, f"{resp.status} {len(body)}")
             page2.screenshot(path=str(OUT / "quick_pickup_public.png"), full_page=False)
 
+            print("\n[D2] 取件页举报")
+            check("每个文件都有举报按钮", page2.locator(".quick-item__report").count() == 1)
+            page2.locator(".quick-item__report").first.click()
+            page2.wait_for_selector(".share-modal", timeout=10000)
+            check("弹出举报框", "举报这个文件" in page2.locator(".share-modal__title").last.inner_text())
+            page2.screenshot(path=str(OUT / "quick_report.png"), full_page=False)
+            page2.fill("#quick-report-reason", "UI 测试举报")
+            page2.locator('.share-modal [data-ok]').last.click()
+            page2.wait_for_selector(".share-modal__title:has-text('举报已提交')", timeout=15000)
+            titles = page2.locator(".share-modal__title").all_inner_texts()
+            check("提交后提示已受理", any("举报已提交" in x for x in titles), str(titles))
+            page2.locator('.share-modal [data-ok]').last.click()
+            page2.wait_for_selector(".share-modal", state="detached", timeout=10000)
+            check("举报弹层可关闭", page2.locator(".share-modal").count() == 0)
+
+            print("\n[D3] 后台举报队列")
+            ctx6, page6, errors6 = make_page(session_token, width=1440, height=1000)
+            page6.goto(base + "/#/admin", wait_until="domcontentloaded")
+            page6.wait_for_selector('[data-tab="reports"]', timeout=20000)
+            page6.click('[data-tab="reports"]')
+            page6.wait_for_selector(".admin-row--report", timeout=20000)
+            cards = page6.locator(".admin-row--report[data-id]")
+            card = cards.filter(has_text="取件样本.txt").first
+            check("后台有这条举报", cards.count() >= 1, str(cards.count()))
+            first = card.inner_text()
+            check("标明是取件码来源", "取件码" in first, first[:80])
+            check("看得到文件名", "取件样本.txt" in first, first[:80])
+            page6.screenshot(path=str(OUT / "quick_admin_report.png"), full_page=False)
+            page6.close()
+            ctx6.close()
+
             print("\n[E] 扫码直传页：未登录先挡一道")
             ctx0, page0, errors0 = make_page(width=390, height=844)
             page0.goto(base + drop_url, wait_until="domcontentloaded")
@@ -292,6 +355,8 @@ def main() -> int:
             print("\n[F] 扫码直传页：登录后真的传一个文件")
             local = tmp / "手机照片.txt"
             local.write_bytes(b"from-phone" * 300)
+            bad_local = tmp / "违规样本.bin"
+            bad_local.write_bytes(illegal)
             ctx3, page3, errors3 = make_page(session_token, width=390, height=844)
             page3.goto(base + drop_url, wait_until="domcontentloaded")
             page3.wait_for_selector(".quick-drop", timeout=20000)
@@ -306,6 +371,15 @@ def main() -> int:
             st, listing = http(base, "GET", "/api/nodes", None, cookie)
             names = [item["name"] for item in listing.get("items") or []]
             check("文件真的落进网盘", "手机照片.txt" in names, str(names))
+
+            page3.set_input_files("[data-input]", str(bad_local))
+            page3.wait_for_selector(".quick-up__err", timeout=30000)
+            err_text = page3.locator(".quick-up__err").last.inner_text()
+            check("黑名单文件被拒并说明原因", "法律禁止" in err_text, err_text)
+            page3.screenshot(path=str(OUT / "quick_drop_blocked.png"), full_page=False)
+            st, listing = http(base, "GET", "/api/nodes", None, cookie)
+            names = [item["name"] for item in listing.get("items") or []]
+            check("违规文件没进网盘", "违规样本.bin" not in names, str(names))
 
             print("\n[G] 390px 窄屏不溢出")
             ctx4, page4, errors4 = make_page(session_token, width=390, height=844)
@@ -341,6 +415,7 @@ def main() -> int:
                 ("直传页", errors3),
                 ("窄屏", errors4),
                 ("登录页", errors5),
+                ("后台举报", errors6),
             ):
                 check(f"{name}无 JS 异常", not errs, "; ".join(errs[:2]))
 

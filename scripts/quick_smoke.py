@@ -3,17 +3,19 @@
 
 用库副本起独立实例（不动真实库），把三条链路各跑一遍：
 
-  A 扫码直传：建会话 → 未登录/别人被挡（401/403）→ 本 init/分片/complete →
-    文件落在指定目录 → 撤销后 410
+  A 使用规范 + 扫码直传：未同意不能建会话 → 同意 → 建会话 → 未登录/别人被挡（401/403）
+    → 本 init/分片/complete → 文件落在指定目录 → 撤销后 410
   B 站内快传：A 发给 B → B 根目录出现副本 → 收件箱未读数 → 标已读 → 发给自己报错
-  C 取件码：建码 → 匿名查码 → 匿名下载 → 次数用完 410 → 文件夹被拒 → 撤销 410
-  D 越权：B 撤销 A 的会话必须 404
+  C 取件码：建码 → 匿名查码 → 匿名下载 → 匿名举报 → 管理员审核拉黑 → 取件码失效
+  D 黑名单上传：命中已拉黑哈希的文件，init 与 complete 都拒绝
+  E 越权：B 撤销 A 的会话必须 404
 
     ./.venv/Scripts/python.exe scripts/quick_smoke.py
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import socket
@@ -157,10 +159,15 @@ def main() -> int:
     db_copy = tmp / "smoke.db"
     snapshot_db(db_copy)
     con = sqlite3.connect(str(db_copy))
-    try:
-        con.execute("delete from quick_transfers")
-    except sqlite3.OperationalError:
-        pass
+    for stmt in (
+        "delete from quick_transfers",
+        "delete from share_reports",
+        "delete from blocked_blobs",
+    ):
+        try:
+            con.execute(stmt)
+        except sqlite3.OperationalError:
+            pass
     users = con.execute(
         "select id, username, token_version from users order by role desc, id limit 2"
     ).fetchall()
@@ -178,6 +185,14 @@ def main() -> int:
     hashed = hash_password(PASSWORD)
     for row in users:
         con.execute("update users set password_hash=? where id=?", (hashed, row[0]))
+    try:
+        # 规范同意状态是账号级的，跑第二遍要回到「没同意过」
+        con.execute(
+            "update user_settings set quick_terms_at=NULL where user_id in (?,?)",
+            (users[0][0], users[1][0]),
+        )
+    except sqlite3.OperationalError:
+        pass
     con.commit()
     con.close()
 
@@ -212,8 +227,18 @@ def main() -> int:
         if not wait_up(base, proc, log_path):
             raise SystemExit("服务没起来，看日志：" + str(log_path))
 
-        # ---------------- A 扫码直传 ----------------
-        print("\n[A] 扫码直传")
+        # ---------------- A 使用规范 + 扫码直传 ----------------
+        print("\n[A] 使用规范 + 扫码直传")
+        status, terms = call(base, "GET", "/api/quick/terms", a_cookie)
+        check("新账号未同意规范", status == 200 and terms.get("accepted") is False, str(terms))
+        status, data = call(base, "POST", "/api/quick/drops", a_cookie, {"minutes": 30})
+        check("未同意时建会话 403", status == 403, str(status))
+        check("提示先同意规范", "规范" in str(data.get("detail")), str(data.get("detail")))
+        status, _ = call(base, "POST", "/api/quick/terms", a_cookie, {"accepted": False})
+        check("只勾不点同意 400", status == 400, str(status))
+        status, terms = call(base, "POST", "/api/quick/terms", a_cookie, {"accepted": True})
+        check("同意后 accepted", status == 200 and terms.get("accepted") is True, str(terms))
+
         status, folder = call(base, "POST", "/api/nodes/folder", a_cookie, {"name": "手机相册"})
         check("建目标目录", status == 201, str(status))
         target_id = (folder.get("node") or {}).get("id")
@@ -383,8 +408,113 @@ def main() -> int:
         status, _ = call(base, "GET", "/api/public/quick/pickup/ZZZZZZ")
         check("不存在的码 404", status == 404, str(status))
 
-        # ---------------- D 未登录 ----------------
-        print("\n[D] 未登录")
+        # ---------------- C2 匿名举报 ----------------
+        print("\n[C2] 匿名举报")
+        blocked_body = b"report-me" * 300
+        sha = hashlib.sha256(blocked_body).hexdigest()
+        rep_node = upload_file(base, a_cookie, "被举报.txt", blocked_body)
+        status, data = call(
+            base,
+            "POST",
+            "/api/quick/pickups",
+            a_cookie,
+            {"nodeIds": [rep_node["id"]], "days": 7},
+        )
+        rep_code = (data.get("pickup") or {}).get("code")
+        check("建被举报用的取件码", status == 200 and bool(rep_code), str(status))
+
+        status, data = call(
+            base,
+            "POST",
+            f"/api/public/quick/pickup/{rep_code}/report",
+            None,
+            {"nodeId": rep_node["id"], "reason": "测试举报"},
+        )
+        report_id = data.get("id")
+        check("匿名举报 200", status == 200 and bool(report_id), f"{status} {data}")
+        status, again = call(
+            base,
+            "POST",
+            f"/api/public/quick/pickup/{rep_code}/report",
+            None,
+            {"nodeId": rep_node["id"]},
+        )
+        check("重复举报不重复入库", again.get("id") == report_id, str(again.get("id")))
+        status, _ = call(
+            base,
+            "POST",
+            f"/api/public/quick/pickup/{rep_code}/report",
+            None,
+            {"nodeId": target_id},
+        )
+        check("举报不在码里的文件 404", status == 404, str(status))
+
+        status, data = call(base, "GET", "/api/admin/reports?status=pending", a_cookie)
+        rows = [r for r in data.get("items") or [] if r.get("id") == report_id]
+        check("举报进了后台队列", bool(rows) and rows[0].get("source") == "quick", str(data.get("total")))
+        check("后台能看出是取件码举报", bool(rows) and rows[0].get("code") == rep_code, str(rows[:1]))
+
+        status, data = call(base, "POST", f"/api/admin/reports/{report_id}/approve", a_cookie)
+        check("管理员审核通过", status == 200, f"{status} {data.get('detail')}")
+        status, _ = call(base, "GET", f"/api/public/quick/pickup/{rep_code}")
+        check("被举报的取件码失效 410", status == 410, str(status))
+        status, _ = fetch_bytes(
+            base, f"/api/public/quick/pickup/{rep_code}/download?nodeId={rep_node['id']}"
+        )
+        check("被举报的文件无法下载", status in (403, 410), str(status))
+
+        # ---------------- D 黑名单上传 ----------------
+        print("\n[D] 黑名单上传")
+        status, drop2 = call(base, "POST", "/api/quick/drops", a_cookie, {"minutes": 30})
+        token2 = (drop2.get("drop") or {}).get("token")
+        status, data = call(
+            base,
+            "POST",
+            f"/api/public/quick/drop/{token2}/init",
+            a_cookie,
+            {"name": "bad.bin", "size": len(blocked_body), "sha256": sha, "chunkSize": 0},
+        )
+        check("声明哈希命中黑名单 init 403", status == 403, str(status))
+        check("提示法律禁止内容", "法律禁止" in str(data.get("detail")), str(data.get("detail")))
+
+        status, init = call(
+            base,
+            "POST",
+            f"/api/public/quick/drop/{token2}/init",
+            a_cookie,
+            {"name": "bad.bin", "size": len(blocked_body)},
+        )
+        check("不声明哈希照常开传 200", status == 200, str(status))
+        sid2 = init.get("sessionId")
+        chunk2 = init.get("chunkSize") or len(blocked_body)
+        for index in init.get("missing") or []:
+            start = index * chunk2
+            status, _ = put_bytes(
+                base,
+                f"/api/public/quick/drop/{token2}/{sid2}/{index}",
+                blocked_body[start : start + chunk2],
+                a_cookie,
+            )
+        status, data = call(base, "POST", f"/api/public/quick/drop/{token2}/{sid2}/complete", a_cookie)
+        check("合并时命中黑名单 403", status == 403, str(status))
+        check("服务端也算出了同样的哈希", "法律禁止" in str(data.get("detail")), str(data.get("detail")))
+
+        status, listing = call(base, "GET", "/api/nodes", a_cookie)
+        names = [item["name"] for item in listing.get("items") or []]
+        check("违规文件没进网盘", "bad.bin" not in names, str(names))
+
+        status, data = call(
+            base,
+            "POST",
+            "/api/quick/sends",
+            a_cookie,
+            {"nodeIds": [rep_node["id"]], "toUsername": b_name},
+        )
+        check("发黑名单里的文件 403", status == 403, str(status))
+        check("提示带文件名", "被举报.txt" in str(data.get("detail")), str(data.get("detail")))
+
+        # ---------------- E 未登录 ----------------
+        print("\n[E] 未登录")
         status, _ = call(base, "GET", "/api/quick/drops")
         check("未登录看列表 401", status == 401, str(status))
         status, _ = call(base, "POST", "/api/quick/pickups", None, {"nodeIds": [1]})

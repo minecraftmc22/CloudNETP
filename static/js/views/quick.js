@@ -32,6 +32,13 @@ const TABS = [
 
 const STATUS_TEXT = { active: "有效", expired: "已过期", revoked: "已取消" };
 
+/** 使用规范：与后端 quick_service.BLOCKED_UPLOAD_MSG 保持一致 */
+const RULES = [
+  "禁止上传、发送、分享任何法律、法规禁止的文件与内容，包括但不限于色情低俗、暴力恐怖、赌博毒品、侵权盗版、恶意程序等。",
+  "每次上传都会记录文件哈希、账号、时间与 IP，仅用于违规追查与配合监管。",
+  "违反上述要求将被封禁账号；情节严重的保存证据并移交司法机关，依法追究法律责任。",
+];
+
 /* ------------------------------------------------------------------ */
 /* 二维码：用到时才加载 vendor 里的库（56 KB，多数人不会开这个页面）      */
 /* ------------------------------------------------------------------ */
@@ -81,6 +88,8 @@ export function renderQuick(root) {
     pickupNodes: [],
     lastDrop: null,
     lastPickup: null,
+    // null = 还没问到；false = 必须先同意规范
+    termsAccepted: null,
   };
 
   root.innerHTML = H`
@@ -96,13 +105,78 @@ export function renderQuick(root) {
       </button>
     </div>
     <div class="view-body">
-      <div class="quick-tabs" data-tabs></div>
-      <div data-panel></div>
+      <div data-gate hidden></div>
+      <div data-body>
+        <div class="quick-warn">
+          <svg class="icon icon--s"><use href="#i-alert"/></svg>
+          <div class="quick-warn__text">
+            <b>${t("禁止上传法律禁止的文件")}</b>
+            <span>${t("快传禁止上传、发送任何法律、法规禁止的内容。违者封号，并依法追加法律责任。")}</span>
+          </div>
+        </div>
+        <div class="quick-tabs" data-tabs></div>
+        <div data-panel></div>
+      </div>
     </div>`;
 
   const tabsEl = root.querySelector("[data-tabs]");
   const panelEl = root.querySelector("[data-panel]");
   const summaryEl = root.querySelector("[data-summary]");
+  const gateEl = root.querySelector("[data-gate]");
+  const bodyEl = root.querySelector("[data-body]");
+
+  /* ---------------- 使用规范闸门 ---------------- */
+  function paintGate() {
+    gateEl.innerHTML = H`
+      <div class="quick-gate">
+        <div class="quick-gate__head">
+          <svg class="icon"><use href="#i-alert"/></svg>
+          <span>${t("使用快传前请先阅读并同意")}</span>
+        </div>
+        <p class="quick-gate__lead">${t("快传会把文件直接送进网盘，也可能发给别人，所以请先确认下面几条：")}</p>
+        <ul class="quick-gate__list">
+          ${RULES.map((line) => H`<li>${t(line)}</li>`).join("")}
+        </ul>
+        <label class="quick-agree">
+          <input type="checkbox" data-agree>
+          <span>${t("我已阅读并同意《快传使用规范》，承诺不上传法律禁止的内容")}</span>
+        </label>
+        <button class="btn btn--accent" type="button" data-accept disabled>
+          <svg class="icon icon--s"><use href="#i-check"/></svg>
+          <span>${t("同意并继续")}</span>
+        </button>
+      </div>`;
+
+    const box = gateEl.querySelector("[data-agree]");
+    const btn = gateEl.querySelector("[data-accept]");
+    box.addEventListener("change", () => {
+      btn.disabled = !box.checked;
+    });
+    btn.addEventListener("click", async () => {
+      if (!box.checked) return;
+      btn.disabled = true;
+      try {
+        await api.post("/api/quick/terms", { accepted: true });
+        state.termsAccepted = true;
+        paintBody();
+      } catch (err) {
+        Toast.error(err.message);
+        btn.disabled = false;
+      }
+    });
+  }
+
+  function paintBody() {
+    const blocked = state.termsAccepted === false;
+    gateEl.hidden = !blocked;
+    bodyEl.hidden = blocked;
+    if (blocked) {
+      paintGate();
+      return;
+    }
+    paintTabs();
+    paintPanel();
+  }
 
   function paintTabs() {
     tabsEl.innerHTML = TABS.map(
@@ -670,14 +744,22 @@ export function renderQuick(root) {
 
   root.querySelector('[data-act="refresh"]').addEventListener("click", async () => {
     await loadAll();
-    paintTabs();
-    paintPanel();
+    paintBody();
   });
 
-  paintTabs();
-  paintPanel();
-  loadAll().then(() => {
-    paintTabs();
-    paintPanel();
-  });
+  async function boot() {
+    try {
+      const terms = await api.get("/api/quick/terms");
+      state.termsAccepted = Boolean(terms.accepted);
+    } catch {
+      // 拿不到状态不把人挡在外面（服务端创建时还会再校验一次）
+      state.termsAccepted = true;
+    }
+    paintBody();
+    if (!state.termsAccepted) return;
+    await loadAll();
+    paintBody();
+  }
+
+  boot();
 }

@@ -49,6 +49,112 @@
 }
 
 /* ------------------------------------------------------------------ */
+/* 应用内：使用规范警示与同意闸门                                      */
+/* ------------------------------------------------------------------ */
+.quick-warn {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  border-radius: var(--radius-m);
+  border: 1px solid color-mix(in srgb, var(--danger) 34%, transparent);
+  background: var(--danger-soft);
+  color: var(--text-1);
+}
+
+.quick-warn > .icon {
+  flex: 0 0 auto;
+  margin-top: 1px;
+  color: var(--danger);
+}
+
+.quick-warn__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12.5px;
+  line-height: 1.65;
+}
+
+.quick-warn__text b {
+  font-size: 13px;
+  color: var(--danger);
+}
+
+.quick-warn__text span {
+  color: var(--text-2);
+}
+
+.quick-gate {
+  max-width: 640px;
+  padding: 22px;
+  border-radius: var(--radius-l);
+  border: 1px solid color-mix(in srgb, var(--danger) 30%, var(--stroke-hair));
+  background: color-mix(in srgb, var(--dialog-surface) 88%, transparent);
+}
+
+.quick-gate__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-1);
+}
+
+.quick-gate__head .icon {
+  width: 18px;
+  height: 18px;
+  color: var(--danger);
+}
+
+.quick-gate__lead {
+  margin: 10px 0 12px;
+  font-size: 12.5px;
+  line-height: 1.75;
+  color: var(--text-2);
+}
+
+.quick-gate__list {
+  margin: 0 0 16px;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 12.5px;
+  line-height: 1.75;
+  color: var(--text-2);
+}
+
+.quick-gate__list li::marker {
+  color: var(--danger);
+}
+
+.quick-agree {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 10px 12px;
+  margin-bottom: 14px;
+  border-radius: var(--radius-s);
+  background: var(--fill-subtle);
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-1);
+  cursor: pointer;
+}
+
+.quick-agree input {
+  flex: 0 0 auto;
+  width: 15px;
+  height: 15px;
+  margin: 2px 0 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+/* ------------------------------------------------------------------ */
 /* 应用内：卡片与表单                                                  */
 /* ------------------------------------------------------------------ */
 .quick-card {
@@ -624,4 +730,69 @@
 .picker__enter:hover {
   background: var(--fill-active);
   color: var(--text-1);
+}
+
+/* ------------------------------------------------------------------ */
+/* 公开页：警示与举报                                                  */
+/* ------------------------------------------------------------------ */
+.quick-pub__warn {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 9px 12px;
+  border-radius: var(--radius-s);
+  border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
+  background: var(--danger-soft);
+  font-size: 12px;
+  line-height: 1.65;
+  color: var(--text-2);
+}
+
+.quick-pub__warn .icon {
+  flex: 0 0 auto;
+  margin-top: 2px;
+  color: var(--danger);
+}
+
+.quick-note--warn {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--stroke-hair);
+  color: var(--text-2);
+}
+
+.quick-item__report {
+  flex: 0 0 auto;
+  padding: 0 10px;
+  color: var(--text-2);
+}
+
+.quick-item__report:hover {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 40%, transparent);
+  background: var(--danger-soft);
+}
+
+@media (max-width: 560px) {
+  /* 窄屏放不下「举报 + 下载」两个文字按钮，举报只留图标（title 里仍有说明） */
+  .quick-item__report {
+    padding: 0 8px;
+  }
+
+  .quick-item__report span {
+    display: none;
+  }
+}
+
+/* 上传失败原因（黑名单拦截等）：单独一行，别被进度条的百分比挤掉 */
+.quick-up__err {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--danger);
+  word-break: break-word;
+}
+
+.quick-up.is-error .quick-up__bar {
+  display: none;
 }

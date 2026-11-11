@@ -43,6 +43,11 @@ const esc = (v) =>
     (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]
   );
 
+/** 取件页只内联了一小撮图标；后端给的类型图标不在里面时退回 i-file */
+function iconName(name) {
+  return name && document.getElementById(name) ? name : "i-file";
+}
+
 function formatBytes(bytes) {
   const n = Number(bytes) || 0;
   if (n < 1024) return `${n} B`;
@@ -96,6 +101,86 @@ async function copyText(text) {
 function card(inner, { center = false } = {}) {
   root.innerHTML = H`<section class="share-card${center ? " share-card--center" : ""}">${inner}</section>`;
   return root.querySelector("section");
+}
+
+/* ---------------- 轻量弹层（与分享页同一套 .share-modal 样式） ---------------- */
+function openModal({ title, body, confirmText, cancelText = "取消", danger = false, onConfirm }) {
+  const backdrop = document.createElement("div");
+  backdrop.className = "share-modal__backdrop";
+  backdrop.innerHTML = H`
+    <div class="share-modal" role="dialog" aria-modal="true">
+      <h2 class="share-modal__title">${esc(t(title))}</h2>
+      <div class="share-modal__body">${body}</div>
+      <div class="share-modal__foot">
+        ${cancelText ? H`<button class="btn" type="button" data-cancel>${t(cancelText)}</button>` : ""}
+        <button class="btn ${danger ? "btn--danger" : "btn--accent"}" type="button" data-ok>${esc(t(confirmText))}</button>
+      </div>
+    </div>`;
+  document.body.append(backdrop);
+  const close = () => backdrop.remove();
+  backdrop.addEventListener("click", (event) => {
+    if (event.target === backdrop) close();
+  });
+  const onKey = (event) => {
+    if (event.key === "Escape") {
+      close();
+      document.removeEventListener("keydown", onKey);
+    }
+  };
+  document.addEventListener("keydown", onKey);
+  backdrop.querySelector("[data-cancel]")?.addEventListener("click", () => {
+    close();
+    document.removeEventListener("keydown", onKey);
+  });
+  backdrop.querySelector("[data-ok]").addEventListener("click", async (event) => {
+    const btn = event.currentTarget;
+    const errBox = backdrop.querySelector("[data-modal-error]");
+    btn.disabled = true;
+    try {
+      await onConfirm(backdrop);
+      close();
+      document.removeEventListener("keydown", onKey);
+    } catch (err) {
+      btn.disabled = false;
+      if (errBox) {
+        errBox.textContent = err.message;
+        errBox.hidden = false;
+      }
+    }
+  });
+  return backdrop;
+}
+
+/** 举报取件码里的某个文件：匿名提交，管理员审核后拉黑哈希 */
+function openReport(item, code) {
+  openModal({
+    title: "举报这个文件",
+    danger: true,
+    confirmText: "提交举报",
+    body: H`
+      <p class="share-modal__desc">${t(
+        "如果这个文件违反法律法规或侵犯了你的权益，请提交举报。管理员审核确认后会禁止该文件被分享与下载，举报是匿名的。"
+      )}</p>
+      <p class="share-modal__desc">${esc(item.name)}</p>
+      <label class="share-modal__label" for="quick-report-reason">${t("举报理由（选填）")}</label>
+      <textarea class="share-modal__textarea" id="quick-report-reason" maxlength="200"
+                placeholder="${t("例如：包含违法违规内容 / 侵权 / 垃圾广告")}"></textarea>
+      <p class="share-modal__error" data-modal-error hidden></p>`,
+    onConfirm: async (backdrop) => {
+      const reason = backdrop.querySelector("#quick-report-reason").value.trim();
+      await apiPost(`/api/public/quick/pickup/${encodeURIComponent(code)}/report`, {
+        nodeId: item.id,
+        reason: reason || null,
+      });
+      openModal({
+        title: "举报已提交",
+        confirmText: "好的",
+        cancelText: "",
+        body: H`<p class="share-modal__desc">${t("感谢你的反馈，管理员会尽快审核处理。")}</p>`,
+        onConfirm: () => {},
+      });
+    },
+  });
 }
 
 /** 当前登录用户；未登录返回 null（/api/me 401 是正常情况） */
@@ -223,14 +308,19 @@ function renderPickup(data) {
           .map(
             (item) => H`
           <div class="quick-item">
-            <span class="quick-row__icon"><svg class="icon"><use href="#${item.icon}"/></svg></span>
+            <span class="quick-row__icon"><svg class="icon"><use href="#${iconName(item.icon)}"/></svg></span>
             <div class="quick-item__main">
               <div class="quick-item__name" title="${esc(item.name)}">${esc(item.name)}</div>
               <div class="quick-item__meta">${formatBytes(item.size)}</div>
             </div>
+            <button class="btn btn--subtle quick-item__report" type="button" data-report="${item.id}"
+                    title="${t("举报该文件")}">
+              <svg class="icon icon--s"><use href="#i-alert"/></svg>
+              <span data-i18n="举报">${t("举报")}</span>
+            </button>
             <a class="btn btn--subtle" href="/api/public/quick/pickup/${esc(data.code)}/download?nodeId=${item.id}">
               <svg class="icon icon--s"><use href="#i-download"/></svg>
-              <span data-i18n="下载">下载</span>
+              <span data-i18n="下载">${t("下载")}</span>
             </a>
           </div>`
           )
@@ -245,8 +335,15 @@ function renderPickup(data) {
       <div class="quick-note" data-i18n="文件由 CloudNETP 直接提供，不经过任何第三方服务器。">
         ${t("文件由 CloudNETP 直接提供，不经过任何第三方服务器。")}
       </div>
+      <div class="quick-note quick-note--warn">
+        ${t("发现违法或侵权内容，点文件旁的「举报」提交给管理员，核实后会禁止该文件继续被取件。")}
+      </div>
     </div>`
   );
+  root.querySelectorAll("[data-report]").forEach((btn) => {
+    const item = items.find((it) => it.id === Number(btn.dataset.report));
+    if (item) btn.addEventListener("click", () => openReport(item, data.code));
+  });
   root.querySelector('[data-act="again"]').addEventListener("click", () => {
     history.replaceState(null, "", "/pickup");
     renderPickupForm();
@@ -284,6 +381,10 @@ function renderDrop(data) {
         folder: esc(data.folder),
       })}</div>
       <div class="quick-pub__sub">${expiryText(data.expiresAt)} · ${t("已登录，文件直接存进这台服务器")}</div>
+      <div class="quick-pub__warn">
+        <svg class="icon icon--s"><use href="#i-alert"/></svg>
+        <span>${t("禁止上传法律、法规禁止的文件与内容。违者封号，并依法追究法律责任；命中已确认的违规文件会被直接拒绝。")}</span>
+      </div>
 
       <div class="quick-drop" data-drop tabindex="0" role="button">
         <svg class="icon"><use href="#i-upload"/></svg>
@@ -418,14 +519,16 @@ function renderDrop(data) {
       setPct(1);
       paintDone();
     } catch (err) {
+      // 失败原因（含「此文件包含法律禁止的内容，无法上传」）单独一行，别挤在进度数字里被截断
       upload.state = "error";
       row.classList.add("is-error");
-      pct.textContent = err.message;
+      bar.style.width = "0%";
+      pct.textContent = t("失败");
       pct.style.color = "var(--danger)";
-      pct.style.maxWidth = "60%";
-      pct.style.overflow = "hidden";
-      pct.style.textOverflow = "ellipsis";
-      pct.style.whiteSpace = "nowrap";
+      const msg = document.createElement("div");
+      msg.className = "quick-up__err";
+      msg.textContent = err.message;
+      row.append(msg);
     }
   }
 

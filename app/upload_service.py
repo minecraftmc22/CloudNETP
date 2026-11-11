@@ -229,7 +229,19 @@ def save_chunk(db: Session, user_id: int, session_id: str, index: int, data: byt
 # --------------------------------------------------------------------------- #
 # 合并
 # --------------------------------------------------------------------------- #
-def complete_upload(db: Session, user: User, session_id: str, sha256: str | None = None) -> dict:
+def complete_upload(
+    db: Session,
+    user: User,
+    session_id: str,
+    sha256: str | None = None,
+    *,
+    guard=None,
+) -> dict:
+    """合并分片并建节点。
+
+    `guard(real_sha)` 是内容校验后的最后一道闸门（快传用它拦黑名单哈希）；
+    抛异常即放弃合并，临时文件由 finally 清掉，不会留下半个 blob。
+    """
     session = get_session(db, user_id=user.id, session_id=session_id)
     uploaded = set(uploaded_indexes(db, session))
     missing = [i for i in range(session.total_chunks) if i not in uploaded]
@@ -246,6 +258,8 @@ def complete_upload(db: Session, user: User, session_id: str, sha256: str | None
             raise HTTPException(
                 status.HTTP_409_CONFLICT, "文件校验失败：内容与服务端合并结果不一致，请重新上传"
             )
+        if guard is not None:
+            guard(real_sha, written)
         dedup = storage.blob_exists(real_sha, written)
         storage.commit_tmp(tmp, real_sha)
     finally:

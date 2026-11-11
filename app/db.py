@@ -137,6 +137,12 @@ _COLUMN_PATCHES: dict[str, dict[str, str]] = {
         "ai_config": "JSON NULL",
         # 界面语言（老库补列后为 NULL，前端按浏览器语言兜底）
         "language": "VARCHAR(16) NULL",
+        # 同意《快传使用规范》的时间；老库补列后为 NULL，即需要重新同意一次
+        "quick_terms_at": "DATETIME NULL",
+    },
+    "share_reports": {
+        # 来自快传取件码的举报：记 quick_transfers.id（此时 share_id 为 0）
+        "quick_id": "BIGINT NULL",
     },
     "users": {
         "display_name": "VARCHAR(32) NULL",
