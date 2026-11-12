@@ -402,7 +402,8 @@
    上传队列面板
    ------------------------------------------------------------ */
 .upload-panel {
-  position: absolute;
+  /* fixed 且挂在 body 上：要压在 z-index: 4 的看板娘之上，见 files.js 里的 uploadPanelEl */
+  position: fixed;
   right: 16px;
   bottom: 16px;
   width: 360px;
@@ -465,6 +466,19 @@
   height: 22px;
   flex: none;
 }
+/* 开关上传列表：只放图标，收起后箭头翻过来 */
+.upload-panel__toggle .icon {
+  transition: transform var(--dur-fast) var(--ease-standard);
+}
+.upload-panel.is-collapsed .upload-panel__toggle .icon {
+  transform: rotate(180deg);
+}
+.upload-panel.is-collapsed .upload-panel__head {
+  border-bottom: 0;
+}
+.upload-panel.is-collapsed .upload-panel__list {
+  display: none;
+}
 .upload-panel__list {
   max-height: 240px;
   overflow: auto;
@@ -514,6 +528,29 @@
 }
 .upload-item:hover .upload-item__close {
   opacity: 1;
+}
+/* 失败条目才出现「重试」，平时不占视觉 */
+.upload-item__retry {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--accent);
+  display: none;
+  place-items: center;
+  transition: background var(--dur-fast) var(--ease-standard);
+}
+.upload-item.is-error .upload-item__retry {
+  display: grid;
+}
+.upload-item__retry:hover {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+.upload-item__retry .icon {
+  width: 12px;
+  height: 12px;
 }
 .upload-item__close:hover {
   color: var(--danger);

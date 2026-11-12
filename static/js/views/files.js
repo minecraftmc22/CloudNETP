@@ -16,7 +16,24 @@ import { uploadFile } from "../uploader.js";
 const SORT_LABELS = { name: "名称", size: "大小", updated: "修改时间", created: "创建时间" };
 const UPLOAD_CONCURRENCY = 2;
 
+/**
+ * 上传面板挂在 body 上而不是视图容器里：`.app-shell` 自己是个层叠上下文（z-index: 2），
+ * 放进去的话永远压在 z-index: 4 的看板娘下面，右下角那几个按钮会点不到。
+ * 代价是切走视图时它不会跟着 view-root 一起清掉，所以这里补一个清理。
+ */
+let uploadPanelEl = null;
+window.addEventListener("hashchange", () => {
+  const name = location.hash.replace(/^#\/?/, "");
+  if (name && name !== "files") {
+    uploadPanelEl?.remove();
+    uploadPanelEl = null;
+  }
+});
+
 export function renderFiles(root) {
+  // 上传面板是否收起，按设备记住（和看板娘滚轮缩放一样的做法）
+  const COLLAPSE_KEY = "cloudnetp.uploadCollapsed";
+
   const state = {
     parentId: null,
     breadcrumb: [{ id: null, name: "我的文件" }],
@@ -30,6 +47,7 @@ export function renderFiles(root) {
     searchMode: false,
     loading: false,
     jobs: [],
+    uploadCollapsed: localStorage.getItem(COLLAPSE_KEY) === "1",
   };
 
   root.innerHTML = H`
@@ -713,6 +731,42 @@ export function renderFiles(root) {
     syncRow(job);
     renderUploadHeader();
     guardUnload();
+    // 失败了就把面板展开，别让人以为「文件没了」——重试按钮就在这一行上
+    if (job.status === "error" && state.uploadCollapsed) {
+      state.uploadCollapsed = false;
+      localStorage.setItem(COLLAPSE_KEY, "0");
+      applyCollapsed();
+    }
+  }
+
+  /** 失败条目点「重试」：重置进度再跑一次，成功后把它从列表里收走。 */
+  async function retryJob(job) {
+    if (job.status === "active" || job.status === "pending") return;
+    job.status = "pending";
+    job.phase = "hash";
+    job.loaded = 0;
+    job.ratio = 0;
+    job.speed = 0;
+    job.error = "";
+    job.instant = false;
+    job.dedup = false;
+    syncRow(job);
+    renderUploadHeader();
+    guardUnload();
+
+    await runJob(job);
+    if (job.status !== "done") {
+      if (job.status === "error") Toast.error(job.error || "重试失败");
+      return;
+    }
+    Toast.success(`「${job.file.name}」已上传`);
+    await load({ keepScroll: true });
+    await refreshUser();
+    window.setTimeout(() => {
+      state.jobs = state.jobs.filter((item) => item.id !== job.id);
+      renderUploadPanel();
+      guardUnload();
+    }, 1600);
   }
 
   async function finishBatch(jobs) {
@@ -951,9 +1005,10 @@ export function renderFiles(root) {
   }
 
   function renderUploadPanel() {
-    let panel = root.querySelector(".upload-panel");
+    let panel = uploadPanelEl;
     if (!state.jobs.length) {
       panel?.remove();
+      uploadPanelEl = null;
       return;
     }
     if (!panel) {
@@ -964,11 +1019,20 @@ export function renderFiles(root) {
           <svg class="icon icon--s"><use href="#i-upload"/></svg>
           <span class="upload-panel__title" data-upload-title></span>
           <button class="upload-panel__act" type="button" data-cancel-all>全部取消</button>
-          <button class="icon-btn" type="button" data-close title="收起">
+          <button class="icon-btn upload-panel__toggle" type="button" data-toggle
+                  aria-expanded="true" aria-label="开关上传列表" title="收起上传列表">
+            <svg class="icon"><use href="#i-chevron-down"/></svg>
+          </button>
+          <button class="icon-btn" type="button" data-close title="关闭并清空">
             <svg class="icon"><use href="#i-close"/></svg>
           </button>
         </div>
         <div class="upload-panel__list" data-upload-list></div>`;
+      panel.querySelector("[data-toggle]").addEventListener("click", () => {
+        state.uploadCollapsed = !state.uploadCollapsed;
+        localStorage.setItem(COLLAPSE_KEY, state.uploadCollapsed ? "1" : "0");
+        applyCollapsed();
+      });
       panel.querySelector("[data-close]").addEventListener("click", () => {
         state.jobs = [];
         renderUploadPanel();
@@ -982,7 +1046,8 @@ export function renderFiles(root) {
         state.jobs.forEach(syncRow);
         renderUploadHeader();
       });
-      root.appendChild(panel);
+      document.body.appendChild(panel);
+      uploadPanelEl = panel;
     }
 
     const list = panel.querySelector("[data-upload-list]");
@@ -996,6 +1061,9 @@ export function renderFiles(root) {
           <div class="upload-item__top">
             <span class="upload-item__name" title="${escapeHtml(job.file.name)}">${escapeHtml(job.file.name)}</span>
             <span class="upload-item__state" data-state></span>
+            <button class="upload-item__retry" type="button" data-retry="${job.id}" title="重新上传">
+              <svg class="icon"><use href="#i-refresh"/></svg>
+            </button>
             <button class="upload-item__close" type="button" data-cancel="${job.id}" title="取消这个文件">
               <svg class="icon"><use href="#i-close"/></svg>
             </button>
@@ -1005,10 +1073,23 @@ export function renderFiles(root) {
         </div>`
         )
         .join("");
+      list.querySelectorAll("[data-retry]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const job = state.jobs.find((item) => item.id === btn.dataset.retry);
+          if (job) retryJob(job);
+        });
+      });
       list.querySelectorAll("[data-cancel]").forEach((btn) => {
         btn.addEventListener("click", () => {
           const job = state.jobs.find((item) => item.id === btn.dataset.cancel);
           if (!job) return;
+          // 已经结束的条目，✕ 的意思是「从列表里去掉」
+          if (job.status === "error" || job.status === "canceled" || job.status === "done") {
+            state.jobs = state.jobs.filter((item) => item.id !== job.id);
+            renderUploadPanel();
+            guardUnload();
+            return;
+          }
           if (job.status === "pending") job.status = "canceled";
           job.controller?.abort();
           syncRow(job);
@@ -1017,12 +1098,26 @@ export function renderFiles(root) {
       });
     }
 
+    applyCollapsed();
     state.jobs.forEach(syncRow);
     renderUploadHeader();
   }
 
+  /** 收起时只留一条标题栏：列表高度归零，箭头翻转成「展开」。 */
+  function applyCollapsed() {
+    const panel = uploadPanelEl;
+    if (!panel) return;
+    const collapsed = Boolean(state.uploadCollapsed);
+    panel.classList.toggle("is-collapsed", collapsed);
+    const btn = panel.querySelector("[data-toggle]");
+    if (btn) {
+      btn.title = collapsed ? "展开上传列表" : "收起上传列表";
+      btn.setAttribute("aria-expanded", String(!collapsed));
+    }
+  }
+
   function syncRow(job) {
-    const row = root.querySelector(`[data-job="${job.id}"]`);
+    const row = uploadPanelEl?.querySelector(`[data-job="${job.id}"]`);
     if (!row) return;
     row.classList.toggle("is-error", job.status === "error");
     row.classList.toggle("is-done", job.status === "done");
@@ -1042,7 +1137,7 @@ export function renderFiles(root) {
   }
 
   function renderUploadHeader() {
-    const title = root.querySelector("[data-upload-title]");
+    const title = uploadPanelEl?.querySelector("[data-upload-title]");
     if (!title) return;
     const active = state.jobs.filter((job) => job.status === "active" || job.status === "pending");
     const done = state.jobs.filter((job) => job.status === "done").length;
@@ -1055,7 +1150,7 @@ export function renderFiles(root) {
     } else {
       title.textContent = `${state.jobs.length} 个文件已处理完`;
     }
-    const cancelAll = root.querySelector("[data-cancel-all]");
+    const cancelAll = uploadPanelEl?.querySelector("[data-cancel-all]");
     if (cancelAll) cancelAll.style.display = active.length ? "" : "none";
   }
 

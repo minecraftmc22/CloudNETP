@@ -381,7 +381,8 @@
   /* ---------------- 上传队列 / 任务面板 ---------------- */
   .upload-panel {
     right: 8px;
-    bottom: 10px;
+    /* 面板是 fixed，要抬到底部标签栏之上 */
+    bottom: calc(var(--mobile-nav-h) + env(safe-area-inset-bottom, 0px) + 10px);
     width: calc(100% - 16px);
     max-width: none;
   }
