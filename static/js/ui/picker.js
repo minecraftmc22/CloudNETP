@@ -82,7 +82,8 @@ export function pickFolder({ title = "移动到", excludeId = null, confirmText 
 
     async function load() {
       renderCrumb();
-      listEl.innerHTML = '<div class="picker__empty">加载中…</div>';
+      listEl.innerHTML =
+        '<div class="picker__empty picker__loading"><span class="spinner"></span>加载中…</div>';
       let data;
       try {
         const params = new URLSearchParams({ sort: "name", order: "asc" });

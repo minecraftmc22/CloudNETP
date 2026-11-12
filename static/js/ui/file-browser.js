@@ -100,7 +100,7 @@ export function pickNodes({ title = "选择文件", mode = "any", confirmText = 
     async function load() {
       renderCrumb();
       paintFoot();
-      listEl.innerHTML = `<div class="picker__empty">${t("加载中…")}</div>`;
+      listEl.innerHTML = `<div class="picker__empty picker__loading"><span class="spinner"></span>${t("加载中…")}</div>`;
       let data;
       try {
         const params = new URLSearchParams({ sort: "name", order: "asc" });

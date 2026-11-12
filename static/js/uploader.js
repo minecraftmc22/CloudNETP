@@ -94,17 +94,21 @@ export async function uploadFile({
   file,
   parentId = null,
   signal,
+  sha256: knownSha = null,
+  onHash = () => {},
   onPhase = () => {},
   onProgress = () => {},
 }) {
-  let sha256 = null;
+  // 暂停后再继续时沿用上次算好的哈希，不必把整个文件重新读一遍
+  let sha256 = knownSha || null;
 
-  if (file.size <= MAX_HASH_BYTES) {
+  if (!sha256 && file.size <= MAX_HASH_BYTES) {
     onPhase("hash", 0);
     sha256 = await hashFile(file, {
       signal,
       onProgress: (ratio) => onPhase("hash", ratio),
     });
+    onHash(sha256);
   }
 
   if (signal?.aborted) throw new DOMException("已取消", "AbortError");

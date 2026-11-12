@@ -10,7 +10,7 @@
  *
  * 改版本号时记得同步改这里的 VERSION 与 app/config.py 的 VERSION。
  */
-const VERSION = "0.3.71";
+const VERSION = "0.3.72";
 const SHELL = `cloudnetp-shell-${VERSION}`;
 const RUNTIME = `cloudnetp-runtime-${VERSION}`;
 const CACHE_PREFIX = "cloudnetp-";
@@ -70,6 +70,7 @@ const PRECACHE = [
   "/static/js/ui/picker.js",
   "/static/js/ui/share.js",
   "/static/js/ui/tasks.js",
+  "/static/js/ui/upload-queue.js",
   "/static/js/ui/toast.js",
   "/static/js/ui/markdown.js",
   "/static/js/ui/office.js",

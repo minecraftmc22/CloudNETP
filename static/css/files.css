@@ -798,3 +798,88 @@
     width: calc(100% - 16px);
   }
 }
+
+/* ------------------------------------------------------------------ */
+/* 上传面板：暂停 / 继续                                               */
+/* ------------------------------------------------------------------ */
+/* 只有「正在传 / 排队 / 已暂停」的行才显示暂停键，其余情况不占位 */
+.upload-item__act {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-3);
+  display: none;
+  place-items: center;
+  transition: color var(--dur-fast) var(--ease-standard),
+    background var(--dur-fast) var(--ease-standard);
+}
+.upload-item.is-active .upload-item__act,
+.upload-item.is-paused .upload-item__act {
+  display: grid;
+}
+.upload-item__act:hover {
+  color: var(--accent);
+  background: var(--fill-hover);
+}
+.upload-item__act .icon {
+  width: 11px;
+  height: 11px;
+}
+.upload-item.is-paused .upload-item__state {
+  color: var(--accent);
+}
+.upload-item.is-paused .progress__bar,
+.upload-item.is-paused .progress {
+  opacity: 0.55;
+}
+
+/* ------------------------------------------------------------------ */
+/* 列表加载遮罩：切目录时旧内容还在，盖一层旋转图标                    */
+/* ------------------------------------------------------------------ */
+.files-stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.files-loading {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  font-size: 12.5px;
+  color: var(--text-2);
+  background: color-mix(in srgb, var(--panel-surface) 42%, transparent);
+  backdrop-filter: blur(1.5px);
+}
+.files-loading[hidden] {
+  display: none;
+}
+.files-loading .spinner {
+  width: 20px;
+  height: 20px;
+}
+.view-body.is-loading {
+  opacity: 0.55;
+  transition: opacity var(--dur-fast) var(--ease-standard);
+}
+
+/* 文件夹选择器 / 多选浏览器的加载态：小旋转图标 + 文字 */
+.picker__loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.picker__loading .spinner {
+  width: 14px;
+  height: 14px;
+  border-width: 2px;
+}

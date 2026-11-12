@@ -19,6 +19,7 @@ import { avatarMarkup } from "./ui/avatar.js";
 import { renderAnnounce } from "./ui/announce.js";
 import { Toast } from "./ui/toast.js";
 import { openMenu } from "./ui/menu.js";
+import { reset as resetUploads } from "./ui/upload-queue.js";
 import { installState, promptInstall, registerPwa } from "./pwa.js";
 import { initLive2DMascot } from "./ui/live2d.js";
 import { applyMascotLock, bindMascotActions } from "./ui/mascot-actions.js";
@@ -472,6 +473,7 @@ async function logout() {
   }
   stopPetals();
   dropCachedBackground();
+  resetUploads();
   showAuth();
 }
 

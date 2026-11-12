@@ -1,7 +1,7 @@
 /**
  * 文件视图：目录树浏览、网格/列表、多选、右键菜单、拖拽上传
  */
-import { api, escapeHtml, formatBytes, formatEta, formatSpeed, formatTime, percent } from "../api.js";
+import { api, escapeHtml, formatBytes, formatTime } from "../api.js";
 import { H, t } from "../i18n.js";
 import { store } from "../store.js";
 import { Dialog } from "../ui/dialog.js";
@@ -11,29 +11,12 @@ import { pickFolder } from "../ui/picker.js";
 import { runTask } from "../ui/tasks.js";
 import { canPreview, openViewer } from "../ui/viewer.js";
 import { shareItem, shareItems } from "../ui/share.js";
-import { uploadFile } from "../uploader.js";
+import { enqueue as enqueueUploadsQueue, onChange as onUploadChange } from "../ui/upload-queue.js";
 
 const SORT_LABELS = { name: "名称", size: "大小", updated: "修改时间", created: "创建时间" };
 const UPLOAD_CONCURRENCY = 2;
 
-/**
- * 上传面板挂在 body 上而不是视图容器里：`.app-shell` 自己是个层叠上下文（z-index: 2），
- * 放进去的话永远压在 z-index: 4 的看板娘下面，右下角那几个按钮会点不到。
- * 代价是切走视图时它不会跟着 view-root 一起清掉，所以这里补一个清理。
- */
-let uploadPanelEl = null;
-window.addEventListener("hashchange", () => {
-  const name = location.hash.replace(/^#\/?/, "");
-  if (name && name !== "files") {
-    uploadPanelEl?.remove();
-    uploadPanelEl = null;
-  }
-});
-
 export function renderFiles(root) {
-  // 上传面板是否收起，按设备记住（和看板娘滚轮缩放一样的做法）
-  const COLLAPSE_KEY = "cloudnetp.uploadCollapsed";
-
   const state = {
     parentId: null,
     breadcrumb: [{ id: null, name: "我的文件" }],
@@ -46,8 +29,6 @@ export function renderFiles(root) {
     keyword: "",
     searchMode: false,
     loading: false,
-    jobs: [],
-    uploadCollapsed: localStorage.getItem(COLLAPSE_KEY) === "1",
   };
 
   root.innerHTML = H`
@@ -97,7 +78,13 @@ export function renderFiles(root) {
       </div>
     </div>
 
-    <div class="view-body" data-body></div>
+    <div class="files-stage">
+      <div class="view-body" data-body></div>
+      <div class="files-loading" data-loading hidden>
+        <div class="spinner"></div>
+        <span>${t("加载中…")}</span>
+      </div>
+    </div>
 
     <div class="selbar" data-selbar>
       <span class="selbar__count">${t("已选")} <b data-sel-count>0</b> ${t("项")}</span>
@@ -127,6 +114,7 @@ export function renderFiles(root) {
   `;
 
   const bodyEl = root.querySelector("[data-body]");
+  const loadingEl = root.querySelector("[data-loading]");
   const crumbEl = root.querySelector("[data-crumb]");
   const selbar = root.querySelector("[data-selbar]");
   const selCount = root.querySelector("[data-sel-count]");
@@ -139,10 +127,8 @@ export function renderFiles(root) {
   /* ------------------------------------------------------------------ */
   async function load({ keepScroll = false } = {}) {
     state.loading = true;
+    setLoading(true);
     if (!keepScroll) bodyEl.scrollTop = 0;
-    if (!state.searchMode && !state.items.length) {
-      bodyEl.innerHTML = '<div class="empty"><div class="spinner"></div></div>';
-    }
     try {
       if (state.searchMode) {
         const data = await api.get(`/api/search?q=${encodeURIComponent(state.keyword)}`);
@@ -162,11 +148,35 @@ export function renderFiles(root) {
       bodyEl.innerHTML = H`<div class="empty"><div class="empty__art"><svg class="icon"><use href="#i-alert"/></svg></div>
         <div class="empty__title">加载失败</div><div class="empty__desc">${escapeHtml(err.message)}</div></div>`;
       state.loading = false;
+      setLoading(false);
       return;
     }
     state.loading = false;
+    setLoading(false);
     render();
   }
+
+  /** 切目录 / 首次进入时的加载提示：盖在列表上，带旋转图标 */
+  let loadingDepth = 0;
+  function setLoading(on) {
+    loadingDepth = Math.max(0, loadingDepth + (on ? 1 : -1));
+    if (!loadingEl) return;
+    const busy = loadingDepth > 0;
+    loadingEl.hidden = !busy;
+    bodyEl.classList.toggle("is-loading", busy);
+  }
+
+  // 上传队列是全局的，切页回来要能看到期间传完的文件
+  let refreshTimer = 0;
+  onUploadChange(() => {
+    if (!root.isConnected) return;
+    window.clearTimeout(refreshTimer);
+    refreshTimer = window.setTimeout(() => {
+      if (!root.isConnected) return;
+      load({ keepScroll: true });
+      refreshUser();
+    }, 600);
+  });
 
   async function refreshUser() {
     try {
@@ -621,173 +631,23 @@ export function renderFiles(root) {
   /* ------------------------------------------------------------------ */
   /* 上传                                                                */
   /* ------------------------------------------------------------------ */
-  /** 上传队列：文件级并发 2，单个文件内部再按分片并发 3。 */
+  /** 上传队列是全局单例（ui/upload-queue.js）：切页、进设置都不影响后台继续传 */
   function uploadFiles(fileList, targetParent = state.parentId) {
-    const files = [...fileList].filter((file) => file.size > 0);
-    if (!files.length) {
-      Toast.warn("空文件不会被上传");
-      return;
-    }
-    enqueueUploads(files.map((file) => ({ file, parentId: targetParent })));
-  }
-
-  /** entries: [{ file, parentId }]，文件夹拖入会先建好目录再逐个入队 */
-  function enqueueUploads(entries) {
-    const items = entries.filter((entry) => entry.file && entry.file.size > 0);
-    if (!items.length) {
-      Toast.warn("空文件不会被上传");
-      return;
-    }
     if (state.searchMode) {
       state.searchMode = false;
       state.keyword = "";
       searchEl.value = "";
     }
-
-    const jobs = items.map(({ file, parentId }) => ({
-      id: H`${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      file,
-      parentId,
-      loaded: 0,
-      phase: "pending",
-      ratio: 0,
-      speed: 0,
-      status: "pending",
-      instant: false,
-      dedup: false,
-      error: "",
-      controller: null,
-    }));
-
-    // 追加到队列，而不是覆盖正在传的任务
-    state.jobs = [...state.jobs.filter((job) => job.status !== "done" && job.status !== "canceled"), ...jobs];
-    state.jobs.forEach((job) => {
-      if (job.status === "error") job.status = "pending";
-    });
-    renderUploadPanel();
-    guardUnload();
-
-    let cursor = 0;
-    let finished = 0;
-    const total = jobs.length;
-
-    const worker = async () => {
-      for (;;) {
-        const index = cursor;
-        cursor += 1;
-        if (index >= jobs.length) return;
-        const job = jobs[index];
-        await runJob(job);
-        finished += 1;
-        if (finished >= total) {
-          await finishBatch(jobs);
-          return;
-        }
-      }
-    };
-
-    for (let i = 0; i < Math.min(UPLOAD_CONCURRENCY, jobs.length); i += 1) worker();
+    enqueueUploadsQueue([...fileList].map((file) => ({ file, parentId: targetParent })));
   }
 
-  async function runJob(job) {
-    if (job.status === "canceled") return;
-    job.error = "";
-    job.controller = new AbortController();
-    job.status = "active";
-    job.phase = "hash";
-    syncRow(job);
-    renderUploadHeader();
-    try {
-      const result = await uploadFile({
-        file: job.file,
-        parentId: job.parentId,
-        signal: job.controller.signal,
-        onPhase: (phase, ratio) => {
-          job.phase = phase;
-          job.ratio = ratio;
-          syncRow(job);
-        },
-        onProgress: (loaded, _total, extra) => {
-          job.loaded = loaded;
-          job.speed = extra?.speed || 0;
-          syncRow(job);
-        },
-      });
-      job.status = "done";
-      job.instant = Boolean(result.instant);
-      job.dedup = Boolean(result.deduplicated);
-      job.loaded = job.file.size;
-      job.speed = 0;
-      job.phase = "done";
-    } catch (err) {
-      job.speed = 0;
-      if (err?.name === "AbortError") {
-        job.status = "canceled";
-      } else {
-        job.status = "error";
-        job.error = err?.message || "上传失败";
-      }
+  function enqueueUploads(entries) {
+    if (state.searchMode) {
+      state.searchMode = false;
+      state.keyword = "";
+      searchEl.value = "";
     }
-    syncRow(job);
-    renderUploadHeader();
-    guardUnload();
-    // 失败了就把面板展开，别让人以为「文件没了」——重试按钮就在这一行上
-    if (job.status === "error" && state.uploadCollapsed) {
-      state.uploadCollapsed = false;
-      localStorage.setItem(COLLAPSE_KEY, "0");
-      applyCollapsed();
-    }
-  }
-
-  /** 失败条目点「重试」：重置进度再跑一次，成功后把它从列表里收走。 */
-  async function retryJob(job) {
-    if (job.status === "active" || job.status === "pending") return;
-    job.status = "pending";
-    job.phase = "hash";
-    job.loaded = 0;
-    job.ratio = 0;
-    job.speed = 0;
-    job.error = "";
-    job.instant = false;
-    job.dedup = false;
-    syncRow(job);
-    renderUploadHeader();
-    guardUnload();
-
-    await runJob(job);
-    if (job.status !== "done") {
-      if (job.status === "error") Toast.error(job.error || "重试失败");
-      return;
-    }
-    Toast.success(`「${job.file.name}」已上传`);
-    await load({ keepScroll: true });
-    await refreshUser();
-    window.setTimeout(() => {
-      state.jobs = state.jobs.filter((item) => item.id !== job.id);
-      renderUploadPanel();
-      guardUnload();
-    }, 1600);
-  }
-
-  async function finishBatch(jobs) {
-    const ok = jobs.filter((job) => job.status === "done").length;
-    const failed = jobs.filter((job) => job.status === "error").length;
-    const canceled = jobs.filter((job) => job.status === "canceled").length;
-    const instant = jobs.filter((job) => job.instant).length;
-
-    if (failed) Toast.error(`${failed} 个文件上传失败`);
-    else if (canceled) Toast.info(`已取消 ${canceled} 个，成功上传 ${ok} 个`);
-    else if (ok && instant === ok) Toast.success(`${ok} 个文件秒传完成，没有产生新的上传流量`);
-    else Toast.success(`已上传 ${ok} 个文件${instant ? H`（其中 ${instant} 个秒传）` : ""}`);
-
-    await load({ keepScroll: true });
-    await refreshUser();
-    window.setTimeout(() => {
-      // 只留下失败的条目，方便重试
-      state.jobs = state.jobs.filter((job) => job.status === "error");
-      renderUploadPanel();
-      guardUnload();
-    }, 2600);
+    enqueueUploadsQueue(entries);
   }
 
   /* ------------------------------------------------------------------ */
@@ -965,210 +825,6 @@ export function renderFiles(root) {
       return;
     }
     enqueueUploads(prepared);
-  }
-
-  /* ------------------------------------------------------------------ */
-  /* 上传面板                                                            */
-  /* ------------------------------------------------------------------ */
-  const PHASE_TEXT = { hash: "校验中", upload: "上传中", merge: "合并中" };
-
-  function jobPercent(job) {
-    if (job.status === "done") return 100;
-    if (job.phase === "hash") return Math.round((job.ratio || 0) * 100);
-    if (job.phase === "upload") return percent(job.loaded, job.file.size);
-    return 0;
-  }
-
-  function jobStateText(job) {
-    if (job.status === "done") return job.instant ? "秒传" : "完成";
-    if (job.status === "error") return "失败";
-    if (job.status === "canceled") return "已取消";
-    if (job.status === "pending") return "排队中";
-    if (job.phase === "merge") return "合并中";
-    if (job.phase === "hash") return H`校验 ${Math.round((job.ratio || 0) * 100)}%`;
-    return H`${jobPercent(job)}%`;
-  }
-
-  function jobMetaText(job) {
-    if (job.status === "error") return job.error;
-    if (job.status === "canceled") return "已中断，重新拖入可续传";
-    if (job.status === "done") {
-      if (job.dedup && !job.instant) return "内容已存在，秒级入库";
-      return formatBytes(job.file.size);
-    }
-    const parts = [`${formatBytes(job.loaded)} / ${formatBytes(job.file.size)}`];
-    const speed = formatSpeed(job.speed);
-    if (speed) parts.push(speed);
-    const eta = formatEta(job.file.size - job.loaded, job.speed);
-    if (eta) parts.push(eta);
-    return parts.join(" · ");
-  }
-
-  function renderUploadPanel() {
-    let panel = uploadPanelEl;
-    if (!state.jobs.length) {
-      panel?.remove();
-      uploadPanelEl = null;
-      return;
-    }
-    if (!panel) {
-      panel = document.createElement("div");
-      panel.className = "upload-panel";
-      panel.innerHTML = H`
-        <div class="upload-panel__head">
-          <svg class="icon icon--s"><use href="#i-upload"/></svg>
-          <span class="upload-panel__title" data-upload-title></span>
-          <button class="upload-panel__act" type="button" data-cancel-all>全部取消</button>
-          <button class="icon-btn upload-panel__toggle" type="button" data-toggle
-                  aria-expanded="true" aria-label="开关上传列表" title="收起上传列表">
-            <svg class="icon"><use href="#i-chevron-down"/></svg>
-          </button>
-          <button class="icon-btn" type="button" data-close title="关闭并清空">
-            <svg class="icon"><use href="#i-close"/></svg>
-          </button>
-        </div>
-        <div class="upload-panel__list" data-upload-list></div>`;
-      panel.querySelector("[data-toggle]").addEventListener("click", () => {
-        state.uploadCollapsed = !state.uploadCollapsed;
-        localStorage.setItem(COLLAPSE_KEY, state.uploadCollapsed ? "1" : "0");
-        applyCollapsed();
-      });
-      panel.querySelector("[data-close]").addEventListener("click", () => {
-        state.jobs = [];
-        renderUploadPanel();
-        guardUnload();
-      });
-      panel.querySelector("[data-cancel-all]").addEventListener("click", () => {
-        state.jobs.forEach((job) => {
-          if (job.status === "active" || job.status === "pending") job.controller?.abort();
-          if (job.status === "pending") job.status = "canceled";
-        });
-        state.jobs.forEach(syncRow);
-        renderUploadHeader();
-      });
-      document.body.appendChild(panel);
-      uploadPanelEl = panel;
-    }
-
-    const list = panel.querySelector("[data-upload-list]");
-    const signature = state.jobs.map((job) => job.id).join(",");
-    if (list.dataset.sig !== signature) {
-      list.dataset.sig = signature;
-      list.innerHTML = state.jobs
-        .map(
-          (job) => H`
-        <div class="upload-item" data-job="${job.id}">
-          <div class="upload-item__top">
-            <span class="upload-item__name" title="${escapeHtml(job.file.name)}">${escapeHtml(job.file.name)}</span>
-            <span class="upload-item__state" data-state></span>
-            <button class="upload-item__retry" type="button" data-retry="${job.id}" title="重新上传">
-              <svg class="icon"><use href="#i-refresh"/></svg>
-            </button>
-            <button class="upload-item__close" type="button" data-cancel="${job.id}" title="取消这个文件">
-              <svg class="icon"><use href="#i-close"/></svg>
-            </button>
-          </div>
-          <div class="progress" data-bar><div class="progress__bar" data-fill></div></div>
-          <div class="upload-item__meta" data-meta></div>
-        </div>`
-        )
-        .join("");
-      list.querySelectorAll("[data-retry]").forEach((btn) => {
-        btn.addEventListener("click", () => {
-          const job = state.jobs.find((item) => item.id === btn.dataset.retry);
-          if (job) retryJob(job);
-        });
-      });
-      list.querySelectorAll("[data-cancel]").forEach((btn) => {
-        btn.addEventListener("click", () => {
-          const job = state.jobs.find((item) => item.id === btn.dataset.cancel);
-          if (!job) return;
-          // 已经结束的条目，✕ 的意思是「从列表里去掉」
-          if (job.status === "error" || job.status === "canceled" || job.status === "done") {
-            state.jobs = state.jobs.filter((item) => item.id !== job.id);
-            renderUploadPanel();
-            guardUnload();
-            return;
-          }
-          if (job.status === "pending") job.status = "canceled";
-          job.controller?.abort();
-          syncRow(job);
-          renderUploadHeader();
-        });
-      });
-    }
-
-    applyCollapsed();
-    state.jobs.forEach(syncRow);
-    renderUploadHeader();
-  }
-
-  /** 收起时只留一条标题栏：列表高度归零，箭头翻转成「展开」。 */
-  function applyCollapsed() {
-    const panel = uploadPanelEl;
-    if (!panel) return;
-    const collapsed = Boolean(state.uploadCollapsed);
-    panel.classList.toggle("is-collapsed", collapsed);
-    const btn = panel.querySelector("[data-toggle]");
-    if (btn) {
-      btn.title = collapsed ? "展开上传列表" : "收起上传列表";
-      btn.setAttribute("aria-expanded", String(!collapsed));
-    }
-  }
-
-  function syncRow(job) {
-    const row = uploadPanelEl?.querySelector(`[data-job="${job.id}"]`);
-    if (!row) return;
-    row.classList.toggle("is-error", job.status === "error");
-    row.classList.toggle("is-done", job.status === "done");
-    row.classList.toggle("is-canceled", job.status === "canceled");
-    row.classList.toggle("is-instant", job.status === "done" && job.instant);
-
-    const stateEl = row.querySelector("[data-state]");
-    if (stateEl) stateEl.textContent = jobStateText(job);
-    const metaEl = row.querySelector("[data-meta]");
-    if (metaEl) metaEl.textContent = jobMetaText(job);
-
-    const bar = row.querySelector("[data-bar]");
-    const fill = row.querySelector("[data-fill]");
-    const indeterminate = job.status === "active" && (job.phase === "hash" || job.phase === "merge");
-    if (bar) bar.classList.toggle("is-indeterminate", indeterminate);
-    if (fill) fill.style.width = indeterminate ? "100%" : H`${jobPercent(job)}%`;
-  }
-
-  function renderUploadHeader() {
-    const title = uploadPanelEl?.querySelector("[data-upload-title]");
-    if (!title) return;
-    const active = state.jobs.filter((job) => job.status === "active" || job.status === "pending");
-    const done = state.jobs.filter((job) => job.status === "done").length;
-    const failed = state.jobs.filter((job) => job.status === "error").length;
-    if (active.length) {
-      const speed = formatSpeed(active.reduce((sum, job) => sum + (job.speed || 0), 0));
-      title.textContent = `正在上传 ${active.length} 个文件${speed ? H` · ${speed}` : ""}`;
-    } else if (failed) {
-      title.textContent = `${failed} 个失败 · ${done} 个已完成`;
-    } else {
-      title.textContent = `${state.jobs.length} 个文件已处理完`;
-    }
-    const cancelAll = uploadPanelEl?.querySelector("[data-cancel-all]");
-    if (cancelAll) cancelAll.style.display = active.length ? "" : "none";
-  }
-
-  let unloadGuard = false;
-  const onBeforeUnload = (event) => {
-    if (!state.jobs.some((job) => job.status === "active")) return;
-    event.preventDefault();
-    event.returnValue = "";
-  };
-  function guardUnload() {
-    const need = state.jobs.some((job) => job.status === "active");
-    if (need && !unloadGuard) {
-      window.addEventListener("beforeunload", onBeforeUnload);
-      unloadGuard = true;
-    } else if (!need && unloadGuard) {
-      window.removeEventListener("beforeunload", onBeforeUnload);
-      unloadGuard = false;
-    }
   }
 
   /* ------------------------------------------------------------------ */
