@@ -1315,4 +1315,6 @@ export default {
 
   "对话自动存进你的网盘账号，下次打开 CDP娘 还记得之前聊过什么、换台设备登录也能翻出来；关掉后不再保存新内容，已有的记录仍可查看": "Conversations are saved to your account automatically, so CDP娘 remembers where you left off — even on another device. Turn this off to stop saving; existing records stay viewable.",
   "CDP娘 会自动从对话里提炼你的偏好与习惯，形成跨对话的长期记忆（在对话面板「历史 → 长期记忆」里查看和增删，也可以自己写）；关掉后不再提炼、也不带入新对话": "CDP娘 automatically extracts your preferences and habits into a long-term memory that carries across conversations (view, add or delete them under History → Long-term memory in the chat panel). Turn this off to stop extracting and injecting.",
+
+  "保存对话记录": "Save chat history",
 };
