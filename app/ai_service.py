@@ -62,6 +62,8 @@ DEFAULT_SYSTEM_PROMPTS: dict[str, str] = {
 - **语气与排版**：语气活泼、亲切，多用波浪号（~）和感叹号（！）。可以适当使用颜文字（如 (๑•̀ㅂ•́)و✧、＞︿＜ 等）来增加表现力。
 - **专业解答**：当回答关于网盘上传、下载、容量、会员等专业问题时，必须保证信息准确，然后用你自己的语气包装出来。
 - **工具边界**：你只能使用系统实际提供给你的工具。没有开对应的权限（例如「查看文件内容」）时，就请管理员去「设置 → 看板娘 → 对话设置」里勾选；不要假装读过文件内容，也不要假装已经改动了文件。开了「查看文件内容」后，网盘里的图片可以用看图工具直接看，看到什么说什么，不要凭空猜画面。
+- **快传取件码**：用户让你「把某个文件弄个取件码」时，先用搜索/列目录找到候选，把**完整路径**念给用户确认（例如「是『照片/合影.jpg』这个吗？」），用户确认后才调用生成取件码的工具；用户没确认就不要调用。一次可以选多个文件，但要逐个报清楚。生成后把 6 位码和有效期一起告诉用户，并提醒「拿到码的人都能下载」。
+- **帮用户取件**：用户给你取件码时，用取件工具处理。没有说明要做什么就先列清单问一句「要转存到网盘还是直接下载？」；说「放到 XXX」就转存到那个目录（目录不存在可以新建），说「直接下载」就把下载链接给出来。取件失败（过期、次数用完、码不对）时如实说明，不要编造成功。
 - **回复语言**：始终用简体中文回答。
 # Workflow (交互流程)
 1. **日常打招呼**：“嘀嘀——系统就绪！管理员，今天有什么数据需要我帮你守护呀？”
@@ -88,6 +90,8 @@ You have long pink twin tails and a springy ahoge (a radar antenna) on top of yo
 - **Tone and formatting**: Lively and friendly. Use tildes (~) and exclamation marks (!) freely, and kaomoji are welcome (e.g. (๑•̀ㅂ•́)و✧, ＞﹏＜) to add expression.
 - **Accurate answers**: On questions about uploads, downloads, quota, membership and similar, the facts must be correct — then wrap them in your own voice.
 - **Tool boundaries**: You may only use the tools the system actually provides. If a permission is off (for example "view file contents"), ask the Admin to enable it in Settings → Mascot → Chat settings. Never pretend you read a file's contents, and never pretend you already changed a file. Once "view file contents" is on, images in the drive can be opened with the image tool — describe only what you actually see, never guess.
+- **Quick Transfer pickup codes**: When the user asks you to "make a pickup code for some file", first locate candidates with search/listing and read the **full path** back for confirmation (e.g. "Do you mean 'Photos/group.jpg'?"). Only call the pickup-code tool after the user confirms. Never call it unprompted. Multiple files are fine, but name each one. Report the 6-character code and expiry, and remind them that anyone with the code can download.
+- **Picking up files for the user**: When the user gives you a pickup code, use the pickup tool. If they did not say what to do, list the files and ask "save them to your drive, or download?". If they say "put it in XXX", save into that folder (create it if missing); if they say "download", give the download links. If the code is wrong, expired, or out of downloads, say so honestly — never fake success.
 - **Language**: Always answer in English.
 # Workflow
 1. **Greeting**: "Beep beep — systems online! What data shall I guard for you today, Admin?"
@@ -120,6 +124,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "readContent": False,
     "writeFiles": False,
     "moveFiles": False,
+    # 快传：生成取件码 / 用取件码取件（会把文件暴露给拿到码的人，默认关闭）
+    "quickTransfer": False,
     "vision": False,
     "thinking": False,
     "protocol": "auto",
@@ -199,6 +205,7 @@ def load_config(db: Session, user_id: int) -> dict:
     cfg["readContent"] = bool(cfg.get("readContent", False))
     cfg["writeFiles"] = bool(cfg.get("writeFiles", False))
     cfg["moveFiles"] = bool(cfg.get("moveFiles", False))
+    cfg["quickTransfer"] = bool(cfg.get("quickTransfer", False))
     cfg["vision"] = bool(cfg.get("vision", False))
     cfg["thinking"] = bool(cfg.get("thinking", False))
     cfg["maxInput"] = _clamp_int(cfg.get("maxInput"))
@@ -257,6 +264,7 @@ def effective_config(db: Session, user_id: int) -> tuple[dict, str]:
         merged["readContent"] = cfg["readContent"]
         merged["writeFiles"] = cfg["writeFiles"]
         merged["moveFiles"] = cfg["moveFiles"]
+        merged["quickTransfer"] = cfg["quickTransfer"]
         merged["maxRounds"] = cfg["maxRounds"]
         return merged, "default"
     return cfg, "none"
@@ -298,6 +306,7 @@ def save_config(db: Session, user_id: int, patch: dict) -> dict:
         "readContent",
         "writeFiles",
         "moveFiles",
+        "quickTransfer",
         "vision",
         "thinking",
         "protocol",
@@ -792,6 +801,8 @@ TOOL_LABELS = {
     "rename_item": "重命名",
     "copy_item": "复制",
     "move_item": "移动",
+    "create_pickup_code": "生成取件码",
+    "pickup_files": "取件",
 }
 
 # 会真正改动网盘的工具：默认不开放，必须在设置里勾选同意
@@ -875,7 +886,66 @@ MOVE_TOOL_SPECS: list[dict] = [
     },
 ]
 
-WRITE_TOOL_NAMES = {spec["function"]["name"] for spec in WRITE_TOOL_SPECS + MOVE_TOOL_SPECS}
+QUICK_TOOL_SPECS: list[dict] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "create_pickup_code",
+            "description": (
+                "为文件生成一个 6 位快传取件码，别人打开取件页输码即可下载。"
+                "调用前必须先跟用户确认清楚是哪几个文件（把找到的路径列给用户确认），确认后再调用。"
+                "只支持文件，不支持文件夹。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "paths": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "要放进取件码的文件路径列表，例如 ['照片/合影.jpg']",
+                    },
+                    "days": {"type": "integer", "description": "有效期天数，默认 7 天"},
+                    "max_uses": {
+                        "type": "integer",
+                        "description": "每个文件最多被下载几次，不填为不限",
+                    },
+                },
+                "required": ["paths"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "pickup_files",
+            "description": (
+                "用 6 位取件码取件：action=list 只看清单，save 转存到我的网盘，"
+                "download 给出下载链接。用户说「帮我取件，取件码是 XXXXX」时用它。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "code": {"type": "string", "description": "6 位取件码"},
+                    "action": {
+                        "type": "string",
+                        "enum": ["list", "save", "download"],
+                        "description": "list 只看清单；save 转存到网盘；download 给下载链接",
+                    },
+                    "target_dir": {
+                        "type": "string",
+                        "description": "save 时存到哪个文件夹，留空表示根目录",
+                    },
+                },
+                "required": ["code"],
+            },
+        },
+    },
+]
+
+WRITE_TOOL_NAMES = {
+    spec["function"]["name"]
+    for spec in WRITE_TOOL_SPECS + MOVE_TOOL_SPECS + QUICK_TOOL_SPECS
+}
 
 # 工具需要的权限：read 需要「查看文件内容」，write/move 各自要用户勾选
 TOOL_PERMISSION = {
@@ -886,6 +956,8 @@ TOOL_PERMISSION = {
     "rename_item": "write",
     "copy_item": "move",
     "move_item": "move",
+    "create_pickup_code": "quick",
+    "pickup_files": "quick",
 }
 
 
@@ -905,6 +977,8 @@ def tool_specs(cfg: dict) -> list[dict]:
         specs.extend(WRITE_TOOL_SPECS)
     if cfg.get("moveFiles"):
         specs.extend(MOVE_TOOL_SPECS)
+    if cfg.get("quickTransfer"):
+        specs.extend(QUICK_TOOL_SPECS)
     return specs
 
 
@@ -1016,6 +1090,10 @@ def _run_tool(
     if need == "move" and not perms.get("move"):
         raise ToolError(
             "管理员没有开启「复制 / 移动文件与文件夹」权限，请先到 设置 → 看板娘 → 对话设置 里勾选"
+        )
+    if need == "quick" and not perms.get("quick"):
+        raise ToolError(
+            "管理员没有开启「快传取件码」权限，请先到 设置 → 看板娘 → 对话设置 里勾选"
         )
 
     if name == "list_files":
@@ -1214,6 +1292,108 @@ def _run_tool(
         db.commit()
         return f"已把「{source.name}」移动到「{_folder_label(args.get('target_dir'))}」。"
 
+    # ---------------- 快传（需勾选「快传取件码」） ----------------
+    if name == "create_pickup_code":
+        from . import quick_service as qs
+
+        raw = args.get("paths")
+        if isinstance(raw, str):
+            raw = [raw]
+        paths = [str(item).strip() for item in (raw or []) if str(item).strip()]
+        if not paths:
+            raise ToolError("要给出至少一个文件路径")
+        entries: list[dict] = []
+        picked: list[str] = []
+        for path in paths:
+            node = _resolve_path(db, user.id, path)
+            if node is None:
+                raise ToolError(f"找不到文件「{path}」")
+            if node.type != "file":
+                raise ToolError(f"「{node.name}」是文件夹，取件码只能放文件")
+            entries.append(
+                {"node": node, "days": args.get("days"), "maxUses": args.get("max_uses")}
+            )
+            picked.append(_node_label(db, user.id, node))
+
+        try:
+            qt = qs.create_pickup(db, user, entries)
+        except HTTPException as exc:
+            db.rollback()
+            raise ToolError(str(exc.detail)) from None
+
+        expires = qt.expires_at.strftime("%Y-%m-%d %H:%M") if qt.expires_at else "长期"
+        log_action(
+            db,
+            "ai_tool",
+            user.id,
+            {"tool": name, "pickup": qt.id, "count": qt.count},
+        )
+        db.commit()
+        names = "、".join(picked[:5]) + ("…" if len(picked) > 5 else "")
+        return (
+            f"已生成取件码：{qt.code}\n"
+            f"文件：{names}（共 {qt.count} 个）\n"
+            f"有效期：{expires}；每个文件下载次数："
+            f"{entries[0]['maxUses'] if entries and entries[0].get('maxUses') else '不限'}\n"
+            f"取件页：/pickup?code={qt.code}（拿到码的人都能下载，用完可以随时撤销）"
+        )
+
+    if name == "pickup_files":
+        from . import quick_service as qs
+
+        code = str(args.get("code") or "").strip()
+        if not code:
+            raise ToolError("要给出 6 位取件码")
+        try:
+            qt = qs.find_pickup(db, code)
+        except HTTPException as exc:
+            raise ToolError(str(exc.detail)) from None
+        entries = [entry for entry in qs.pickup_entries(db, qt) if entry["alive"]]
+        if not entries:
+            raise ToolError("这条取件码里没有可用的文件了")
+
+        action = str(args.get("action") or "list").strip().lower()
+        if action not in {"list", "save", "download"}:
+            action = "list"
+
+        if action == "save":
+            target, _ = _ensure_folder(db, user, _path_parts(args.get("target_dir")))
+            try:
+                nodes = qs.pickup_save(db, user, qt, target.id if target is not None else None)
+            except HTTPException as exc:
+                db.rollback()
+                raise ToolError(str(exc.detail)) from None
+            log_action(
+                db,
+                "ai_tool",
+                user.id,
+                {"tool": name, "pickup": qt.id, "saved": len(nodes)},
+            )
+            db.commit()
+            names = "、".join(node.name for node in nodes[:5]) + ("…" if len(nodes) > 5 else "")
+            return f"已把 {len(nodes)} 个文件转存到「{_folder_label(args.get('target_dir'))}」：{names}"
+
+        if action == "download":
+            lines = [f"取件码 {qt.code} 共 {len(entries)} 个文件，下载链接："]
+            for entry in entries[:10]:
+                node = entry["node"]
+                lines.append(
+                    f"- {node.name}（{_fmt_size(node.size)}）："
+                    f"/api/public/quick/pickup/{qt.code}/download?nodeId={node.id}"
+                )
+            if len(entries) > 10:
+                lines.append(f"…还有 {len(entries) - 10} 个，打开取件页可以看到全部：/pickup?code={qt.code}")
+            return "\n".join(lines)
+
+        lines = [f"取件码 {qt.code} 里有 {len(entries)} 个文件（只看清单不消耗下载次数）："]
+        for entry in entries[:20]:
+            node = entry["node"]
+            expire = entry["expiresAt"].strftime("%Y-%m-%d %H:%M") if entry["expiresAt"] else "长期"
+            left = "不限" if entry["maxUses"] is None else f"剩 {max(0, entry['maxUses'] - entry['uses'])} 次"
+            lines.append(f"- {node.name}（{_fmt_size(node.size)}，有效期至 {expire}，{left}）")
+        lines.append("要我转存到网盘，还是直接给下载链接？")
+        return "\n".join(lines)
+
     raise ToolError(f"没有这个工具：{name}")
 
 
@@ -1345,6 +1525,7 @@ def _stream_openai(
         "read": bool(cfg.get("readContent")),
         "write": bool(cfg.get("writeFiles")),
         "move": bool(cfg.get("moveFiles")),
+        "quick": bool(cfg.get("quickTransfer")),
         "vision": bool(cfg.get("vision")),
     }
 
@@ -1507,6 +1688,7 @@ def _stream_anthropic(
         "read": bool(cfg.get("readContent")),
         "write": bool(cfg.get("writeFiles")),
         "move": bool(cfg.get("moveFiles")),
+        "quick": bool(cfg.get("quickTransfer")),
         "vision": bool(cfg.get("vision")),
     }
     max_tokens = cfg["maxOutput"] or 4096

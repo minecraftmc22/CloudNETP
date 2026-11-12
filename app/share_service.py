@@ -210,6 +210,29 @@ def share_payload(
     }
 
 
+def list_page(db: Session, user_id: int, *, page: int = 1, page_size: int = 10) -> dict:
+    """分享列表分页；每页条数可选（前端默认 10）。"""
+    page_size = max(1, min(100, int(page_size or 10)))
+    total = int(db.scalar(select(func.count(Share.id)).where(Share.user_id == user_id)) or 0)
+    pages = max(1, (total + page_size - 1) // page_size)
+    page = max(1, min(pages, int(page or 1)))
+    shares = db.scalars(
+        select(Share)
+        .where(Share.user_id == user_id)
+        .order_by(Share.created_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    ).all()
+    items = []
+    if shares:
+        ids: set[int] = set()
+        for s in shares:
+            ids.update(root_ids(s))
+        nodes = {n.id: n for n in db.scalars(select(Node).where(Node.id.in_(ids))).all()}
+        items = [share_payload(db, s, nodes.get(s.node_id), nodes) for s in shares]
+    return {"items": items, "total": total, "page": page, "pageSize": page_size, "pages": pages}
+
+
 def list_for_user(db: Session, user_id: int, limit: int = 200) -> list[dict]:
     shares = db.scalars(
         select(Share)
@@ -480,3 +503,39 @@ def public_payload(request: Request, share: Share, node: Node, db: Session) -> d
         }
     )
     return base
+
+
+def is_finished(db: Session, share: Share) -> bool:
+    """已取消 / 已过期 / 下载次数用完：这种记录才能「删除记录」。"""
+    return status_of(db, share) in {"revoked", "expired", "exhausted", "missing"}
+
+
+def delete_record(db: Session, share: Share) -> None:
+    """把已失效的分享记录删掉（不动文件本体）。"""
+    db.delete(share)
+
+
+def renew(
+    db: Session, user: User, share: Share
+) -> tuple[Share, str | None]:
+    """按原分享的节点与时长重新生成一条链接；原来是带提取码的，换一个新的提取码。"""
+    ids = root_ids(share)
+    nodes = [db.get(Node, i) for i in ids]
+    nodes = [n for n in nodes if n is not None and not n.deleted_at]
+    if not nodes:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "原来的文件已经不在了，没法重新分享")
+    days = None
+    if share.expires_at:
+        span = share.expires_at - share.created_at
+        days = max(1, min(365, round(span.total_seconds() / 86400) or 1))
+    code = random_code(4) if share.extract_code else None
+    fresh = create_share(
+        db,
+        user,
+        nodes[0],
+        days=days,
+        code=code,
+        max_downloads=share.max_downloads,
+        nodes=nodes,
+    )
+    return fresh, code

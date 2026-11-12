@@ -217,6 +217,9 @@ def get_node(db: Session, user_id: int, node_id: int, *, allow_deleted: bool = F
         raise HTTPException(status.HTTP_404_NOT_FOUND, "文件不存在或无权访问")
     if node.deleted_at and not allow_deleted:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "该文件在回收站中")
+    # 快传专用文件只能通过取件码访问，不能按 id 当普通文件操作
+    if node.quick_owned:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "文件不存在或无权访问")
     return node
 
 
@@ -269,6 +272,8 @@ def list_children(
             Node.user_id == user_id,
             Node.parent_id.is_(None) if parent_id is None else Node.parent_id == parent_id,
             Node.deleted_at.is_(None),
+            # 快传文件不属于「我的文件」，只在快传里出现
+            Node.quick_owned.is_(False),
         )
         # 文件夹永远排在文件前面（'folder' > 'file'，倒序即文件夹在前）
         .order_by(Node.type.desc(), ordering)
@@ -304,6 +309,7 @@ def search(db: Session, user_id: int, keyword: str, limit: int = 200, *, is_admi
         .where(
             Node.user_id == user_id,
             Node.deleted_at.is_(None),
+            Node.quick_owned.is_(False),
             func.lower(Node.name).like(pattern),
         )
         .order_by(Node.type.desc(), Node.updated_at.desc())
@@ -342,6 +348,8 @@ def name_conflict(
         Node.user_id == user_id,
         Node.parent_id.is_(None) if parent_id is None else Node.parent_id == parent_id,
         Node.deleted_at.is_(None),
+        # 快传文件不在「我的文件」里，不参与同名判断
+        Node.quick_owned.is_(False),
         func.lower(Node.name) == name.lower(),
     )
     if exclude_id is not None:
@@ -582,6 +590,8 @@ def create_file(
     sha256: str,
     size: int,
     mime: str | None,
+    *,
+    quick: bool = False,
 ) -> Node:
     require_parent(db, user.id, parent_id)
     retain_blob(db, sha256, size)
@@ -593,6 +603,7 @@ def create_file(
         blob_sha256=sha256,
         size=size,
         mime=mime,
+        quick_owned=quick,
     )
     db.add(node)
     db.flush()
@@ -602,7 +613,12 @@ def create_file(
 def recalc_usage(db: Session, user: User) -> int:
     """按 node 表重算已用空间（含回收站），避免增量记账漂移。"""
     total = db.scalar(
-        select(func.coalesce(func.sum(Node.size), 0)).where(Node.user_id == user.id, Node.type == "file")
+        select(func.coalesce(func.sum(Node.size), 0)).where(
+            Node.user_id == user.id,
+            Node.type == "file",
+            # 快传文件不占用户配额（过期由后台清理）
+            Node.quick_owned.is_(False),
+        )
     )
     user.used_bytes = int(total or 0)
     return user.used_bytes

@@ -156,6 +156,14 @@ _COLUMN_PATCHES: dict[str, dict[str, str]] = {
         # 合集分享：根节点 id 的 JSON 数组；NULL = 单节点分享
         "node_ids": "TEXT NULL",
     },
+    "nodes": {
+        # 快传专用文件：不计配额、不出现在我的文件；老库补列后默认 0
+        "quick_owned": "BOOLEAN NOT NULL DEFAULT 0",
+    },
+    "upload_sessions": {
+        # 快传上传的会话：合并后建出来的节点标 quick_owned
+        "quick_owned": "BOOLEAN NOT NULL DEFAULT 0",
+    },
     "audio_prefs": {
         # 歌词来源（netease / lyriclib）：老库的 song_id 都是 lyriclib 的
         "provider": "VARCHAR(16) NOT NULL DEFAULT ''",

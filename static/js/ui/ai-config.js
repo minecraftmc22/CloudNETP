@@ -265,6 +265,16 @@ function configMarkup() {
             <small>在网盘内搬运或复制内容，不会删除任何东西</small>
           </span>
         </label>
+        <label class="ai-line">
+          <span class="switch">
+            <input type="checkbox" data-ai-flag="quickTransfer" ${cfg.quickTransfer ? "checked" : ""}>
+            <span class="switch__track"><span class="switch__knob"></span></span>
+          </span>
+          <span class="ai-line__text">
+            <b>快传取件码</b>
+            <small>让 CDP娘 按你的确认生成取件码，或用取件码把文件转存进网盘 / 给出下载链接；开了它，对话里会先问你「是不是这个文件」</small>
+          </span>
+        </label>
       </div>
     </div>
 

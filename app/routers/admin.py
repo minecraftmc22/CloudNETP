@@ -22,6 +22,7 @@ from .. import lyrics_service
 from .. import netease_auth as ng
 from .. import node_service as ns
 from .. import profile_service as ps
+from .. import quick_service as qs
 from .. import storage
 from ..db import get_db
 from ..deps import require_admin
@@ -32,6 +33,7 @@ from ..schemas import (
     AdminGcIn,
     AdminLogPurgeIn,
     AdminLyricsIn,
+    AdminQuickCleanupIn,
     AdminLyricsTestIn,
     AdminSettingsIn,
     AdminUserPatchIn,
@@ -206,6 +208,26 @@ def delete_user(user_id: int, request: Request, db: DbSession, me: AdminUser) ->
 @router.get("/settings")
 def get_settings(db: DbSession, _: AdminUser) -> dict:
     return {"settings": admin.settings_payload(db)}
+
+
+# --------------------------------------------------------------------------- #
+# 快传：概况与清理
+# --------------------------------------------------------------------------- #
+@router.get("/quick")
+def quick_overview(db: DbSession, _: AdminUser) -> dict:
+    return {"quick": qs.overview(db)}
+
+
+@router.post("/quick/cleanup")
+def quick_cleanup(
+    body: AdminQuickCleanupIn, request: Request, db: DbSession, me: AdminUser
+) -> dict:
+    """立刻回收过期 / 撤销的取件码文件；只删快传自己存的文件，不动用户的网盘。"""
+    check_origin(request)
+    result = qs.cleanup_expired(db, retention_days=body.days)
+    log_action(db, "admin_quick_cleanup", me.id, result, request)
+    db.commit()
+    return {"cleaned": result, "quick": qs.overview(db)}
 
 
 @router.patch("/settings")

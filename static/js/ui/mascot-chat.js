@@ -377,11 +377,26 @@ function appendBot(item) {
       <summary class="mchat__think-head">${t("思考过程")}</summary>
       <div class="mchat__think-body"></div>
     </details>
-    <div class="mchat__tools"></div>
     <div class="mchat__bubble mchat__bubble--bot is-streaming"></div>
+    <details class="mchat__tools" hidden>
+      <summary class="mchat__tools-head">
+        <svg class="icon"><use href="#i-bolt"/></svg>
+        <span>${t("使用工具")}</span>
+        <span class="mchat__tools-count" data-tool-count>0</span>
+      </summary>
+      <div class="mchat__tools-body"></div>
+    </details>
     <div class="mchat__ops">
       <button class="mchat__op" type="button" data-act="del">${t("删除")}</button>
     </div>`;
+  // 展开「使用工具」时顺带把每条结果也打开：一次点击就能看到全部细节
+  const toolsEl = row.querySelector(".mchat__tools");
+  toolsEl.addEventListener("toggle", (event) => {
+    if (event.target !== toolsEl || !toolsEl.open) return;
+    toolsEl.querySelectorAll(".mchat__tool").forEach((item) => {
+      item.open = true;
+    });
+  });
   state.feed.appendChild(row);
   scrollFeed();
   return {
@@ -389,6 +404,8 @@ function appendBot(item) {
     think: row.querySelector(".mchat__think"),
     thinkBody: row.querySelector(".mchat__think-body"),
     tools: row.querySelector(".mchat__tools"),
+    toolsBody: row.querySelector(".mchat__tools-body"),
+    toolCount: row.querySelector("[data-tool-count]"),
     bubble: row.querySelector(".mchat__bubble"),
   };
 }
@@ -421,6 +438,13 @@ function scheduleRender(target, text) {
 }
 
 function toolEntry(container, data) {
+  const group = container.closest(".mchat__tools");
+  if (group) {
+    group.hidden = false;
+    const count = container.querySelectorAll(".mchat__tool").length;
+    const badge = group.querySelector("[data-tool-count]");
+    if (badge) badge.textContent = String(count);
+  }
   // 用调用 id 做键：同一轮调两次同一个工具、或者连着几轮调同一个，都要各自一条
   const key = data.id || data.name || "tool";
   let node = container.querySelector(`[data-tool="${CSS.escape(key)}"]`);
@@ -441,6 +465,10 @@ function toolEntry(container, data) {
     node.classList.remove("is-running");
     label.textContent = `已${data.label || "完成"}`;
     if (data.result) pre.textContent = data.result;
+  }
+  if (group) {
+    const badge = group.querySelector("[data-tool-count]");
+    if (badge) badge.textContent = String(container.querySelectorAll(".mchat__tool").length);
   }
   return node;
 }
@@ -629,7 +657,7 @@ async function streamReply(item) {
         return;
       }
       if (event === "tool") {
-        toolEntry(target.tools, data);
+        toolEntry(target.toolsBody, data);
         scrollFeed();
         return;
       }

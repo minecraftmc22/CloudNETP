@@ -93,6 +93,7 @@ const sleep = (ms, signal) =>
 export async function uploadFile({
   file,
   parentId = null,
+  quick = false,
   signal,
   sha256: knownSha = null,
   onHash = () => {},
@@ -117,6 +118,7 @@ export async function uploadFile({
     name: file.name,
     size: file.size,
     parentId,
+    quick,
     sha256,
     mime: file.type || null,
     chunkSize: pickChunkSize(file.size),

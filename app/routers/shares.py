@@ -83,21 +83,55 @@ def create_share(body: ShareIn, request: Request, db: DbSession, user: CurrentUs
 
 
 @router.get("/shares")
-def list_shares(db: DbSession, user: CurrentUser) -> dict:
-    items = ss.list_for_user(db, user.id)
-    return {"items": items, "total": len(items)}
+def list_shares(
+    db: DbSession,
+    user: CurrentUser,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=10, ge=1, le=100, alias="pageSize"),
+) -> dict:
+    return ss.list_page(db, user.id, page=page, page_size=page_size)
 
 
 @router.delete("/shares/{share_id}")
-def revoke_share(share_id: int, request: Request, db: DbSession, user: CurrentUser) -> dict:
+def delete_share(share_id: int, request: Request, db: DbSession, user: CurrentUser) -> dict:
+    """还在有效期的 = 取消分享；已经失效的 = 把记录删掉。"""
     check_origin(request)
     share = db.get(Share, share_id)
     if not share or share.user_id != user.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "分享不存在")
+    if ss.is_finished(db, share):
+        ss.delete_record(db, share)
+        log_action(db, "share_delete", user.id, {"id": share_id}, request)
+        db.commit()
+        return {"deleted": True}
     share.revoked = True
     log_action(db, "share_revoke", user.id, {"id": share.id}, request)
     db.commit()
     return {"revoked": True}
+
+
+@router.post("/shares/{share_id}/renew")
+def renew_share(share_id: int, request: Request, db: DbSession, user: CurrentUser) -> dict:
+    """重新分享：按原来的文件与时长生成一条新链接（新 token）。"""
+    check_origin(request)
+    share = db.get(Share, share_id)
+    if not share or share.user_id != user.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "分享不存在")
+    fresh, code = ss.renew(db, user, share)
+    log_action(
+        db,
+        "share_renew",
+        user.id,
+        {"from": share.id, "id": fresh.id, "code": bool(code)},
+        request,
+    )
+    db.commit()
+    db.refresh(fresh)
+    node = db.get(Node, fresh.node_id)
+    data = ss.share_payload(db, fresh, node, {node.id: node} if node else {})
+    if code:
+        data["extractCode"] = code
+    return {"share": data}
 
 
 # --------------------------------------------------------------------------- #

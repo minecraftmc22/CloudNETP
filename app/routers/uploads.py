@@ -36,6 +36,7 @@ def init_upload(payload: UploadInitIn, request: Request, db: DbSession, user: Cu
         sha256=payload.sha256,
         mime=payload.mime,
         chunk_size=payload.chunk_size,
+        quick=payload.quick,
     )
     if result.get("instant"):
         log_action(
@@ -80,7 +81,16 @@ def complete_upload(
     sha256: str | None = Query(default=None, min_length=64, max_length=64),
 ) -> dict:
     check_origin(request)
-    result = us.complete_upload(db, user, session_id, sha256)
+    session = us.get_session(db, user.id, session_id)
+    guard = None
+    if session.quick_owned:
+        from .. import quick_service as qs
+
+        # 快传上传同样要过被举报确认的黑名单
+        def guard(real_sha: str, _size: int) -> None:
+            qs.assert_upload_allowed(db, real_sha)
+
+    result = us.complete_upload(db, user, session_id, sha256, guard=guard)
     log_action(
         db,
         "node_upload",

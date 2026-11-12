@@ -1537,13 +1537,52 @@ html[data-ai="off"] .mascot__act[data-mascot-act="chat"] {
   white-space: pre-wrap;
 }
 /* 工具调用小胶囊 */
+/* 工具调用：消息下方的「使用工具 N」，点开才展开每条结果 */
 .mchat__tools {
+  align-self: flex-start;
+  max-width: 100%;
+  font-size: 11.5px;
+  color: var(--text-2);
+}
+.mchat__tools[hidden] {
+  display: none;
+}
+.mchat__tools-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border-radius: var(--radius-s);
+  border: 1px solid var(--stroke-hair);
+  background: var(--layer-2);
+  color: var(--text-3);
+  cursor: pointer;
+  list-style: none;
+}
+.mchat__tools-head::-webkit-details-marker {
+  display: none;
+}
+.mchat__tools-head .icon {
+  width: 11px;
+  height: 11px;
+  color: var(--accent);
+}
+.mchat__tools-count {
+  min-width: 16px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+  font-size: 10.5px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.mchat__tools-body {
   display: flex;
   flex-direction: column;
   gap: 4px;
-}
-.mchat__tools:empty {
-  display: none;
+  margin-top: 6px;
+  padding-left: 2px;
 }
 .mchat__tool {
   align-self: flex-start;
@@ -2985,4 +3024,52 @@ html[data-ai="off"] .mascot__act[data-mascot-act="chat"] {
   .ai-token-custom input {
     width: 76px;
   }
+}
+
+/* ------------------------------------------------------------------ */
+/* 我的分享：分页                                                      */
+/* ------------------------------------------------------------------ */
+.share-pager {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 4px 4px;
+  font-size: 12px;
+  color: var(--text-3);
+  flex-wrap: wrap;
+}
+
+.share-pager__size {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-3);
+}
+
+.share-pager__size select {
+  height: 26px;
+  padding: 0 6px;
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-xs);
+  background: var(--surface-2);
+  color: var(--text-2);
+  font: inherit;
+  font-size: 12px;
+}
+
+.share-pager .icon-btn[disabled] {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+/* 分享很多时，分页条贴在滚动区底部，不用滚到底才能翻页 */
+.share-pager {
+  position: sticky;
+  bottom: 0;
+  margin-top: 4px;
+  padding: 8px 4px;
+  border-top: 1px solid var(--stroke-hair);
+  background: color-mix(in srgb, var(--dialog-surface) 86%, transparent);
+  backdrop-filter: blur(14px);
+  z-index: 1;
 }

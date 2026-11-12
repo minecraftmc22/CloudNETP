@@ -796,3 +796,202 @@
 .quick-up.is-error .quick-up__bar {
   display: none;
 }
+
+/* ------------------------------------------------------------------ */
+/* 取件码：拖入上传 / 逐文件设置 / 登录取件                           */
+/* ------------------------------------------------------------------ */
+.quick-pick-drop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin: 12px 0;
+  padding: 18px 16px;
+  border: 1px dashed color-mix(in srgb, var(--accent) 38%, var(--stroke));
+  border-radius: var(--radius-m);
+  background: color-mix(in srgb, var(--accent) 4%, transparent);
+  text-align: center;
+  transition: border-color var(--dur-fast), background var(--dur-fast);
+}
+
+.quick-pick-drop.is-dragging {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.quick-pick-drop > .icon {
+  width: 22px;
+  height: 22px;
+  color: var(--accent);
+}
+
+.quick-pick-drop__text {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+
+.quick-pick-drop__text b {
+  color: var(--text-1);
+  font-weight: 600;
+}
+
+.quick-pick-drop__hint {
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+
+.quick-field--grow {
+  flex: 1;
+  min-width: 160px;
+}
+
+.quick-field--grow .textbox {
+  width: 100%;
+}
+
+.quick-item-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 6px;
+}
+
+.quick-item-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px;
+  border-radius: var(--radius-s);
+  font-size: 12.5px;
+}
+
+.quick-item-row:hover {
+  background: var(--fill-hover);
+}
+
+.quick-item-row.is-dead {
+  opacity: 0.55;
+}
+
+.quick-item-row__icon {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  color: var(--text-2);
+}
+
+.quick-item-row__main {
+  flex: 1;
+  min-width: 0;
+}
+
+.quick-item-row__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-1);
+}
+
+.quick-item-row__meta {
+  margin-top: 1px;
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+.quick-mini select {
+  height: 26px;
+  padding: 0 6px;
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-xs);
+  background: var(--surface-2);
+  color: var(--text-2);
+  font: inherit;
+  font-size: 11.5px;
+}
+
+.quick-uploads {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 0;
+}
+
+.quick-upload {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 10px;
+  font-size: 11.5px;
+  color: var(--text-2);
+}
+
+.quick-upload__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quick-upload .progress {
+  grid-column: 1 / -1;
+  height: 3px;
+}
+
+.quick-lookup {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--stroke-hair);
+  border-radius: var(--radius-m);
+  background: color-mix(in srgb, var(--surface-2) 70%, transparent);
+}
+
+.quick-lookup__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.quick-lookup__owner {
+  color: var(--text-3);
+}
+
+.quick-lookup__error {
+  margin-top: 10px;
+  padding: 9px 12px;
+  border-radius: var(--radius-s);
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: 12px;
+}
+
+.quick-item-row .btn.is-disabled {
+  pointer-events: none;
+  opacity: 0.45;
+}
+
+@media (max-width: 560px) {
+  .quick-mini select {
+    max-width: 86px;
+  }
+
+  .quick-item-row {
+    flex-wrap: wrap;
+  }
+}
+
+.quick-item .btn.is-disabled {
+  pointer-events: none;
+  opacity: 0.45;
+}
+
+/* 取件码输入行别铺满整卡：右下角是看板娘，铺满时按钮会被挡住 */
+.quick-card .quick-field--grow {
+  max-width: 360px;
+}

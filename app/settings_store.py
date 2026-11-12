@@ -26,6 +26,11 @@ DEFAULTS: dict[str, str] = {
     "auto_update": "0",
     # 看板娘 AI 对话的系统提示词（管理员在 设置 → 看板娘 → AI 设置 里改）
     "ai_system_prompt": "",
+    # 快传取件码的上限（0 = 不限制）：有效期最长多少天、单个文件最多被下载几次
+    "quick_max_days": "30",
+    "quick_max_uses": "0",
+    # 过期 / 撤销后，物理文件再保留多少天；清理任务按这个时间回收
+    "quick_retention_days": "7",
 }
 
 

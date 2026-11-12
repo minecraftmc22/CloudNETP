@@ -118,7 +118,11 @@ def init_upload(
     sha256: str | None,
     mime: str | None,
     chunk_size: int | None,
+    quick: bool = False,
 ) -> dict:
+    # 快传上传不落进任何目录，也不占用户配额
+    if quick:
+        parent_id = None
     ns.require_parent(db, user.id, parent_id)
 
     if size <= 0:
@@ -129,7 +133,7 @@ def init_upload(
             status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
             f"文件超过单文件上限（{max_size // 1024 // 1024} MB）",
         )
-    if user.used_bytes + size > user.quota_bytes:
+    if not quick and user.used_bytes + size > user.quota_bytes:
         raise HTTPException(
             status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "存储空间不足，请清理回收站或联系管理员扩容"
         )
@@ -142,8 +146,9 @@ def init_upload(
 
     # 1) 秒传：盘上已有同内容且大小一致
     if digest and storage.blob_exists(digest, size):
-        node = ns.create_file(db, user, parent_id, name, digest, size, mime)
-        ns.recalc_usage(db, user)
+        node = ns.create_file(db, user, parent_id, name, digest, size, mime, quick=quick)
+        if not quick:
+            ns.recalc_usage(db, user)
         return {
             "instant": True,
             "node": ns.node_payload(node),
@@ -163,6 +168,7 @@ def init_upload(
             if parent_id is None
             else UploadSession.target_node_id == parent_id,
             UploadSession.sha256 == (digest or ""),
+            UploadSession.quick_owned == bool(quick),
         )
         .order_by(UploadSession.updated_at.desc())
         .limit(1)
@@ -185,6 +191,7 @@ def init_upload(
         chunk_size=chunk,
         total_chunks=total,
         status="uploading",
+        quick_owned=bool(quick),
     )
     db.add(session)
     db.flush()
@@ -265,8 +272,18 @@ def complete_upload(
     finally:
         tmp.unlink(missing_ok=True)
 
-    node = ns.create_file(db, user, session.target_node_id, session.filename, real_sha, written, session.mime)
-    ns.recalc_usage(db, user)
+    node = ns.create_file(
+        db,
+        user,
+        session.target_node_id,
+        session.filename,
+        real_sha,
+        written,
+        session.mime,
+        quick=session.quick_owned,
+    )
+    if not session.quick_owned:
+        ns.recalc_usage(db, user)
 
     session.status = "completed"
     session.sha256 = real_sha

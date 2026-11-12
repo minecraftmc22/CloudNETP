@@ -208,6 +208,8 @@ class UploadInitIn(CamelModel):
     parent_id: int | None = None
     sha256: str | None = Field(default=None, max_length=64)
     mime: str | None = Field(default=None, max_length=127)
+    # 快传上传不落进任何目录，也不占配额；前端传 quick=true 时忽略 parentId
+    quick: bool = False
     chunk_size: int | None = Field(default=None, ge=64 * 1024, le=32 * 1024 * 1024)
 
 
@@ -256,10 +258,25 @@ class QuickSendIn(CamelModel):
     message: str | None = Field(default=None, max_length=200)
 
 
-class QuickPickupIn(CamelModel):
-    node_ids: list[int] = Field(min_length=1, max_length=100)
-    days: int = Field(default=7, ge=1, le=30)
+class QuickPickupItemIn(CamelModel):
+    """取件码里的一个文件：各自的有效期与下载次数（留空则用外层默认值）。"""
+
+    node_id: int
+    days: int | None = Field(default=None, ge=1, le=365)
     max_uses: int | None = Field(default=None, ge=1, le=10_000)
+
+
+class QuickPickupIn(CamelModel):
+    # 老客户端：只给 nodeIds + 统一设置；新客户端给 items，逐文件设置
+    node_ids: list[int] = Field(default_factory=list, max_length=100)
+    items: list[QuickPickupItemIn] = Field(default_factory=list, max_length=100)
+    days: int = Field(default=7, ge=1, le=365)
+    max_uses: int | None = Field(default=None, ge=1, le=10_000)
+
+
+class QuickPickupSaveIn(CamelModel):
+    # 转存到哪个目录；留空 = 自己的根目录
+    parent_id: int | None = None
 
 
 class QuickReadIn(CamelModel):
@@ -311,6 +328,15 @@ class AdminSettingsIn(CamelModel):
     auto_update_check: bool | None = None
     # 发现新版本后自动拉取并重启
     auto_update: bool | None = None
+    # 快传取件码：最长有效期、单个文件最多下载次数（0 = 不限制）、过期后文件保留天数
+    quick_max_days: int | None = Field(default=None, ge=1, le=365)
+    quick_max_uses: int | None = Field(default=None, ge=0, le=10000)
+    quick_retention_days: int | None = Field(default=None, ge=0, le=365)
+
+
+class AdminQuickCleanupIn(CamelModel):
+    # 留空 = 用后台设置里的保留天数
+    days: int | None = Field(default=None, ge=0, le=365)
 
 
 class AdminLogPurgeIn(CamelModel):

@@ -135,6 +135,9 @@ class Node(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     restore_parent_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    # 快传专用文件：不占用户配额、不出现在「我的文件」/搜索/WebDAV 里，
+    # 只由对应的取件码引用；过期后由清理任务连 blob 一起回收
+    quick_owned: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     __table_args__ = (
         CheckConstraint("type IN ('folder', 'file')", name="ck_nodes_type"),
@@ -158,6 +161,8 @@ class UploadSession(Base):
     chunk_size: Mapped[int] = mapped_column(Integer, nullable=False)
     total_chunks: Mapped[int] = mapped_column(Integer, nullable=False)
     status: Mapped[str] = mapped_column(String(10), nullable=False, default="uploading")
+    # 快传上传：完成时建的节点标 quick_owned，不占配额
+    quick_owned: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
 
@@ -222,6 +227,26 @@ class ShareReport(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
 
     __table_args__ = (Index("idx_report_status", "status", "created_at"),)
+
+
+class QuickPickupItem(Base):
+    """取件码里的单个文件：各自有有效期与下载次数。
+
+    历史上取件码是一组文件共用一个有效期/次数（quick_transfers.expires_at / max_uses），
+    为了兼容，没有对应 item 行的老记录仍按那两列读。
+    """
+
+    __tablename__ = "quick_pickup_items"
+
+    id: Mapped[int] = mapped_column(AutoPK, primary_key=True, autoincrement=True)
+    quick_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    node_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    max_uses: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    uses: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
+
+    __table_args__ = (Index("idx_qpi_quick", "quick_id"),)
 
 
 class BlockedBlob(Base):

@@ -1730,20 +1730,23 @@ export function renderAdmin(root) {
     let dbInfo = null;
     let lyrCfg = null;
     let aiCfg = null;
+    let quickInfo = null;
     // 网易云状态可能要去网易云核对 Cookie（慢/不可达），先占位、拿到再涂，别拖住整页
     const ngAccount = { loading: true };
     try {
-      const [data, dbData, lyrData, aiData] = await Promise.all([
+      const [data, dbData, lyrData, aiData, quickData] = await Promise.all([
         api.get("/api/admin/settings"),
         // 数据库卡片单独取：这一项失败不该让整个设置页白屏
         api.get("/api/admin/db").catch(() => null),
         api.get("/api/admin/lyrics").catch(() => null),
         api.get("/api/admin/ai").catch(() => null),
+        api.get("/api/admin/quick").catch(() => null),
       ]);
       settings = data.settings;
       dbInfo = dbData?.db || null;
       lyrCfg = lyrData?.config || null;
       aiCfg = aiData?.config || null;
+      quickInfo = quickData?.quick || null;
     } catch (err) {
       panel.innerHTML = errorBlock(err.message);
       return;
@@ -1853,6 +1856,51 @@ export function renderAdmin(root) {
         </div>
       </section>
 
+      <section class="settings-card" data-card="quick">
+        <div class="settings-card__head"><svg class="icon icon--s"><use href="#i-bolt"/></svg>快传取件码</div>
+        <div class="admin-form-grid">
+          <label class="field">
+            <span class="field__label">最长有效期</span>
+            <span class="textbox admin-unit">
+              <input data-key="quickMaxDays" data-kind="number" data-multiplier="1" type="number" min="1" max="365" step="1"
+                     value="${settings.quickMaxDays ?? 30}">
+              <span class="admin-unit__suffix">天</span>
+            </span>
+          </label>
+          <label class="field">
+            <span class="field__label">单个文件下载次数上限</span>
+            <span class="textbox admin-unit">
+              <input data-key="quickMaxUses" data-kind="number" data-multiplier="1" type="number" min="0" max="10000" step="1"
+                     value="${settings.quickMaxUses ?? 0}">
+              <span class="admin-unit__suffix">次（0 = 不限）</span>
+            </span>
+          </label>
+          <label class="field">
+            <span class="field__label">过期后文件保留</span>
+            <span class="textbox admin-unit">
+              <input data-key="quickRetentionDays" data-kind="number" data-multiplier="1" type="number" min="0" max="365" step="1"
+                     value="${settings.quickRetentionDays ?? 7}">
+              <span class="admin-unit__suffix">天</span>
+            </span>
+          </label>
+        </div>
+        <div class="admin-hint">
+          取件码里每个文件可以单独设有效期与次数，超过上面的上限会按上限算。快传上传的文件不计入用户配额，
+          ${quickInfo ? `当前有 <b>${quickInfo.codes}</b> 个取件码（${quickInfo.alive} 个有效）、<b>${quickInfo.files}</b> 个快传文件占 <b>${formatBytes(quickInfo.bytes)}</b>；` : ""}
+          过期或撤销后超过保留天数由清理任务回收（只删快传文件，不动用户网盘里的文件）。
+        </div>
+        <div class="setting-row">
+          <div class="setting-row__main">
+            <div class="setting-row__label">清理过期的快传文件</div>
+            <div class="setting-row__desc">按上面的保留天数立即回收，物理文件一并删除；不影响「我的文件」里的任何内容</div>
+          </div>
+          <button class="btn" type="button" data-act="quick-cleanup">立即清理</button>
+        </div>
+        <div class="admin-card__foot">
+          <button class="btn btn--accent" type="button" data-save="quick">保存快传设置</button>
+        </div>
+      </section>
+
       <section class="settings-card" data-card="update">
         <div class="settings-card__head"><svg class="icon icon--s"><use href="#i-refresh"/></svg>版本更新</div>
         <div class="setting-row">
@@ -1935,6 +1983,35 @@ export function renderAdmin(root) {
 
     panel.querySelectorAll("[data-save]").forEach((btn) => {
       btn.addEventListener("click", () => saveCard(btn));
+    });
+
+    /* --- 快传：立即清理过期文件 --- */
+    panel.querySelector('[data-act="quick-cleanup"]')?.addEventListener("click", async (event) => {
+      const btn = event.currentTarget;
+      const ok = await Dialog.confirm({
+        title: t("清理过期的快传文件"),
+        message: t("将删除超过保留期的取件码记录与它们的物理文件；用户网盘里的文件不受影响。"),
+        confirmText: t("立即清理"),
+        danger: true,
+      });
+      if (!ok) return;
+      btn.disabled = true;
+      try {
+        const res = await api.post("/api/admin/quick/cleanup", {});
+        const cleaned = res.cleaned || {};
+        Toast.success(
+          t("已清理 {codes} 个取件码、{files} 个文件，释放 {size}", {
+            codes: cleaned.codes || 0,
+            files: cleaned.files || 0,
+            size: formatBytes(cleaned.bytes || 0),
+          })
+        );
+        await showSettings();
+      } catch (err) {
+        Toast.error(err.message);
+      } finally {
+        btn.disabled = false;
+      }
     });
 
     /* --- 数据库卡片：刷新配置 / 手动重连 --- */

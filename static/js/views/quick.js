@@ -14,15 +14,10 @@ import { pickFolder } from "../ui/picker.js";
 import { pickNodes } from "../ui/file-browser.js";
 import { copyText } from "../ui/share.js";
 import { siteOrigin } from "../store.js";
+import { uploadFile } from "../uploader.js";
 
 const DROP_MINUTES = [10, 30, 60, 120];
-const PICKUP_DAYS = [1, 3, 7, 30];
-const PICKUP_USES = [
-  { value: null, label: "不限次数" },
-  { value: 1, label: "1 次" },
-  { value: 5, label: "5 次" },
-  { value: 10, label: "10 次" },
-];
+const PICKUP_USE_CHOICES = [null, 1, 5, 10];
 
 const TABS = [
   { key: "drop", label: "扫码直传", icon: "i-upload", desc: "手机扫码登录后，把相册里的东西直接传进指定目录" },
@@ -85,7 +80,13 @@ export function renderQuick(root) {
     days: 7,
     maxUses: null,
     sendNodes: [],
-    pickupNodes: [],
+    // 取件码：既可以是「我的文件」里选的，也可以是刚上传的快传文件
+    pickupItems: [],
+    uploading: [],
+    limits: { maxDays: 30, maxUses: 0, retentionDays: 7 },
+    lookup: null,
+    lookupCode: "",
+    lookupError: "",
     lastDrop: null,
     lastPickup: null,
     // null = 还没问到；false = 必须先同意规范
@@ -538,77 +539,277 @@ export function renderQuick(root) {
   }
 
   /* ---------------- 取件码 ---------------- */
+  function pickupDayOptions() {
+    const cap = Math.max(1, Number(state.limits.maxDays) || 30);
+    const values = [1, 3, 7, 30].filter((day) => day <= cap);
+    if (!values.includes(cap)) values.push(cap);
+    return [...new Set(values)].sort((a, b) => a - b);
+  }
+
+  function pickupUseOptions() {
+    const cap = Number(state.limits.maxUses) || 0;
+    const values = PICKUP_USE_CHOICES.filter((value) => value === null || !cap || value <= cap);
+    if (cap && !values.includes(cap)) values.push(cap);
+    return values.sort((a, b) => (a ?? Infinity) - (b ?? Infinity));
+  }
+
+  function useLabel(value) {
+    return value === null ? t("不限次数") : t("{n} 次", { n: value });
+  }
+
+  /** 一行：文件 + 这个文件自己的有效期 / 下载次数 */
+  function pickupItemHtml(item, index) {
+    const days = pickupDayOptions();
+    const uses = pickupUseOptions();
+    return H`
+      <div class="quick-item-row" data-item="${item.id}">
+        <svg class="icon quick-item-row__icon"><use href="#${item.icon || "i-file"}"/></svg>
+        <div class="quick-item-row__main">
+          <div class="quick-item-row__name" title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</div>
+          <div class="quick-item-row__meta">${formatBytes(item.size)}${item.uploaded ? ` · ${t("快传文件，不占网盘空间")}` : ""}</div>
+        </div>
+        <label class="quick-mini">
+          <select data-item-days="${item.id}">
+            ${days.map((day) => H`<option value="${day}" ${Number(item.days) === day ? "selected" : ""}>${t("{n} 天", { n: day })}</option>`).join("")}
+          </select>
+        </label>
+        <label class="quick-mini">
+          <select data-item-uses="${item.id}">
+            ${uses.map((value) => H`<option value="${value ?? ""}" ${item.uses === value ? "selected" : ""}>${useLabel(value)}</option>`).join("")}
+          </select>
+        </label>
+        <button class="icon-btn" type="button" data-item-remove="${item.id}" title="${t("移除")}">
+          <svg class="icon"><use href="#i-close"/></svg>
+        </button>
+      </div>`;
+  }
+
   function paintPickup() {
     panelEl.innerHTML = H`
       <div class="quick-card">
         <div class="quick-card__title">
           <svg class="icon icon--s"><use href="#i-key"/></svg>
-          <span data-i18n="生成取件码">${t("生成取件码")}</span>
+          <span>${t("生成取件码")}</span>
         </div>
-        <div class="quick-card__desc" data-i18n="生成 6 位码发给别人，对方打开接收页输码即可下载，不用注册。到期、次数用完或手动撤销后失效。">
-          ${t("生成 6 位码发给别人，对方打开接收页输码即可下载，不用注册。到期、次数用完或手动撤销后失效。")}
+        <div class="quick-card__desc">
+          ${t("生成 6 位码发给别人，对方打开接收页输码即可下载，不用注册。每个文件可以单独设有效期和下载次数，到期、用完或撤销后失效。")}
         </div>
+
+        <div class="quick-pick-drop" data-drop>
+          <svg class="icon"><use href="#i-upload"/></svg>
+          <div class="quick-pick-drop__text">
+            <b>${t("把文件拖到这里")}</b>
+            <span>${t("或")}</span>
+            <button class="btn btn--subtle" type="button" data-act="upload">
+              <svg class="icon icon--s"><use href="#i-plus"/></svg>${t("选择本机文件")}
+            </button>
+          </div>
+          <div class="quick-pick-drop__hint">${t("支持一次选多个；快传文件单独存放，不占你的网盘空间")}</div>
+          <input type="file" multiple hidden data-file-input>
+        </div>
+
         <div class="quick-fields">
           <label class="quick-field">
-            <span data-i18n="有效期">${t("有效期")}</span>
+            <span>${t("新加文件的有效期")}</span>
             <select data-days>
-              ${PICKUP_DAYS.map(
-                (d) => H`<option value="${d}" ${d === state.days ? "selected" : ""}>${t("{n} 天", { n: d })}</option>`
-              ).join("")}
+              ${pickupDayOptions().map((day) => H`<option value="${day}" ${day === state.days ? "selected" : ""}>${t("{n} 天", { n: day })}</option>`).join("")}
             </select>
           </label>
           <label class="quick-field">
-            <span data-i18n="下载次数">${t("下载次数")}</span>
+            <span>${t("新加文件的下载次数")}</span>
             <select data-uses>
-              ${PICKUP_USES.map(
-                (opt) => H`<option value="${opt.value ?? ""}" ${opt.value === state.maxUses ? "selected" : ""}>${t(opt.label)}</option>`
-              ).join("")}
+              ${pickupUseOptions().map((value) => H`<option value="${value ?? ""}" ${value === state.maxUses ? "selected" : ""}>${useLabel(value)}</option>`).join("")}
             </select>
           </label>
           <button class="btn btn--subtle" type="button" data-act="pick">
-            <svg class="icon icon--s"><use href="#i-folder"/></svg>
-            <span data-i18n="选择文件">${t("选择文件")}</span>
+            <svg class="icon icon--s"><use href="#i-folder"/></svg>${t("从我的文件选择")}
           </button>
           <button class="btn btn--accent" type="button" data-act="new">
-            <svg class="icon icon--s"><use href="#i-key"/></svg>
-            <span data-i18n="生成">${t("生成")}</span>
+            <svg class="icon icon--s"><use href="#i-key"/></svg>${t("生成")}
           </button>
         </div>
-        <div class="quick-chips" data-chips></div>
-        <div class="quick-hint">${t("取件码只支持单个文件，文件夹请用「我的分享」生成链接。")}</div>
+
+        <div class="quick-item-list" data-items></div>
+        <div class="quick-uploads" data-uploads hidden></div>
+        <div class="quick-hint">${t("取件码只支持文件，文件夹请用「我的分享」生成链接。")}</div>
         <div data-last></div>
       </div>
+
+      <div class="quick-card">
+        <div class="quick-card__title">
+          <svg class="icon icon--s"><use href="#i-download"/></svg>
+          <span>${t("输入取件码取件")}</span>
+        </div>
+        <div class="quick-card__desc">
+          ${t("已经登录的话，不用等别人发链接：直接输 6 位码就能看清单，然后转存到自己的网盘或下载。")}
+        </div>
+        <div class="quick-fields">
+          <label class="quick-field quick-field--grow">
+            <span>${t("取件码")}</span>
+            <input class="textbox" data-code-input maxlength="12" autocomplete="off"
+                   placeholder="${t("6 位字母或数字")}" value="${escapeHtml(state.lookupCode)}">
+          </label>
+          <button class="btn btn--accent" type="button" data-act="lookup">${t("查询")}</button>
+        </div>
+        <div data-lookup></div>
+      </div>
+
       <div class="quick-list" data-list></div>`;
 
-    const chipsEl = panelEl.querySelector("[data-chips]");
-    const paintChips = () => {
-      chipsEl.innerHTML = state.pickupNodes
-        .map(
-          (node) => H`
-        <span class="quick-chip">
-          <svg class="icon" style="width:14px;height:14px"><use href="#${node.icon}"/></svg>
-          <span class="quick-chip__name" title="${escapeHtml(node.name)}">${escapeHtml(node.name)}</span>
-          <button class="quick-chip__remove" type="button" data-remove="${node.id}" aria-label="${t("移除")}">
-            <svg class="icon"><use href="#i-close"/></svg>
-          </button>
-        </span>`
-        )
-        .join("");
-      chipsEl.querySelectorAll("[data-remove]").forEach((btn) => {
+    const itemsEl = panelEl.querySelector("[data-items]");
+    const uploadsEl = panelEl.querySelector("[data-uploads]");
+    const fileInput = panelEl.querySelector("[data-file-input]");
+    const lastBox = panelEl.querySelector("[data-last]");
+
+    const paintItems = () => {
+      if (!state.pickupItems.length) {
+        itemsEl.innerHTML = "";
+        return;
+      }
+      itemsEl.innerHTML = state.pickupItems.map(pickupItemHtml).join("");
+      itemsEl.querySelectorAll("[data-item-days]").forEach((select) => {
+        select.addEventListener("change", () => {
+          const item = state.pickupItems.find((row) => row.id === Number(select.dataset.itemDays));
+          if (item) item.days = Number(select.value);
+        });
+      });
+      itemsEl.querySelectorAll("[data-item-uses]").forEach((select) => {
+        select.addEventListener("change", () => {
+          const item = state.pickupItems.find((row) => row.id === Number(select.dataset.itemUses));
+          if (item) item.uses = select.value === "" ? null : Number(select.value);
+        });
+      });
+      itemsEl.querySelectorAll("[data-item-remove]").forEach((btn) => {
         btn.addEventListener("click", () => {
-          state.pickupNodes = state.pickupNodes.filter((node) => node.id !== Number(btn.dataset.remove));
-          paintChips();
+          state.pickupItems = state.pickupItems.filter(
+            (row) => row.id !== Number(btn.dataset.itemRemove)
+          );
+          paintItems();
         });
       });
     };
-    paintChips();
+
+    const paintUploading = () => {
+      if (!state.uploading.length) {
+        uploadsEl.hidden = true;
+        uploadsEl.innerHTML = "";
+        return;
+      }
+      uploadsEl.hidden = false;
+      uploadsEl.innerHTML = state.uploading
+        .map((row) => {
+          const pct = Math.round((row.ratio || 0) * 100);
+          return H`
+          <div class="quick-upload" data-up="${row.key}">
+            <span class="quick-upload__name" title="${escapeHtml(row.name)}">${escapeHtml(row.name)}</span>
+            <span class="quick-upload__state">${
+              row.status === "error"
+                ? escapeHtml(row.error || t("上传失败"))
+                : row.status === "done"
+                ? t("已就绪")
+                : H`${pct}%`
+            }</span>
+            <div class="progress"><div class="progress__bar" style="width:${row.status === "error" ? 0 : pct}%"></div></div>
+          </div>`;
+        })
+        .join("");
+    };
+
+    const addItems = (rows) => {
+      const seen = new Set(state.pickupItems.map((row) => row.id));
+      for (const row of rows) {
+        if (seen.has(row.id)) continue;
+        state.pickupItems.push({
+          id: row.id,
+          name: row.name,
+          size: row.size || 0,
+          icon: row.icon || "i-file",
+          days: state.days,
+          uses: state.maxUses,
+          uploaded: Boolean(row.uploaded),
+        });
+      }
+      paintItems();
+    };
+
+    async function uploadLocal(fileList) {
+      const files = [...fileList].filter((file) => file.size > 0);
+      if (!files.length) {
+        Toast.warn(t("空文件不会被上传"));
+        return;
+      }
+      for (const file of files) {
+        const entry = {
+          key: H`${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          name: file.name,
+          ratio: 0,
+          status: "uploading",
+          error: "",
+        };
+        state.uploading.push(entry);
+        paintUploading();
+        try {
+          const result = await uploadFile({
+            file,
+            quick: true,
+            onProgress: (loaded) => {
+              entry.ratio = file.size ? loaded / file.size : 0;
+              paintUploading();
+            },
+          });
+          entry.status = "done";
+          entry.ratio = 1;
+          addItems([
+            {
+              id: result.node.id,
+              name: result.node.name,
+              size: result.node.size,
+              icon: result.node.icon,
+              uploaded: true,
+            },
+          ]);
+        } catch (err) {
+          entry.status = "error";
+          entry.error = err.message || t("上传失败");
+        }
+        paintUploading();
+      }
+      // 成功的条目收走，失败的留着给人看原因
+      const failed = state.uploading.filter((row) => row.status === "error");
+      state.uploading = failed;
+      paintUploading();
+    }
+
+    paintItems();
+    paintUploading();
+
+    panelEl.querySelector('[data-act="upload"]').addEventListener("click", () => fileInput.click());
+    fileInput.addEventListener("change", () => {
+      uploadLocal(fileInput.files);
+      fileInput.value = "";
+    });
+
+    const drop = panelEl.querySelector("[data-drop]");
+    const setDragging = (on) => drop.classList.toggle("is-dragging", on);
+    ["dragenter", "dragover"].forEach((type) =>
+      drop.addEventListener(type, (event) => {
+        event.preventDefault();
+        setDragging(true);
+      })
+    );
+    ["dragleave", "drop"].forEach((type) =>
+      drop.addEventListener(type, () => setDragging(false))
+    );
+    drop.addEventListener("drop", (event) => {
+      event.preventDefault();
+      const files = [...(event.dataTransfer?.files || [])];
+      if (files.length) uploadLocal(files);
+    });
 
     panelEl.querySelector('[data-act="pick"]').addEventListener("click", async () => {
       const picked = await pickNodes({ title: t("选择要放进取件码的文件"), mode: "file" });
       if (!picked) return;
-      const seen = new Set(state.pickupNodes.map((node) => node.id));
-      state.pickupNodes = [...state.pickupNodes, ...picked.filter((node) => !seen.has(node.id))];
-      paintChips();
+      addItems(picked);
     });
 
     panelEl.querySelector("[data-days]").addEventListener("change", (event) => {
@@ -620,19 +821,26 @@ export function renderQuick(root) {
     });
 
     panelEl.querySelector('[data-act="new"]').addEventListener("click", async () => {
-      if (!state.pickupNodes.length) {
+      if (state.uploading.some((row) => row.status === "uploading")) {
+        Toast.info(t("还有文件在上传，等传完再生成"));
+        return;
+      }
+      if (!state.pickupItems.length) {
         Toast.info(t("先选一下要交付的文件"));
         return;
       }
       try {
         const data = await api.post("/api/quick/pickups", {
-          nodeIds: state.pickupNodes.map((node) => node.id),
-          days: state.days,
-          maxUses: state.maxUses,
+          items: state.pickupItems.map((item) => ({
+            nodeId: item.id,
+            days: item.days,
+            maxUses: item.uses,
+          })),
         });
         state.lastPickup = data.pickup;
         state.pickups = [data.pickup, ...state.pickups];
-        state.pickupNodes = [];
+        state.pickupItems = [];
+        state.uploading = [];
         paintPickup();
         Toast.success(t("取件码已生成"));
       } catch (err) {
@@ -640,10 +848,106 @@ export function renderQuick(root) {
       }
     });
 
+    // ---- 输入取件码 ----
+    const codeInput = panelEl.querySelector("[data-code-input]");
+    const lookupBox = panelEl.querySelector("[data-lookup]");
+
+    const paintLookup = () => {
+      if (!state.lookup && !state.lookupError) {
+        lookupBox.innerHTML = "";
+        return;
+      }
+      if (state.lookupError) {
+        lookupBox.innerHTML = H`<div class="quick-lookup__error">${escapeHtml(state.lookupError)}</div>`;
+        return;
+      }
+      const data = state.lookup;
+      const items = data.pickup.items || [];
+      lookupBox.innerHTML = H`
+        <div class="quick-lookup">
+          <div class="quick-lookup__head">
+            <span class="quick-code" style="font-size:14px">${escapeHtml(data.pickup.code)}</span>
+            <span class="quick-lookup__owner">${t("来自 {owner}", { owner: data.pickup.owner })}</span>
+            <span class="grow"></span>
+            <button class="btn btn--subtle" type="button" data-act="save">
+              <svg class="icon icon--s"><use href="#i-download"/></svg>${t("全部转存到我的文件")}
+            </button>
+          </div>
+          <div class="quick-item-list">
+            ${items
+              .map(
+                (item) => H`
+              <div class="quick-item-row${item.alive ? "" : " is-dead"}">
+                <svg class="icon quick-item-row__icon"><use href="#${item.icon || "i-file"}"/></svg>
+                <div class="quick-item-row__main">
+                  <div class="quick-item-row__name">${escapeHtml(item.name)}</div>
+                  <div class="quick-item-row__meta">${formatBytes(item.size)} · ${
+                    item.expired
+                      ? t("已过期")
+                      : item.usedUp
+                      ? t("下载次数已用完")
+                      : `${t("有效期至 {when}", { when: formatTime(item.expiresAt) })}${
+                          item.remaining === null ? "" : ` · ${t("还能取 {n} 次", { n: item.remaining })}`
+                        }`
+                  }</div>
+                </div>
+                <a class="btn btn--subtle" href="/api/public/quick/pickup/${encodeURIComponent(data.pickup.code)}/download?nodeId=${item.id}"
+                   ${item.alive ? "" : 'aria-disabled="true" tabindex="-1" class="btn btn--subtle is-disabled"'}>
+                  <svg class="icon icon--s"><use href="#i-download"/></svg>${t("下载")}
+                </a>
+              </div>`
+              )
+              .join("")}
+          </div>
+        </div>`;
+      lookupBox.querySelector('[data-act="save"]')?.addEventListener("click", async () => {
+        const target = await pickFolder({ title: t("转存到哪个文件夹"), confirmText: t("转存到这里") });
+        if (target === undefined) return;
+        try {
+          const saved = await api.post(
+            `/api/quick/pickups/code/${encodeURIComponent(data.pickup.code)}/save`,
+            { parentId: target }
+          );
+          Toast.success(t("已转存 {n} 个文件", { n: saved.saved }));
+        } catch (err) {
+          Toast.error(err.message);
+        }
+      });
+    };
+
+    const lookup = async () => {
+      const code = (codeInput.value || "").trim();
+      state.lookupCode = code;
+      if (!code) {
+        state.lookup = null;
+        state.lookupError = "";
+        paintLookup();
+        return;
+      }
+      try {
+        const data = await api.get(`/api/quick/pickups/code/${encodeURIComponent(code)}`);
+        state.lookup = data;
+        state.lookupError = "";
+      } catch (err) {
+        state.lookup = null;
+        state.lookupError = err.message;
+      }
+      paintLookup();
+    };
+
+    panelEl.querySelector('[data-act="lookup"]').addEventListener("click", lookup);
+    codeInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        lookup();
+      }
+    });
+    paintLookup();
+
+    // ---- 刚生成的取件码 ----
     if (state.lastPickup) {
       const url = `${siteOrigin()}${state.lastPickup.url}`;
-      const box = panelEl.querySelector("[data-last]");
-      box.innerHTML = H`
+      lastBox.innerHTML = H`
         <div class="quick-share">
           <div class="quick-qr" data-qr></div>
           <div class="quick-share__side">
@@ -656,13 +960,14 @@ export function renderQuick(root) {
             <div class="quick-hint">${t("对方也可以直接打开 {url} 输入取件码。", { url: "/pickup" })}</div>
           </div>
         </div>`;
-      paintQr(box.querySelector("[data-qr]"), url);
-      box.querySelector("[data-act='copy-url']").addEventListener("click", async () => {
+      paintQr(lastBox.querySelector("[data-qr]"), url);
+      lastBox.querySelector("[data-act='copy-url']").addEventListener("click", async () => {
         const ok = await copyText(url);
         ok ? Toast.success(t("取件链接已复制")) : Toast.error(t("复制失败，请手动选中"));
       });
     }
 
+    // ---- 历史记录 ----
     const listEl = panelEl.querySelector("[data-list]");
     if (!state.pickups.length) {
       listEl.innerHTML = H`<div class="quick-empty">
@@ -672,15 +977,15 @@ export function renderQuick(root) {
       return;
     }
     listEl.innerHTML = state.pickups
-      .map(
-        (item) => H`
+      .map((item) => {
+        const files = item.items || [];
+        const aliveFiles = files.filter((file) => file.alive).length;
+        return H`
       <div class="quick-row${item.status === "active" ? "" : " is-dead"}" data-id="${item.id}">
         <span class="quick-row__icon"><svg class="icon"><use href="#i-key"/></svg></span>
         <div class="quick-row__main">
           <div class="quick-row__name">${escapeHtml(item.name)}${item.code ? H`<span class="quick-code" style="font-size:13px;padding:2px 8px;margin-left:8px;letter-spacing:.12em">${escapeHtml(item.code)}</span>` : ""}</div>
-          <div class="quick-row__meta">${t("{n} 次下载", { n: item.uses || 0 })}${
-            item.maxUses ? ` · ${t("上限 {n} 次", { n: item.maxUses })}` : ""
-          } · ${formatTime(item.createdAt)}</div>
+          <div class="quick-row__meta">${t("{n} 个文件 · {alive} 个可下载", { n: files.length || item.count || 0, alive: aliveFiles })} · ${formatTime(item.createdAt)}</div>
         </div>
         <span class="quick-row__tag ${item.status === "active" ? "is-active" : "is-dead"}">${t(STATUS_TEXT[item.status] || item.status)}</span>
         <div class="quick-row__actions">
@@ -691,8 +996,8 @@ export function renderQuick(root) {
             <svg class="icon"><use href="#i-close"/></svg>
           </button>
         </div>
-      </div>`
-      )
+      </div>`;
+      })
       .join("");
 
     listEl.querySelectorAll(".quick-row").forEach((row) => {
@@ -705,7 +1010,7 @@ export function renderQuick(root) {
       row.querySelector('[data-act="revoke"]')?.addEventListener("click", async () => {
         const ok = await Dialog.confirm({
           title: t("撤销取件码"),
-          message: t("撤销后这个码立刻失效，已经发出去的码也取不了了。"),
+          message: t("撤销后这个码立刻失效，已经发出去的码也取不下了。"),
           confirmText: t("撤销"),
           danger: true,
         });
@@ -726,17 +1031,23 @@ export function renderQuick(root) {
   /* ---------------- 数据 ---------------- */
   async function loadAll() {
     try {
-      const [drops, inbox, outbox, pickups] = await Promise.all([
+      const [drops, inbox, outbox, pickups, limits] = await Promise.all([
         api.get("/api/quick/drops"),
         api.get("/api/quick/inbox"),
         api.get("/api/quick/outbox"),
         api.get("/api/quick/pickups"),
+        api.get("/api/quick/limits").catch(() => null),
       ]);
       state.drops = drops.items || [];
       state.inbox = inbox.items || [];
       state.unread = inbox.unread || 0;
       state.outbox = outbox.items || [];
       state.pickups = pickups.items || [];
+      if (limits?.limits) {
+        state.limits = limits.limits;
+        // 管理员调小上限后，默认值也要跟着收回来
+        state.days = Math.min(state.days, state.limits.maxDays || state.days);
+      }
     } catch (err) {
       Toast.error(err.message);
     }

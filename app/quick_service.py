@@ -16,14 +16,24 @@ import json
 import secrets
 import time
 from collections import defaultdict, deque
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from . import node_service as ns
-from .models import BlockedBlob, Node, QuickTransfer, ShareReport, User, UserSetting, utcnow
+from .models import (
+    BlockedBlob,
+    Node,
+    QuickPickupItem,
+    QuickTransfer,
+    ShareReport,
+    User,
+    UserSetting,
+    utcnow,
+)
+from .settings_store import get_int, get_value
 from .share_service import CODE_ALPHABET, is_blocked
 
 DROP_MINUTES = (10, 30, 60, 120)
@@ -172,6 +182,7 @@ def payload(db: Session, qt: QuickTransfer, *, with_code: bool = True) -> dict:
     if qt.kind == "pickup" and with_code:
         data["code"] = qt.code
         data["url"] = f"/pickup?code={qt.code}"
+        data["items"] = [_entry_payload(entry) for entry in pickup_entries(db, qt)]
     elif qt.kind == "drop":
         data["url"] = f"/drop/{qt.token}"
     if qt.kind == "send":
@@ -412,32 +423,164 @@ def mark_seen(db: Session, user_id: int, ids: list[int] | None = None) -> int:
 # --------------------------------------------------------------------------- #
 # 取件码（pickup）
 # --------------------------------------------------------------------------- #
-def create_pickup(
-    db: Session, user: User, nodes: list[Node], *, days: int, max_uses: int | None
-) -> QuickTransfer:
-    days = max(1, min(30, int(days or 7)))
-    require_terms(db, user)
-    if any(node.type != "file" for node in nodes):
-        raise HTTPException(
-            status.HTTP_400_BAD_REQUEST, "取件码只支持文件，文件夹请用分享链接"
+# 每个文件各自有有效期与下载次数（quick_pickup_items）。老的取件码没有 item 行，
+# 读取时回落到 quick_transfers 上的同名字段，行为与以前一致。
+def limits(db: Session) -> dict:
+    """管理员设的上限：有效期最长几天、单个文件最多下载几次（0 = 不限）、过期后保留几天。"""
+    max_days = get_int(db, "quick_max_days") or 30
+    max_uses = get_int(db, "quick_max_uses")
+    retention = get_int(db, "quick_retention_days")
+    if get_value(db, "quick_retention_days").strip() == "":
+        retention = 7
+    return {
+        "maxDays": max(1, min(365, max_days)),
+        "maxUses": max(0, min(10000, max_uses)),
+        "retentionDays": max(0, min(365, retention)),
+    }
+
+
+def clamp_days(db: Session, days: int | None) -> int:
+    cap = limits(db)["maxDays"]
+    try:
+        value = int(days if days is not None else 7)
+    except (TypeError, ValueError):
+        value = 7
+    return max(1, min(cap, value))
+
+
+def clamp_uses(db: Session, max_uses: int | None) -> int | None:
+    """None / 0 = 不限；超过管理员上限就按上限来。"""
+    try:
+        value = int(max_uses) if max_uses is not None else 0
+    except (TypeError, ValueError):
+        value = 0
+    if value <= 0:
+        return None
+    cap = limits(db)["maxUses"]
+    if cap and value > cap:
+        value = cap
+    return min(10000, value)
+
+
+def _item_rows(db: Session, qt: QuickTransfer) -> list[QuickPickupItem]:
+    return db.scalars(
+        select(QuickPickupItem)
+        .where(QuickPickupItem.quick_id == qt.id)
+        .order_by(QuickPickupItem.id.asc())
+    ).all()
+
+
+def pickup_entries(db: Session, qt: QuickTransfer) -> list[dict]:
+    """取件码里的文件 + 各自的有效期/次数；老记录回落到整条码的设置。"""
+    nodes = {n.id: n for n in _nodes(db, id_list(qt), qt.owner_id)}
+    rows = {row.node_id: row for row in _item_rows(db, qt)}
+    out: list[dict] = []
+    for node_id in id_list(qt):
+        node = nodes.get(node_id)
+        if node is None:
+            continue
+        row = rows.get(node_id)
+        expires = row.expires_at if row is not None else qt.expires_at
+        max_uses = row.max_uses if row is not None else qt.max_uses
+        uses = row.uses if row is not None else qt.uses
+        expired = bool(expires and expires <= utcnow())
+        used_up = bool(max_uses is not None and uses >= max_uses)
+        out.append(
+            {
+                "node": node,
+                "row": row,
+                "expiresAt": expires,
+                "maxUses": max_uses,
+                "uses": uses,
+                "expired": expired,
+                "usedUp": used_up,
+                "alive": not expired and not used_up,
+            }
         )
-    for node in nodes:
+    return out
+
+
+def _entry_payload(entry: dict) -> dict:
+    node = entry["node"]
+    remaining = None if entry["maxUses"] is None else max(0, entry["maxUses"] - entry["uses"])
+    return {
+        "id": node.id,
+        "name": node.name,
+        "size": node.size,
+        "mime": node.mime,
+        "icon": ns.icon_for(node),
+        "previewKind": ns.preview_kind(node),
+        "expiresAt": _iso(entry["expiresAt"]),
+        "maxUses": entry["maxUses"],
+        "uses": entry["uses"],
+        "remaining": remaining,
+        "expired": entry["expired"],
+        "usedUp": entry["usedUp"],
+        "alive": entry["alive"],
+    }
+
+
+def create_pickup(
+    db: Session,
+    user: User,
+    entries: list[dict],
+    *,
+    days: int | None = None,
+    max_uses: int | None = None,
+) -> QuickTransfer:
+    """entries: [{"node": Node, "days": int|None, "maxUses": int|None}]
+
+    不传 docs 的逐文件设置时，回落到入参里的 days / max_uses（老调用方与 AI 工具都能用）。
+    """
+    require_terms(db, user)
+    if not entries:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "请先选择文件")
+    if any(entry["node"].type != "file" for entry in entries):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "取件码只支持文件，文件夹请用分享链接")
+
+    now = utcnow()
+    farthest: datetime | None = None
+    total = 0
+    for entry in entries:
+        node = entry["node"]
         if node.blob_sha256 and is_blocked(db, node.blob_sha256):
             raise HTTPException(status.HTTP_403_FORBIDDEN, "包含已被举报确认的文件，不能生成取件码")
-    name, total, _ = _summary(nodes)
+        day_value = clamp_days(db, entry.get("days", days))
+        uses_value = clamp_uses(db, entry.get("maxUses", max_uses))
+        entry["days"] = day_value
+        entry["maxUses"] = uses_value
+        entry["expiresAt"] = now + timedelta(days=day_value)
+        total += int(node.size or 0)
+        if farthest is None or entry["expiresAt"] > farthest:
+            farthest = entry["expiresAt"]
+
+    nodes = [entry["node"] for entry in entries]
+    name, _, _ = _summary(nodes)
+    code = new_code(db)
     qt = QuickTransfer(
         kind="pickup",
         owner_id=user.id,
         token=secrets.token_urlsafe(32),
-        code=new_code(db),
+        code=code,
         node_ids=json.dumps([n.id for n in nodes]),
         name=name,
         size=total,
         count=len(nodes),
-        max_uses=max_uses,
-        expires_at=_hint(days=days),
+        max_uses=None,
+        expires_at=farthest,
     )
     db.add(qt)
+    db.flush()
+    for entry in entries:
+        db.add(
+            QuickPickupItem(
+                quick_id=qt.id,
+                node_id=entry["node"].id,
+                max_uses=entry["maxUses"],
+                uses=0,
+                expires_at=entry["expiresAt"],
+            )
+        )
     db.flush()
     return qt
 
@@ -476,47 +619,198 @@ def find_pickup(db: Session, code: str) -> QuickTransfer:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "取件码不存在，检查一下有没有输错")
     if _dead(qt):
         raise HTTPException(status.HTTP_410_GONE, _expire_reason(qt))
-    if qt.max_uses is not None and qt.uses >= qt.max_uses:
-        raise HTTPException(status.HTTP_410_GONE, "这个取件码的下载次数已用完")
+    entries = pickup_entries(db, qt)
+    if not entries:
+        raise HTTPException(status.HTTP_410_GONE, "这个取件码里的文件已经失效")
+    if not any(entry["alive"] for entry in entries):
+        raise HTTPException(status.HTTP_410_GONE, "这个取件码已经过期或下载次数用完了")
     return qt
 
 
 def pickup_public(db: Session, qt: QuickTransfer) -> dict:
     owner = db.get(User, qt.owner_id)
-    nodes = _nodes(db, id_list(qt), qt.owner_id)
+    entries = pickup_entries(db, qt)
+    alive = [entry for entry in entries if entry["alive"]]
     return {
         "code": qt.code,
         "owner": (owner.display_name or owner.username) if owner else "（已注销）",
         "name": qt.name,
         "size": qt.size,
-        "count": len(nodes),
+        "count": len(entries),
+        # 整条码的「最后失效时间」= 里面最晚过期的那个文件
         "expiresAt": _iso(qt.expires_at),
-        "remaining": None if qt.max_uses is None else max(0, qt.max_uses - qt.uses),
-        "items": [
-            {
-                "id": n.id,
-                "name": n.name,
-                "size": n.size,
-                "mime": n.mime,
-                "icon": ns.icon_for(n),
-                "previewKind": ns.preview_kind(n),
-            }
-            for n in nodes
-        ],
+        "remaining": None,
+        "aliveCount": len(alive),
+        "items": [_entry_payload(entry) for entry in entries],
     }
 
 
-def pickup_node(db: Session, qt: QuickTransfer, node_id: int | None) -> Node:
-    ids = id_list(qt)
-    target = ids[0] if node_id is None else node_id
-    if target not in ids:
+def pickup_entry(db: Session, qt: QuickTransfer, node_id: int | None) -> dict:
+    entries = pickup_entries(db, qt)
+    target = entries[0] if node_id is None else None
+    if node_id is not None:
+        for entry in entries:
+            if entry["node"].id == node_id:
+                target = entry
+                break
+    if target is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "文件不在这条取件码里")
-    node = db.get(Node, target)
-    if not node or node.deleted_at or node.type != "file" or not node.blob_sha256:
+    if not target["alive"]:
+        raise HTTPException(
+            status.HTTP_410_GONE,
+            "这个文件已经过期" if target["expired"] else "这个文件的下载次数已用完",
+        )
+    node = target["node"]
+    if node.deleted_at or not node.blob_sha256:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "文件已被删除")
     if is_blocked(db, node.blob_sha256):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "该文件已被举报确认，禁止下载")
-    return node
+    return target
+
+
+def pickup_node(db: Session, qt: QuickTransfer, node_id: int | None) -> Node:
+    return pickup_entry(db, qt, node_id)["node"]
+
+
+def consume_pickup(db: Session, qt: QuickTransfer, node: Node) -> None:
+    """一次真实下载：整条码的计数 + 这个文件的计数各加一。"""
+    qt.uses += 1
+    qt.updated_at = utcnow()
+    row = db.scalars(
+        select(QuickPickupItem).where(
+            QuickPickupItem.quick_id == qt.id, QuickPickupItem.node_id == node.id
+        )
+    ).first()
+    if row is not None:
+        row.uses += 1
+
+
+def pickup_save(
+    db: Session, user: User, qt: QuickTransfer, parent_id: int | None
+) -> list[dict]:
+    """登录用户把取件码里的文件转存到自己的网盘（正常文件，占自己的配额）。"""
+    ns.require_parent(db, user.id, parent_id)
+    entries = [entry for entry in pickup_entries(db, qt) if entry["alive"]]
+    if not entries:
+        raise HTTPException(status.HTTP_410_GONE, "这条取件码里没有可取的文件了")
+    total = sum(int(entry["node"].size or 0) for entry in entries)
+    if (user.used_bytes or 0) + total > (user.quota_bytes or 0):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "你的空间不够存放这些文件，先清理一下")
+
+    created: list[Node] = []
+    for entry in entries:
+        node = entry["node"]
+        if not node.blob_sha256:
+            continue
+        if is_blocked(db, node.blob_sha256):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, f"「{node.name}」已被举报确认，不能转存")
+        created.append(
+            ns.create_file(db, user, parent_id, node.name, node.blob_sha256, int(node.size or 0), node.mime)
+        )
+    ns.recalc_usage(db, user)
+    return created
+
+
+def overview(db: Session) -> dict:
+    """管理后台的快传概况：多少条码、多少快传文件、占多少物理空间。"""
+    rows = db.scalars(select(QuickTransfer).where(QuickTransfer.kind == "pickup")).all()
+    alive = sum(1 for qt in rows if not _dead(qt))
+    files = db.execute(
+        select(func.count(Node.id), func.coalesce(func.sum(Node.size), 0)).where(
+            Node.quick_owned.is_(True)
+        )
+    ).one()
+    limit = limits(db)
+    return {
+        "codes": len(rows),
+        "alive": alive,
+        "expired": len(rows) - alive,
+        "files": int(files[0] or 0),
+        "bytes": int(files[1] or 0),
+        **limit,
+    }
+
+
+def cleanup_expired(db: Session, *, retention_days: int | None = None) -> dict:
+    """回收过期 / 撤销的取件码文件（含物理 blob），返回清理数量。
+
+    只删 quick_owned 的节点：从「我的文件」里选来生成取件码的那些文件属于用户自己的网盘，
+    过期只是不能再取件，绝不能连用户的文件一起删。
+    """
+    if retention_days is None:
+        retention_days = limits(db)["retentionDays"]
+    retention_days = max(0, min(365, int(retention_days)))
+    now = utcnow()
+    cutoff = now - timedelta(days=retention_days)
+
+    rows = db.scalars(select(QuickTransfer).where(QuickTransfer.kind == "pickup")).all()
+    removed_files = 0
+    removed_bytes = 0
+    removed_codes = 0
+    doomed: list[Node] = []
+    for qt in rows:
+        if not _dead(qt):
+            continue
+        dead_since = qt.updated_at if qt.revoked else (qt.expires_at or qt.updated_at)
+        if dead_since and dead_since > cutoff:
+            continue
+        node_ids = id_list(qt)
+        # 还被别的活着的取件码引用就不动
+        for node_id in node_ids:
+            node = db.get(Node, node_id)
+            if node is None or not node.quick_owned:
+                continue
+            referenced = db.scalars(
+                select(QuickPickupItem.id).where(QuickPickupItem.node_id == node_id)
+            ).all()
+            busy = False
+            for item_id in referenced:
+                item = db.get(QuickPickupItem, item_id)
+                if item is None or item.quick_id == qt.id:
+                    continue
+                other = db.get(QuickTransfer, item.quick_id)
+                if other is not None and not _dead(other):
+                    busy = True
+                    break
+            if busy:
+                continue
+            removed_bytes += int(node.size or 0)
+            doomed.append(node)
+            removed_files += 1
+        db.execute(
+            delete(QuickPickupItem).where(QuickPickupItem.quick_id == qt.id)
+        )
+        db.delete(qt)
+        removed_codes += 1
+
+    # 上传了但没被任何取件码引用（创建中途失败）的孤儿文件，也按保留期回收
+    orphans = db.scalars(
+        select(Node).where(Node.quick_owned.is_(True), Node.created_at <= cutoff)
+    ).all()
+    for node in orphans:
+        used = db.scalars(
+            select(QuickPickupItem.id).where(QuickPickupItem.node_id == node.id).limit(1)
+        ).first()
+        if used is not None:
+            continue
+        removed_bytes += int(node.size or 0)
+        doomed.append(node)
+        removed_files += 1
+
+    # 先删节点再减 blob 引用：node.blob_sha256 有外键，顺序反了会撞 FK 约束
+    shas = [node.blob_sha256 for node in doomed if node.blob_sha256]
+    for node in doomed:
+        db.delete(node)
+    db.flush()
+    for sha in shas:
+        ns.release_blob(db, sha)
+    db.flush()
+    return {
+        "codes": removed_codes,
+        "files": removed_files,
+        "bytes": removed_bytes,
+        "retentionDays": retention_days,
+    }
 
 
 def report_pickup(

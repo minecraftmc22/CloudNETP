@@ -337,6 +337,10 @@ def settings_payload(db: Session) -> dict:
         in {"1", "true", "yes", "on"},
         "autoUpdate": str(values.get("auto_update", "0")).strip()
         in {"1", "true", "yes", "on"},
+        # 快传：上限与过期后文件保留期
+        "quickMaxDays": num("quick_max_days"),
+        "quickMaxUses": num("quick_max_uses"),
+        "quickRetentionDays": num("quick_retention_days"),
         "runtime": {
             "version": settings.VERSION,
             "database": "mysql" if settings.DATABASE_URL.startswith("mysql") else "sqlite",

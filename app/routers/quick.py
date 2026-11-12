@@ -23,6 +23,7 @@ from ..schemas import (
     QuickDropIn,
     QuickDropInitIn,
     QuickPickupIn,
+    QuickPickupSaveIn,
     QuickReadIn,
     QuickReportIn,
     QuickSendIn,
@@ -50,6 +51,23 @@ def _nodes_of(db: Session, user: User, ids: list[int]) -> list[Node]:
     return [ns.get_node(db, user.id, node_id) for node_id in clean]
 
 
+def _pickup_nodes(db: Session, user: User, ids: list[int]) -> list[Node]:
+    """取件码的文件来源：既可以是「我的文件」，也可以是刚用快传通道传上来的文件。"""
+    seen: set[int] = set()
+    clean = [i for i in ids if not (i in seen or seen.add(i))]
+    if not clean:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "请先选择文件")
+    if len(clean) > qs.MAX_ITEMS:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"一次最多 {qs.MAX_ITEMS} 项")
+    out: list[Node] = []
+    for node_id in clean:
+        node = db.get(Node, node_id)
+        if node is None or node.user_id != user.id or node.deleted_at:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "文件不存在或无权访问")
+        out.append(node)
+    return out
+
+
 # --------------------------------------------------------------------------- #
 # 使用规范（先同意再创建）
 # --------------------------------------------------------------------------- #
@@ -67,6 +85,12 @@ def accept_terms(body: QuickTermsIn, request: Request, db: DbSession, user: Curr
     log_action(db, "quick_terms", user.id, {"accepted": True}, request)
     db.commit()
     return state
+
+
+@router.get("/quick/limits")
+def quick_limits(db: DbSession, user: CurrentUser) -> dict:
+    """取件码的可选范围（管理员设的上限），前端据此渲染下拉框。"""
+    return {"limits": qs.limits(db)}
 
 
 # --------------------------------------------------------------------------- #
@@ -159,8 +183,17 @@ def read_inbox(body: QuickReadIn, request: Request, db: DbSession, user: Current
 @router.post("/quick/pickups")
 def create_pickup(body: QuickPickupIn, request: Request, db: DbSession, user: CurrentUser) -> dict:
     check_origin(request)
-    nodes = _nodes_of(db, user, body.node_ids)
-    qt = qs.create_pickup(db, user, nodes, days=body.days, max_uses=body.max_uses)
+    if body.items:
+        entries = []
+        for item in body.items:
+            node = _pickup_nodes(db, user, [item.node_id])[0]
+            entries.append({"node": node, "days": item.days, "maxUses": item.max_uses})
+    else:
+        nodes = _pickup_nodes(db, user, body.node_ids)
+        entries = [
+            {"node": node, "days": body.days, "maxUses": body.max_uses} for node in nodes
+        ]
+    qt = qs.create_pickup(db, user, entries, days=body.days, max_uses=body.max_uses)
     log_action(
         db,
         "quick_pickup",
@@ -177,6 +210,31 @@ def create_pickup(body: QuickPickupIn, request: Request, db: DbSession, user: Cu
 def list_pickups(db: DbSession, user: CurrentUser) -> dict:
     items = qs.list_for_user(db, user.id, "pickup")
     return {"items": items, "total": len(items)}
+
+
+@router.get("/quick/pickups/code/{code}")
+def pickup_info(code: str, db: DbSession, user: CurrentUser) -> dict:
+    """登录用户输入取件码：不占匿名限流，也不会因为反复查看把次数用掉。"""
+    qt = qs.find_pickup(db, code)
+    return {"pickup": qs.pickup_public(db, qt), "own": qt.owner_id == user.id}
+
+
+@router.post("/quick/pickups/code/{code}/save")
+def pickup_save(
+    code: str, body: QuickPickupSaveIn, request: Request, db: DbSession, user: CurrentUser
+) -> dict:
+    check_origin(request)
+    qt = qs.find_pickup(db, code)
+    nodes = qs.pickup_save(db, user, qt, body.parent_id)
+    log_action(
+        db,
+        "quick_pickup_save",
+        user.id,
+        {"pickup": qt.id, "count": len(nodes), "to": body.parent_id},
+        request,
+    )
+    db.commit()
+    return {"saved": len(nodes), "nodes": [ns.node_payload(n) for n in nodes]}
 
 
 @router.delete("/quick/pickups/{qt_id}")
@@ -338,7 +396,7 @@ def pickup_download(
 
     # Range 请求（视频拖动、断点续传）不计次
     if "range" not in request.headers:
-        qt.uses += 1
+        qs.consume_pickup(db, qt, node)
         log_action(
             db,
             "quick_pickup_download",

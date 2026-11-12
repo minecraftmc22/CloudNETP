@@ -273,8 +273,13 @@ def main() -> int:
             page.wait_for_selector('.picker__row:has-text("取件样本.txt")', timeout=10000)
             page.locator('.picker__row:has-text("取件样本.txt")').click()
             page.locator('.picker__foot [data-act="ok"]').click()
-            page.wait_for_selector(".quick-chip", timeout=10000)
-            check("选中文件变成 chip", page.locator(".quick-chip").count() == 1)
+            page.wait_for_selector(".quick-item-row", timeout=10000)
+            check("选中文件出现在待生成列表", page.locator(".quick-item-row").count() == 1)
+            check(
+                "每一行有自己的有效期/次数",
+                page.locator(".quick-item-row [data-item-days]").count() == 1
+                and page.locator(".quick-item-row [data-item-uses]").count() == 1,
+            )
             page.locator('[data-act="new"]').click()
             page.wait_for_selector("[data-code]", timeout=15000)
             code = page.locator("[data-code]").inner_text().strip()

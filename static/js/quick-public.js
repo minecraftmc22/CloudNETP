@@ -297,10 +297,10 @@ function renderPickup(data) {
       </div>
       <div class="quick-pub__title">${esc(data.name)}</div>
       <div class="quick-pub__sub">
-        ${items.length} 个文件 · ${formatBytes(data.size)} · ${expiryText(data.expiresAt)}${
-          data.remaining === null || data.remaining === undefined
-            ? ""
-            : ` · ${t("还能取 {n} 次", { n: data.remaining })}`
+        ${t("{n} 个文件", { n: items.length })} · ${formatBytes(data.size)} · ${
+          data.aliveCount === items.length
+            ? expiryText(data.expiresAt)
+            : t("{alive}/{total} 个还能下载", { alive: data.aliveCount, total: items.length })
         }
       </div>
       <div class="quick-items">
@@ -311,14 +311,26 @@ function renderPickup(data) {
             <span class="quick-row__icon"><svg class="icon"><use href="#${iconName(item.icon)}"/></svg></span>
             <div class="quick-item__main">
               <div class="quick-item__name" title="${esc(item.name)}">${esc(item.name)}</div>
-              <div class="quick-item__meta">${formatBytes(item.size)}</div>
+              <div class="quick-item__meta">${formatBytes(item.size)} · ${
+                item.expired
+                  ? t("已过期")
+                  : item.usedUp
+                  ? t("下载次数已用完")
+                  : `${expiryText(item.expiresAt)}${
+                      item.remaining === null || item.remaining === undefined
+                        ? ""
+                        : ` · ${t("还能取 {n} 次", { n: item.remaining })}`
+                    }`
+              }</div>
             </div>
             <button class="btn btn--subtle quick-item__report" type="button" data-report="${item.id}"
                     title="${t("举报该文件")}">
               <svg class="icon icon--s"><use href="#i-alert"/></svg>
               <span data-i18n="举报">${t("举报")}</span>
             </button>
-            <a class="btn btn--subtle" href="/api/public/quick/pickup/${esc(data.code)}/download?nodeId=${item.id}">
+            <a class="btn btn--subtle${item.alive ? "" : " is-disabled"}"
+               href="/api/public/quick/pickup/${esc(data.code)}/download?nodeId=${item.id}"
+               ${item.alive ? "" : 'aria-disabled="true" tabindex="-1"'}>
               <svg class="icon icon--s"><use href="#i-download"/></svg>
               <span data-i18n="下载">${t("下载")}</span>
             </a>
