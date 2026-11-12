@@ -95,7 +95,12 @@ def probe(payload: AiProbeIn, request: Request, db: DbSession, user: CurrentUser
 
 
 def _stream(
-    user_id: int, display_name: str, cfg: dict, messages: list[dict], system: str
+    user_id: int,
+    display_name: str,
+    cfg: dict,
+    messages: list[dict],
+    system: str,
+    report_usage: bool = True,
 ) -> Iterator[str]:
     """把 service 的 (event, payload) 包成 SSE 文本。
 
@@ -109,7 +114,7 @@ def _stream(
         used_bytes=0,
     )
     try:
-        for event, payload in ai.stream_chat(shell, cfg, messages, system):
+        for event, payload in ai.stream_chat(shell, cfg, messages, system, report_usage):
             yield _sse(event, payload)
     finally:
         with _cooldown_lock:
@@ -123,7 +128,7 @@ def chat(
     check_origin(request)
     if not ai_defaults.ai_enabled():
         raise HTTPException(status.HTTP_403_FORBIDDEN, "管理员已关闭 AI 功能")
-    cfg, _ = ai.effective_config(db, user.id)
+    cfg, source = ai.effective_config(db, user.id)
     if not cfg["baseUrl"] or not cfg["key"]:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
@@ -162,7 +167,15 @@ def chat(
     }
 
     return StreamingResponse(
-        _stream(snapshot["user_id"], snapshot["display_name"], snapshot["cfg"], messages, system),
+        _stream(
+            snapshot["user_id"],
+            snapshot["display_name"],
+            snapshot["cfg"],
+            messages,
+            system,
+            # 走管理员提供的默认接口时账单不归用户，别去索要、也不下发用量
+            report_usage=source != "default",
+        ),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache, no-transform",

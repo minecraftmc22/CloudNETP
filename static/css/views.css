@@ -1799,6 +1799,14 @@ html[data-ai="off"] .mascot__act[data-mascot-act="chat"] {
   flex: none;
   gap: 4px;
 }
+/* 底部实时 token 消耗：本轮 ↑输入 ↓输出，数字用等宽避免跳动 */
+.mchat__usage {
+  flex: none;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-2);
+  white-space: nowrap;
+}
 .mchat__send.is-stop {
   background: color-mix(in srgb, var(--danger) 16%, transparent);
   color: var(--danger);

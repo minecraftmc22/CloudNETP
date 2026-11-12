@@ -48,7 +48,7 @@ with SessionLocal() as _db:
     _db.commit()
     USER_ID = int(_user.id)
 
-STATE: dict[str, int] = {"chat_calls": 0, "anthropic_calls": 0}
+STATE: dict[str, int] = {"chat_calls": 0, "anthropic_calls": 0, "saw_stream_options": 0}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -102,9 +102,28 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self._json({"error": {"message": "not found"}}, 404)
 
+    def _usage(self, prompt: int = 120, completion: int = 45) -> None:
+        # 标准 OpenAI 的用量块：choices 是空数组，只有 usage
+        self._sse(
+            {
+                "choices": [],
+                "usage": {
+                    "prompt_tokens": prompt,
+                    "completion_tokens": completion,
+                    "total_tokens": prompt + completion,
+                },
+            }
+        )
+
     # ---------------- OpenAI 兼容 ----------------
     def _openai(self, body: dict) -> None:
         STATE["chat_calls"] += 1
+        if body.get("model") == "picky-model" and body.get("stream_options"):
+            # 模拟「不认 stream_options」的兼容服务：应该被自动降级掉，而不是把对话搞崩
+            self._json({"error": {"message": "Unrecognized request argument: stream_options"}}, 400)
+            return
+        if body.get("stream_options"):
+            STATE["saw_stream_options"] += 1
         messages = body.get("messages") or []
         has_tool_result = any(m.get("role") == "tool" for m in messages)
         wants_tools = bool(body.get("tools"))
@@ -125,6 +144,7 @@ class Handler(BaseHTTPRequestHandler):
                 for piece in ["好的", "，先说到这里。"]:
                     self._sse({"choices": [{"index": 0, "delta": {"content": piece}}]})
                 self._sse({"choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]})
+            self._usage()
             self.wfile.write(b"data: [DONE]\n\n")
             self.wfile.flush()
             return
@@ -138,6 +158,7 @@ class Handler(BaseHTTPRequestHandler):
                     {"index": 0, "function": {"arguments": piece}}
                 ]}}]})
             self._sse({"choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}]})
+            self._usage()
             self.wfile.write(b"data: [DONE]\n\n")
             self.wfile.flush()
             return
@@ -146,6 +167,7 @@ class Handler(BaseHTTPRequestHandler):
         for piece in ["你好呀", "，我是CDP娘", "。"]:
             self._sse({"choices": [{"index": 0, "delta": {"content": piece}}]})
         self._sse({"choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]})
+        self._usage()
         self.wfile.write(b"data: [DONE]\n\n")
         self.wfile.flush()
 
@@ -153,7 +175,17 @@ class Handler(BaseHTTPRequestHandler):
     def _anthropic(self, body: dict) -> None:
         STATE["anthropic_calls"] += 1
         self._sse_open()
-        self._sse({"type": "message_start", "message": {"id": "msg_1", "role": "assistant"}}, "message_start")
+        self._sse(
+            {
+                "type": "message_start",
+                "message": {
+                    "id": "msg_1",
+                    "role": "assistant",
+                    "usage": {"input_tokens": 88, "cache_read_input_tokens": 12, "output_tokens": 0},
+                },
+            },
+            "message_start",
+        )
         self._sse(
             {"type": "content_block_start", "index": 0, "content_block": {"type": "thinking", "thinking": ""}},
             "content_block_start",
@@ -172,7 +204,11 @@ class Handler(BaseHTTPRequestHandler):
                 "content_block_delta",
             )
         self._sse(
-            {"type": "message_delta", "delta": {"stop_reason": "end_turn", "stop_sequence": None}},
+            {
+                "type": "message_delta",
+                "delta": {"stop_reason": "end_turn", "stop_sequence": None},
+                "usage": {"output_tokens": 33},
+            },
             "message_delta",
         )
         self._sse({"type": "message_stop"}, "message_stop")
@@ -185,7 +221,9 @@ def start_server() -> ThreadingHTTPServer:
     return server
 
 
-def collect(cfg: dict, messages: list[dict], system: str) -> list[tuple[str, dict]]:
+def collect(
+    cfg: dict, messages: list[dict], system: str, want_usage: bool = True
+) -> list[tuple[str, dict]]:
     shell = SimpleNamespace(
         id=0,
         username="smoke",
@@ -193,7 +231,11 @@ def collect(cfg: dict, messages: list[dict], system: str) -> list[tuple[str, dic
         quota_bytes=0,
         used_bytes=0,
     )
-    return list(ai.stream_chat(shell, cfg, messages, system))
+    return list(ai.stream_chat(shell, cfg, messages, system, want_usage))
+
+
+def usage_of(events: list[tuple[str, dict]]) -> dict | None:
+    return dict(events[-1][1]).get("usage") if events and events[-1][0] == "done" else None
 
 
 def run_tool(user_id: int, name: str, args: dict, perms: dict | None = None) -> str:
@@ -239,12 +281,32 @@ def main() -> int:
     check("拿到流式正文", "CDP娘" in text, repr(text))
     check("有思考内容", any(k == "think" for k in kinds))
     check("有 done", kinds[-1] == "done", str(kinds[-2:]))
+    # 这一轮调了一次工具 = 两次请求，用量按轮累加
+    use = usage_of(events)
+    check("工具往返后累计用量", use == {"input": 240, "output": 90, "total": 330}, str(use))
 
     print("3. 关掉工具后不再请求工具")
     before = STATE["chat_calls"]
     cfg_plain = dict(cfg, tools=False)
     events = collect(cfg_plain, [{"role": "user", "content": "在吗"}], "你是CDP娘")
     check("单轮结束", [k for k, _ in events].count("delta") >= 1 and STATE["chat_calls"] == before + 1)
+    use = usage_of(events)
+    check("单轮用量就是一次请求", use == {"input": 120, "output": 45, "total": 165}, str(use))
+
+    print("3.5 不要用量时不发 stream_options")
+    before_opts = STATE["saw_stream_options"]
+    events = collect(cfg_plain, [{"role": "user", "content": "在吗"}], "你是CDP娘", want_usage=False)
+    check("没带 stream_options", STATE["saw_stream_options"] == before_opts, str(STATE["saw_stream_options"]))
+    check("done 里 usage 为空", usage_of(events) is None, str(usage_of(events)))
+    check("meta 标明不统计", events[0][1].get("usage") is False, str(events[0][1]))
+
+    print("3.6 服务商不认 stream_options 时自动降级")
+    cfg_picky = dict(cfg_plain, model="picky-model")
+    events = collect(cfg_picky, [{"role": "user", "content": "在吗"}], "你是CDP娘")
+    body = "".join(p["text"] for k, p in events if k == "delta")
+    check("降级后照样出正文", "CDP娘" in body, repr(body))
+    check("降级后没有用量可显示", usage_of(events) is None, str(usage_of(events)))
+    check("降级只发生在本轮，不会报错", not any(k == "error" for k, _ in events), str([k for k, _ in events]))
 
     print("4. Anthropic 协议")
     cfg_a = dict(cfg, protocol="anthropic", baseUrl=f"http://127.0.0.1:{port}")
@@ -253,6 +315,9 @@ def main() -> int:
     check("走的是 /v1/messages", STATE["anthropic_calls"] == 1, str(STATE))
     check("解析出正文", "".join(p["text"] for k, p in events if k == "delta").startswith("在的"), str(events))
     check("解析出思考", any(k == "think" for k in kinds), str(kinds))
+    use = usage_of(events)
+    check("Anthropic 输入含缓存命中", (use or {}).get("input") == 100, str(use))
+    check("Anthropic 输出用量", (use or {}).get("output") == 33, str(use))
 
     print("5. 历史裁剪")
     long_history = [{"role": "user", "content": "很长" * 2000} for _ in range(5)]
@@ -285,6 +350,7 @@ def main() -> int:
         "maxInput": 4096,
         "maxOutput": 2048,
         "maxRounds": 12,
+        "showTokens": True,
     }
     uncovered = [k for k in ai.DEFAULT_CONFIG if k not in sample and k != "key"]
     check("样例覆盖了全部配置键", not uncovered, f"没覆盖 {uncovered}" if uncovered else "")
@@ -293,7 +359,10 @@ def main() -> int:
     check("配置入参一个字段都不丢", not dropped, f"丢了 {dropped}" if dropped else "")
     check(
         "开关值原样落库",
-        all(dumped.get(k) is True for k in ("tools", "readContent", "writeFiles", "moveFiles", "quickTransfer")),
+        all(
+            dumped.get(k) is True
+            for k in ("tools", "readContent", "writeFiles", "moveFiles", "quickTransfer", "showTokens")
+        ),
         str(dumped),
     )
 

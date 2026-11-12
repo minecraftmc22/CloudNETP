@@ -122,6 +122,12 @@ export default {
   "内容面板": "Content panel",
   "卡片": "Cards",
   "弹窗": "Dialogs",
+  "显示 Token 消耗": "Show token usage",
+  "输入 {i} · 输出 {o}": "in {i} · out {o}",
+  "对话面板底部实时显示这一问的 ↑输入 / ↓输出 token 数；走管理员提供的默认接口时不显示（那部分账单不归你）":
+    "Live ↑input / ↓output token count at the bottom of the chat panel. Hidden on the administrator's default endpoint — that bill isn't yours",
+  "本轮 输入 {i} / 输出 {o}；本次对话累计 输入 {si} / 输出 {so}":
+    "This turn: {i} in / {o} out · This conversation: {si} in / {so} out",
   "调低后壁纸会透出来，文字对比度也会下降": "Lower values let the wallpaper show through and reduce text contrast",
   "恢复默认": "Reset to default",
   "侧栏不透明度": "Sidebar opacity",

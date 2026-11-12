@@ -68,7 +68,7 @@ const AUTHOR = {
 
 const CHANGELOG = [
   {
-    version: "0.3.76",
+    version: "0.3.77",
     title: "快传取件码的权限开关现在真的会记住",
     items: [
       "修掉一个保存不生效的问题：设置 → AI 里打开「快传取件码」并保存，看着是勾上了，刷新页面又变回关闭",

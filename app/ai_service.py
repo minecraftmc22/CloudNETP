@@ -132,6 +132,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "maxInput": 0,  # 0 = 用服务商默认（不主动裁剪历史）
     "maxOutput": 0,  # 0 = 用服务商默认
     "maxRounds": 8,  # 一次对话里工具往返的轮次上限
+    # 对话面板底部实时显示 token 消耗（走管理员默认接口时不统计，见 routers/ai.py）
+    "showTokens": True,
 }
 
 PROTOCOLS = {"auto", "openai", "anthropic"}
@@ -211,6 +213,7 @@ def load_config(db: Session, user_id: int) -> dict:
     cfg["maxInput"] = _clamp_int(cfg.get("maxInput"))
     cfg["maxOutput"] = _clamp_int(cfg.get("maxOutput"))
     cfg["maxRounds"] = _clamp_rounds(cfg.get("maxRounds"))
+    cfg["showTokens"] = bool(cfg.get("showTokens", True))
     cfg["key"] = decrypt_key(str(stored.get("key") or ""))
     return cfg
 
@@ -313,6 +316,7 @@ def save_config(db: Session, user_id: int, patch: dict) -> dict:
         "maxInput",
         "maxOutput",
         "maxRounds",
+        "showTokens",
     ):
         if field in patch and patch[field] is not None:
             stored[field] = patch[field]
@@ -1495,15 +1499,21 @@ def read_prompt(db: Session) -> str:
 # --------------------------------------------------------------------------- #
 # 流式对话
 # --------------------------------------------------------------------------- #
-def stream_chat(user: User, cfg: dict, messages: list[dict], system: str) -> Iterator[tuple[str, dict]]:
-    """产出 (event, payload)。event: meta / delta / think / tool / error / done"""
+def stream_chat(
+    user: User, cfg: dict, messages: list[dict], system: str, want_usage: bool = True
+) -> Iterator[tuple[str, dict]]:
+    """产出 (event, payload)。event: meta / delta / think / tool / error / done
+
+    want_usage=False 时不向服务商索要 token 用量（走管理员默认接口时用），
+    done 里的 usage 一律为 None，前端也就没得显示。
+    """
     protocol = protocol_of(cfg)
     try:
-        yield ("meta", {"model": cfg["model"], "protocol": protocol})
+        yield ("meta", {"model": cfg["model"], "protocol": protocol, "usage": want_usage})
         if protocol == "anthropic":
-            yield from _stream_anthropic(user, cfg, messages, system)
+            yield from _stream_anthropic(user, cfg, messages, system, want_usage)
         else:
-            yield from _stream_openai(user, cfg, messages, system)
+            yield from _stream_openai(user, cfg, messages, system, want_usage)
     except AiError as exc:
         yield ("error", {"message": exc.message})
     except GeneratorExit:  # 前端点了停止 / 关掉面板
@@ -1514,7 +1524,7 @@ def stream_chat(user: User, cfg: dict, messages: list[dict], system: str) -> Ite
 
 
 def _stream_openai(
-    user: User, cfg: dict, messages: list[dict], system: str
+    user: User, cfg: dict, messages: list[dict], system: str, want_usage: bool = True
 ) -> Iterator[tuple[str, dict]]:
     _, chat_url, _ = endpoints(cfg["baseUrl"], "openai")
     headers = headers_for(cfg, "openai")
@@ -1528,6 +1538,9 @@ def _stream_openai(
         "quick": bool(cfg.get("quickTransfer")),
         "vision": bool(cfg.get("vision")),
     }
+    # 一轮对话里模型可能来回调几次工具，每次都是一次真实请求，用量要跨轮累加
+    usage_total = {"input": 0, "output": 0}
+    include_usage = want_usage
 
     rounds = cfg.get("maxRounds") or MAX_TOOL_ROUNDS
     for round_index in range(rounds + 1):
@@ -1542,6 +1555,10 @@ def _stream_openai(
         }
         if cfg["maxOutput"]:
             payload["max_tokens"] = cfg["maxOutput"]
+        if include_usage:
+            # 标准 OpenAI 流式默认不回 usage，得显式要；少数兼容服务不认这个参数，
+            # 被拒一次就退回「不要 usage」，不能为此把整轮对话搞崩
+            payload["stream_options"] = {"include_usage": True}
         if use_tools:
             payload["tools"] = specs
             payload["tool_choice"] = "auto"
@@ -1550,56 +1567,74 @@ def _stream_openai(
 
         calls: dict[int, dict] = {}
         text_seen = False
-        with _response(
-            chat_url,
-            headers=headers,
-            payload=payload,
-            method="POST",
-            timeout=HTTP_TIMEOUT,
-            stream=True,
-        ) as resp:
-            for raw in resp:
-                line = raw.decode("utf-8", "replace").strip()
-                if not line or line.startswith(":"):
+        while True:
+            try:
+                with _response(
+                    chat_url,
+                    headers=headers,
+                    payload=payload,
+                    method="POST",
+                    timeout=HTTP_TIMEOUT,
+                    stream=True,
+                ) as resp:
+                    for raw in resp:
+                        line = raw.decode("utf-8", "replace").strip()
+                        if not line or line.startswith(":"):
+                            continue
+                        if line.startswith("event:") or not line.startswith("data:"):
+                            continue
+                        data = line[5:].strip()
+                        if data == "[DONE]":
+                            break
+                        try:
+                            obj = json.loads(data)
+                        except json.JSONDecodeError:
+                            continue
+                        if isinstance(obj.get("error"), (dict, str)):
+                            err = obj["error"]
+                            message = err.get("message") if isinstance(err, dict) else str(err)
+                            raise AiError(str(message or "接口返回错误"))
+                        # 用量在最后那个 choices 为空的收尾块里，得赶在筛 choices 之前读走
+                        usage = obj.get("usage")
+                        if include_usage and isinstance(usage, dict):
+                            usage_total["input"] += _as_int(usage.get("prompt_tokens"))
+                            usage_total["output"] += _as_int(usage.get("completion_tokens"))
+                        choices = obj.get("choices") or []
+                        if not choices:
+                            continue
+                        choice = choices[0] if isinstance(choices[0], dict) else {}
+                        delta = choice.get("delta") or choice.get("message") or {}
+                        reasoning = delta.get("reasoning_content") or delta.get("reasoning")
+                        if isinstance(reasoning, str) and reasoning:
+                            yield ("think", {"text": reasoning})
+                        piece = delta.get("content")
+                        if isinstance(piece, str) and piece:
+                            text_seen = True
+                            yield ("delta", {"text": piece})
+                        for call in delta.get("tool_calls") or []:
+                            index = int(call.get("index") or 0)
+                            slot = calls.setdefault(index, {"id": "", "name": "", "args": ""})
+                            if call.get("id"):
+                                slot["id"] = call["id"]
+                            fn = call.get("function") or {}
+                            if fn.get("name"):
+                                slot["name"] = fn["name"]
+                            if fn.get("arguments"):
+                                slot["args"] += fn["arguments"]
+                break
+            except AiError as exc:
+                # 服务商不认 stream_options：去掉这个参数把同一轮再发一次。
+                # 这类 400 在开流前就返回了，所以不存在「已经吐了一半又重来」的问题。
+                if include_usage and _mentions_usage_param(exc.message):
+                    include_usage = False
+                    payload.pop("stream_options", None)
+                    calls.clear()
+                    text_seen = False
                     continue
-                if line.startswith("event:") or not line.startswith("data:"):
-                    continue
-                data = line[5:].strip()
-                if data == "[DONE]":
-                    break
-                try:
-                    obj = json.loads(data)
-                except json.JSONDecodeError:
-                    continue
-                if isinstance(obj.get("error"), (dict, str)):
-                    err = obj["error"]
-                    message = err.get("message") if isinstance(err, dict) else str(err)
-                    raise AiError(str(message or "接口返回错误"))
-                choices = obj.get("choices") or []
-                if not choices:
-                    continue
-                choice = choices[0] if isinstance(choices[0], dict) else {}
-                delta = choice.get("delta") or choice.get("message") or {}
-                reasoning = delta.get("reasoning_content") or delta.get("reasoning")
-                if isinstance(reasoning, str) and reasoning:
-                    yield ("think", {"text": reasoning})
-                piece = delta.get("content")
-                if isinstance(piece, str) and piece:
-                    text_seen = True
-                    yield ("delta", {"text": piece})
-                for call in delta.get("tool_calls") or []:
-                    index = int(call.get("index") or 0)
-                    slot = calls.setdefault(index, {"id": "", "name": "", "args": ""})
-                    if call.get("id"):
-                        slot["id"] = call["id"]
-                    fn = call.get("function") or {}
-                    if fn.get("name"):
-                        slot["name"] = fn["name"]
-                    if fn.get("arguments"):
-                        slot["args"] += fn["arguments"]
+                raise
 
         if not calls or not use_tools:
-            yield ("done", {"usage": None, "hadText": text_seen})
+            yield ("done", {"usage": _usage_of(usage_total), "hadText": text_seen})
             return
 
         ordered = [calls[i] for i in sorted(calls)]
@@ -1668,6 +1703,29 @@ def _reasoning_effort_ok(cfg: dict) -> bool:
     return bool(re.match(r"^(o[1-9]|gpt-5)", model))
 
 
+def _as_int(value: Any) -> int:
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return 0
+    return number if number > 0 else 0
+
+
+def _usage_of(total: dict) -> dict | None:
+    """两个方向都是 0 就当作「服务商没给用量」，返回 None 而不是 0，前端据此不显示。"""
+    got_input = int(total.get("input") or 0)
+    got_output = int(total.get("output") or 0)
+    if not got_input and not got_output:
+        return None
+    return {"input": got_input, "output": got_output, "total": got_input + got_output}
+
+
+def _mentions_usage_param(message: str) -> bool:
+    """服务商的报错是不是在说「不认识 stream_options / include_usage」。"""
+    text = (message or "").lower()
+    return any(token in text for token in ("stream_options", "include_usage"))
+
+
 def _safe_json(text: str) -> dict:
     try:
         value = json.loads(text or "{}")
@@ -1677,7 +1735,7 @@ def _safe_json(text: str) -> dict:
 
 
 def _stream_anthropic(
-    user: User, cfg: dict, messages: list[dict], system: str
+    user: User, cfg: dict, messages: list[dict], system: str, want_usage: bool = True
 ) -> Iterator[tuple[str, dict]]:
     _, chat_url, _ = endpoints(cfg["baseUrl"], "anthropic")
     headers = headers_for(cfg, "anthropic")
@@ -1691,6 +1749,9 @@ def _stream_anthropic(
         "quick": bool(cfg.get("quickTransfer")),
         "vision": bool(cfg.get("vision")),
     }
+    # 与 OpenAI 分支一样按轮累加：每次工具往返都是独立计费的一次请求
+    usage_total = {"input": 0, "output": 0}
+    count_usage = want_usage
     max_tokens = cfg["maxOutput"] or 4096
 
     rounds = cfg.get("maxRounds") or MAX_TOOL_ROUNDS
@@ -1741,6 +1802,16 @@ def _stream_anthropic(
                 if kind == "error":
                     err = obj.get("error") or {}
                     raise AiError(str(err.get("message") or "接口返回错误"))
+                if kind == "message_start":
+                    # 输入用量（含提示缓存命中/写入的部分）只在开头给一次
+                    if count_usage:
+                        usage = (obj.get("message") or {}).get("usage") or {}
+                        usage_total["input"] += (
+                            _as_int(usage.get("input_tokens"))
+                            + _as_int(usage.get("cache_read_input_tokens"))
+                            + _as_int(usage.get("cache_creation_input_tokens"))
+                        )
+                    continue
                 if kind == "content_block_start":
                     block = obj.get("content_block") or {}
                     index = int(obj.get("index") or 0)
@@ -1766,10 +1837,15 @@ def _stream_anthropic(
                     continue
                 if kind == "message_delta":
                     stop_reason = (obj.get("delta") or {}).get("stop_reason") or stop_reason
+                    # 这里的 output_tokens 是这条消息「累计到多少」，覆盖本轮而不是相加
+                    if count_usage:
+                        usage = obj.get("usage") or {}
+                        if usage.get("output_tokens") is not None:
+                            usage_total["output"] += _as_int(usage.get("output_tokens"))
                     continue
 
         if stop_reason != "tool_use" or not blocks or not use_tools:
-            yield ("done", {"usage": None, "hadText": text_seen})
+            yield ("done", {"usage": _usage_of(usage_total) if count_usage else None, "hadText": text_seen})
             return
 
         ordered = [blocks[i] for i in sorted(blocks)]

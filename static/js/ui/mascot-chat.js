@@ -38,6 +38,15 @@ const state = {
   imageBtn: null,
   fileInput: null,
   editBar: null,
+  usageEl: null,
+  // token 消耗：turn = 当前这一问，session = 本次对话累计（新对话清零）
+  usage: {
+    show: false, // 设置里开着 + 不是走管理员默认接口
+    available: false, // 服务端 meta 说本轮统计不统计
+    live: false, // 还在流式输出（数字是估算的）
+    turn: { input: 0, output: 0 },
+    session: { input: 0, output: 0 },
+  },
   greeting: true,
   editing: null, // {uid} 正在编辑哪条已发送的消息
 };
@@ -90,6 +99,7 @@ function ensurePanel() {
         </button>
         <input type="file" accept="image/*" hidden data-mchat-file>
         <span class="mchat__tip">Enter 发送 · Shift+Enter 换行</span>
+        <span class="mchat__usage" data-mchat-usage hidden></span>
         <button class="btn btn--primary btn--sm mchat__send" type="submit" data-mchat-send>
           <svg class="icon icon--s"><use href="#i-send"/></svg><span>发送</span>
         </button>
@@ -108,6 +118,7 @@ function ensurePanel() {
   state.imageBtn = panel.querySelector("[data-mchat-image]");
   state.fileInput = panel.querySelector("[data-mchat-file]");
   state.editBar = panel.querySelector("[data-mchat-editing]");
+  state.usageEl = panel.querySelector("[data-mchat-usage]");
 
   panel.querySelector("[data-mchat-edit-cancel]").addEventListener("click", cancelEdit);
 
@@ -166,6 +177,8 @@ function ensurePanel() {
   window.addEventListener("mascot:move", followMascot);
   window.addEventListener("mascot:resize", followMascot);
   window.addEventListener("resize", followMascot);
+  // 设置页刚改完 AI 配置（显示 token / 图片输入）时立刻生效，不用等下一次轮询
+  window.addEventListener("ai:config-changed", () => refreshConfig(true));
 
   return panel;
 }
@@ -282,6 +295,9 @@ async function refreshConfig(force = false) {
             : "未配置";
     }
     if (state.imageBtn) state.imageBtn.hidden = !state.vision;
+    // 走管理员默认接口时账单不归用户，服务端也不下发用量，这里一并收起来
+    state.usage.show = aiOn && cfg.source !== "default" && cfg.showTokens !== false;
+    paintUsage();
     if (state.banner) {
       state.banner.hidden = state.ready;
       if (!state.ready) {
@@ -310,6 +326,10 @@ function resetChat() {
   state.images = [];
   state.greeting = true;
   state.feed.innerHTML = "";
+  state.usage.turn = { input: 0, output: 0 };
+  state.usage.session = { input: 0, output: 0 };
+  state.usage.live = false;
+  paintUsage();
   clearEdit();
   renderAttach();
   renderGreeting();
@@ -337,6 +357,84 @@ function renderGreeting() {
 function timeNow() {
   const now = new Date();
   return H`${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+}
+
+/* ------------------------------------------------------------------ */
+/* Token 消耗                                                          */
+/* ------------------------------------------------------------------ */
+const CJK_RE = /[\u3400-\u4dbf\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]/g;
+
+/** 估算 token：中日韩一个字算一个，其余按 4 字符一个。只用于流式过程中先给个大概 */
+function estimateTokens(text) {
+  const raw = String(text || "");
+  if (!raw) return 0;
+  const cjk = (raw.match(CJK_RE) || []).length;
+  return Math.round(cjk + (raw.length - cjk) / 4);
+}
+
+function fmtTokens(value) {
+  const n = Math.max(0, Math.round(Number(value) || 0));
+  if (n >= 1000000) return `${(n / 1000000).toFixed(1).replace(/\.0$/, "")}M`;
+  if (n >= 10000) return `${Math.round(n / 1000)}k`;
+  if (n >= 1000) return `${(n / 1000).toFixed(1).replace(/\.0$/, "")}k`;
+  return String(n);
+}
+
+/** 底部那一行：本轮 ↑输入 ↓输出；服务端给了准确用量就把 ≈ 摘掉 */
+function paintUsage() {
+  const el = state.usageEl;
+  if (!el) return;
+  const { show, available, live, turn, session } = state.usage;
+  const hasTurn = turn.input > 0 || turn.output > 0;
+  const hasSession = session.input > 0 || session.output > 0;
+
+  if (!show || !available || (!hasTurn && !hasSession)) {
+    el.hidden = true;
+    el.textContent = "";
+    el.removeAttribute("title");
+    return;
+  }
+
+  el.hidden = false;
+  // 用默认接口时不上报用量；这里再兜一次，避免刚开面板那一瞬闪出旧数字
+  const body = t("输入 {i} · 输出 {o}", {
+    i: fmtTokens(turn.input),
+    o: fmtTokens(turn.output),
+  });
+  el.textContent = live ? `≈ ${body}` : body;
+  el.title = t("本轮 输入 {i} / 输出 {o}；本次对话累计 输入 {si} / 输出 {so}", {
+    i: turn.input,
+    o: turn.output,
+    si: session.input,
+    so: session.output,
+  });
+}
+
+/** 一问一答的开始：这一轮的数字从「估算的输入 + 0 输出」起跳 */
+function startUsageTurn(promptText) {
+  state.usage.turn = { input: estimateTokens(promptText), output: 0 };
+  state.usage.available = true;
+  state.usage.live = true;
+  paintUsage();
+}
+
+/** 服务端给的 done.usage 落地：覆盖本轮的估算值，并累进会话 */
+function settleUsage(usage) {
+  // 服务商不给用量：数字保留估算值，≈ 也别摘掉，免得把概数当成准数
+  if (!usage) {
+    paintUsage();
+    return;
+  }
+  const input = Math.max(0, Math.round(Number(usage.input) || 0));
+  const output = Math.max(0, Math.round(Number(usage.output) || 0));
+  state.usage.live = false;
+  state.usage.turn = { input, output };
+  state.usage.session = {
+    input: state.usage.session.input + input,
+    output: state.usage.session.output + output,
+  };
+  state.usage.available = true;
+  paintUsage();
 }
 
 function appendUser(item) {
@@ -434,6 +532,9 @@ function scheduleRender(target, text) {
     renderTimer = 0;
     target.bubble.innerHTML = renderMarkdown(text) || "";
     scrollFeed();
+    // 还没拿到服务端的准确用量，先按已收到的字符估一个，让数字跟着字一起长
+    state.usage.turn.output = estimateTokens(text);
+    paintUsage();
   }, 90);
 }
 
@@ -617,6 +718,8 @@ async function streamReply(item) {
   const ctrl = new AbortController();
   state.ctrl = ctrl;
   setBusy(true);
+  // 输入用量按这次真正发出去的历史估算；服务端 done 里有准数时会覆盖
+  startUsageTurn(state.messages.map((m) => m.content || "").join("\n"));
 
   let text = "";
   let thinking = "";
@@ -663,6 +766,13 @@ async function streamReply(item) {
       }
       if (event === "meta") {
         if (state.modelEl && data.model) state.modelEl.textContent = data.model;
+        // 服务端明确说「这轮不统计用量」（例如走管理员默认接口）就别算了
+        state.usage.available = data.usage !== false;
+        paintUsage();
+        return;
+      }
+      if (event === "done") {
+        settleUsage(data.usage);
         return;
       }
       if (event === "notice") {
@@ -683,6 +793,11 @@ async function streamReply(item) {
     window.clearTimeout(renderTimer);
     renderTimer = 0;
     target.bubble.classList.remove("is-streaming");
+    // 没拿到准数（流被中断 / 服务商不给用量）：按最终文本再估一次，别停在半路
+    if (state.usage.live) {
+      state.usage.turn.output = estimateTokens(text);
+      paintUsage();
+    }
     if (target.row.querySelector(".mchat__think-body")?.textContent) {
       target.think.open = false;
     }
