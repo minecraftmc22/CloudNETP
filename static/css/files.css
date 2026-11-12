@@ -80,7 +80,12 @@
   gap: 8px;
   padding: 14px 12px 12px;
   border-radius: var(--radius-m);
-  background: var(--layer-3);
+  /* 文件磁贴也算卡片，跟着「设置 → 外观 → 卡片」的滑块一起变透 */
+  background: color-mix(
+    in srgb,
+    var(--layer-3) calc(var(--op-card, var(--card-a, 1)) * 100%),
+    transparent
+  );
   border: 1px solid var(--stroke-hair);
   text-align: left;
   cursor: default;
@@ -97,7 +102,15 @@
 }
 .tile.is-selected {
   border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 10%, var(--layer-3));
+  background: color-mix(
+    in srgb,
+    var(--accent) 10%,
+    color-mix(
+      in srgb,
+      var(--layer-3) calc(var(--op-card, var(--card-a, 1)) * 100%),
+      transparent
+    )
+  );
   box-shadow: 0 0 0 1px var(--accent), var(--shadow-2);
 }
 .tile.is-cursor {

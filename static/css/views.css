@@ -564,7 +564,12 @@
 
 .settings-card {
   border-radius: var(--radius-l);
-  background: var(--layer-3);
+  /* 卡片底色跟着「设置 → 外观 → 卡片」的滑块走：--op-card 是倍数，默认 1 = 原样 */
+  background: color-mix(
+    in srgb,
+    var(--layer-3) calc(var(--op-card, var(--card-a, 1)) * 100%),
+    transparent
+  );
   border: 1px solid var(--stroke-hair);
   overflow: hidden;
 }
@@ -2205,7 +2210,11 @@ html[data-ai="off"] .mascot__act[data-mascot-act="chat"] {
 
 .about-card {
   border-radius: var(--radius-l);
-  background: var(--layer-3);
+  background: color-mix(
+    in srgb,
+    var(--layer-3) calc(var(--op-card, var(--card-a, 1)) * 100%),
+    transparent
+  );
   border: 1px solid var(--stroke-hair);
   overflow: hidden;
 }
@@ -2768,7 +2777,12 @@ html[data-ai="off"] .mascot__act[data-mascot-act="chat"] {
 .settings .settings-card__body {
   border-radius: 8px;
   border: 1px solid var(--stroke-hair);
-  background: color-mix(in srgb, var(--dialog-surface) 74%, transparent);
+  /* 74% 是默认浓度，滑块按倍数缩放它 */
+  background: color-mix(
+    in srgb,
+    var(--dialog-surface) calc(var(--op-card, var(--card-a, 1)) * 74%),
+    transparent
+  );
   overflow: hidden;
 }
 /* 第一行不需要顶部分隔线，否则圆角处会有一道多余的横线 */

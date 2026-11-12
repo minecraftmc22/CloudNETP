@@ -725,10 +725,10 @@ def update_settings(
                     if k in value
                 }
             elif field == "surface_opacity":
-                # 只收四个模块键，值夹到 0-100 的整数
+                # 只收白名单里的模块键，值夹到 0-100 的整数
                 value = {
                     k: max(0, min(100, int(round(v))))
-                    for k in ("nav", "titlebar", "panel", "dialog")
+                    for k in ("nav", "titlebar", "panel", "dialog", "card")
                     if isinstance((v := value.get(k)), (int, float)) and not isinstance(v, bool)
                 }
             setattr(row, field, value)

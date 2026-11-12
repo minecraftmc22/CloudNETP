@@ -68,12 +68,12 @@ def main():
     check("GET /api/me 200", st == 200, st)
     check("下发 surfaceOpacity 字段", "surfaceOpacity" in me.get("user", {}).get("settings", {}), "")
 
-    print("== 保存四个模块 ==")
-    payload = {"nav": 0, "titlebar": 100, "panel": 35, "dialog": 85}
+    print("== 保存五个模块 ==")
+    payload = {"nav": 0, "titlebar": 100, "panel": 35, "dialog": 85, "card": 60}
     st, d = http("PATCH", "/api/me/settings", {"surfaceOpacity": payload}, cookie=cookie)
     check("PATCH 200", st == 200, st)
     got = d.get("settings", {}).get("surfaceOpacity", {})
-    check("四项都存住", got == payload, got)
+    check("五项都存住（含卡片）", got == payload, got)
 
     st, me = http("GET", "/api/me", cookie=cookie)
     got2 = me.get("user", {}).get("settings", {}).get("surfaceOpacity", {})
@@ -102,6 +102,14 @@ def main():
     check("未知键被丢弃", "evil" not in got, got)
     check("非数字被丢弃", "titlebar" not in got, got)
     check("合法键保留", got.get("nav") == 40, got)
+    st, d = http(
+        "PATCH",
+        "/api/me/settings",
+        {"surfaceOpacity": {"card": 140}},
+        cookie=cookie,
+    )
+    check("卡片键被接受并夹到 100", d.get("settings", {}).get("surfaceOpacity", {}).get("card") == 100,
+          d.get("settings", {}).get("surfaceOpacity"))
 
     print("== 清空 ==")
     st, d = http("PATCH", "/api/me/settings", {"surfaceOpacity": {}}, cookie=cookie)

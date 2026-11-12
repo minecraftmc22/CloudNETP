@@ -43,9 +43,16 @@ function trashDesc(s) {
   return t("开启中：删除的文件先进入回收站，{days} 天后自动清理", { days });
 }
 
-/* 各模块背景的默认浓度：直接读主题 CSS 变量，换主题/壁纸后默认值自然跟着走 */
-const SURFACE_FALLBACK = { nav: 42, titlebar: 46, panel: 62, dialog: 82 };
-const SURFACE_VARS = { nav: "--nav-a", titlebar: "--title-a", panel: "--panel-a", dialog: "--dialog-a" };
+/* 各模块背景的默认浓度：直接读主题 CSS 变量，换主题/壁纸后默认值自然跟着走
+   卡片没有固定 alpha（设置卡、关于卡、统计卡底色各不相同），滑块是倍数，默认 1 = 100% */
+const SURFACE_FALLBACK = { nav: 42, titlebar: 46, panel: 62, dialog: 82, card: 100 };
+const SURFACE_VARS = {
+  nav: "--nav-a",
+  titlebar: "--title-a",
+  panel: "--panel-a",
+  dialog: "--dialog-a",
+  card: "--card-a",
+};
 const clampPercent = (v) => Math.max(0, Math.min(100, Math.round(Number(v) || 0)));
 function surfaceDefault(key) {
   const raw = parseFloat(
@@ -148,6 +155,7 @@ export function renderSettings(root) {
     ["nav", "侧栏"],
     ["titlebar", "标题栏"],
     ["panel", "内容面板"],
+    ["card", "卡片"],
     ["dialog", "弹窗"],
   ].map(([key, name]) => {
     const saved = Number(savedOpacity[key]);
@@ -249,7 +257,7 @@ export function renderSettings(root) {
             <div class="setting-row setting-row--opacity">
               <div class="setting-row__main">
                 <div class="setting-row__label">模块不透明度</div>
-                <div class="setting-row__desc">分别控制各块背景的实心程度，0% 完全透明、100% 完全不透明</div>
+                <div class="setting-row__desc">分别控制各块背景的实心程度，0% 完全透明；卡片以当前默认观感为 100%，往下拖会越来越透</div>
               </div>
               <div class="opacity-list" data-opacity-list>
                 ${opacityRows

@@ -161,7 +161,11 @@
   padding: 18px;
   border-radius: var(--radius-l);
   border: 1px solid var(--stroke-hair);
-  background: color-mix(in srgb, var(--dialog-surface) 88%, transparent);
+  background: color-mix(
+    in srgb,
+    var(--dialog-surface) calc(var(--op-card, var(--card-a, 1)) * 88%),
+    transparent
+  );
   margin-bottom: 14px;
 }
 

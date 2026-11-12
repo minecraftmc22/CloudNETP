@@ -24,7 +24,7 @@ const CACHE_KEY = "cn:appearance";
 const LUMA_KEY = "cn:bgLuma";
 
 /** 可单独调不透明度的模块（键名与 user_settings.surface_opacity 一致） */
-export const SURFACE_KEYS = ["nav", "titlebar", "panel", "dialog"];
+export const SURFACE_KEYS = ["nav", "titlebar", "panel", "dialog", "card"];
 
 /** 把 { nav: 0-100, ... } 写进 --op-*；缺省则交回 CSS 里的主题默认值 */
 function applySurfaceOpacity(map) {

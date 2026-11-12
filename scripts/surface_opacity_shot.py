@@ -140,7 +140,7 @@ def main() -> None:
               const cs = getComputedStyle(document.documentElement);
               const c = (sel) => getComputedStyle(document.querySelector(sel)).backgroundColor;
               const vars = {};
-              for (const k of ['nav','titlebar','panel','dialog'])
+              for (const k of ['nav','titlebar','panel','dialog','card'])
                 vars[k] = cs.getPropertyValue('--op-' + k).trim();
               const sliders = {};
               for (const el of document.querySelectorAll('[data-opacity]'))
@@ -148,11 +148,13 @@ def main() -> None:
               return {
                 vars, sliders,
                 nav: c('.nav'), title: c('.titlebar'), panel: c('.view-root'),
+                card: c('.settings .settings-card__body'),
                 defaults: {
                   nav: cs.getPropertyValue('--nav-a').trim(),
                   title: cs.getPropertyValue('--title-a').trim(),
                   panel: cs.getPropertyValue('--panel-a').trim(),
                   dialog: cs.getPropertyValue('--dialog-a').trim(),
+                  card: cs.getPropertyValue('--card-a').trim(),
                 },
                 errs: window.__errs,
               };
@@ -174,11 +176,11 @@ def main() -> None:
         base = read_state()
         print("默认滑块:", json.dumps(base["sliders"], ensure_ascii=False))
         print("默认浓度:", json.dumps(base["defaults"], ensure_ascii=False))
-        print("默认计算值:", {k: alpha_of(base[k]) for k in ("nav", "title", "panel")})
+        print("默认计算值:", {k: alpha_of(base[k]) for k in ("nav", "title", "panel", "card")})
         shot("op_settings_default.png")
 
         # 调成很极端的一组：侧栏全透明、标题栏全实、面板 22%、弹窗 55%
-        for key, val in (("nav", 0), ("titlebar", 100), ("panel", 22), ("dialog", 55)):
+        for key, val in (("nav", 0), ("titlebar", 100), ("panel", 22), ("dialog", 55), ("card", 30)):
             set_slider(key, val)
             time.sleep(0.35)
         time.sleep(1.4)
@@ -186,7 +188,7 @@ def main() -> None:
         st = read_state()
         print("调整后滑块:", json.dumps(st["sliders"], ensure_ascii=False))
         print("调整后变量:", json.dumps(st["vars"], ensure_ascii=False))
-        print("调整后计算值:", {k: alpha_of(st[k]) for k in ("nav", "title", "panel")})
+        print("调整后计算值:", {k: alpha_of(st[k]) for k in ("nav", "title", "panel", "card")})
 
         # 临时塞一个对话框进来量它的底色
         dialog_bg = js("""(() => {
@@ -216,7 +218,7 @@ def main() -> None:
         after = read_state()
         print("刷新后滑块:", json.dumps(after["sliders"], ensure_ascii=False))
         print("刷新后变量:", json.dumps(after["vars"], ensure_ascii=False))
-        print("刷新后计算值:", {k: alpha_of(after[k]) for k in ("nav", "title", "panel")})
+        print("刷新后计算值:", {k: alpha_of(after[k]) for k in ("nav", "title", "panel", "card")})
 
         # 恢复默认
         js("document.querySelector('[data-act=\"opacity-reset\"]').click()")
@@ -224,7 +226,7 @@ def main() -> None:
         reset = read_state()
         print("恢复默认滑块:", json.dumps(reset["sliders"], ensure_ascii=False))
         print("恢复默认变量:", json.dumps(reset["vars"], ensure_ascii=False))
-        print("恢复默认计算值:", {k: alpha_of(reset[k]) for k in ("nav", "title", "panel")})
+        print("恢复默认计算值:", {k: alpha_of(reset[k]) for k in ("nav", "title", "panel", "card")})
         print("恢复后服务端:", js("fetch('/api/me').then(r=>r.json()).then(d=>d.user.settings.surfaceOpacity)"))
 
         # 手机宽度
