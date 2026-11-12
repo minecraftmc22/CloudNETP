@@ -68,6 +68,16 @@ def snapshot_db(dst: Path) -> None:
         src.close()
         out.close()
 
+    # 后台存的默认接口会盖掉 .env（优先级 system_settings > .env）。
+    # 副本里带着真实库的这行时，[A] 段就永远读不到脚本注入的那套默认接口，
+    # 测出来的结果是「来源 none」而不是本意要测的 env —— 先删掉再起服务。
+    conn = sqlite3.connect(str(dst))
+    try:
+        conn.execute("DELETE FROM system_settings WHERE k = 'ai_default_config'")
+        conn.commit()
+    finally:
+        conn.close()
+
 
 def call(base: str, method: str, path: str, cookie: str | None = None, body: dict | None = None):
     data = json.dumps(body).encode() if body is not None else None
@@ -268,7 +278,24 @@ def main() -> int:
         check("显示用户自己的模型", cfg.get("model") == "my-model", str(cfg.get("model")))
         check("不再带 defaultModel", not cfg.get("defaultModel"), str(cfg.get("defaultModel")))
 
-        print("\n[F] 清空用户配置后回到默认接口")
+        print("\n[F] 权限开关能落库（quickTransfer 走真实 HTTP）")
+        status, data = call(
+            base, "PUT", "/api/ai/config", plain_cookie,
+            {"quickTransfer": True, "readContent": True},
+        )
+        check("保存权限开关 200", status == 200, str(status))
+        got = (data.get("config") or {}).get("quickTransfer")
+        check("保存响应里已是打开", got is True, str(got))
+        _, data = call(base, "GET", "/api/ai/config", plain_cookie)
+        cfg = data.get("config") or {}
+        check("重新拉取仍是打开（不会被静默丢掉）", cfg.get("quickTransfer") is True, str(cfg.get("quickTransfer")))
+        check("顺带存的 readContent 也在", cfg.get("readContent") is True, str(cfg.get("readContent")))
+        status, data = call(base, "PUT", "/api/ai/config", plain_cookie, {"quickTransfer": False})
+        _, data = call(base, "GET", "/api/ai/config", plain_cookie)
+        cfg = data.get("config") or {}
+        check("能再关掉", cfg.get("quickTransfer") is False, str(cfg.get("quickTransfer")))
+
+        print("\n[G] 清空用户配置后回到默认接口")
         call(
             base, "PUT", "/api/ai/config", plain_cookie,
             {"baseUrl": "", "key": "", "model": ""},

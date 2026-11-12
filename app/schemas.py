@@ -129,6 +129,8 @@ class AiConfigIn(CamelModel):
     read_content: bool | None = None
     write_files: bool | None = None
     move_files: bool | None = None
+    # quick_transfer = 允许生成取件码 / 用取件码取件
+    quick_transfer: bool | None = None
     vision: bool | None = None
     thinking: bool | None = None
     # auto = 按地址自动判断；openai / anthropic 为手动指定（给非标准地址用）

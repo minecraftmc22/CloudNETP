@@ -265,7 +265,39 @@ def main() -> int:
     check("能解回原文", ai.decrypt_key(cipher) == "sk-abcdefghijklmn")
     check("掩码只露头尾", ai.mask_key("sk-abcdefghijklmn") == "sk-ab…klmn", ai.mask_key("sk-abcdefghijklmn"))
 
-    print("7. 写权限与增删改工具")
+    print("7. 配置入参不丢字段")
+    # Pydantic 对没声明的字段是静默丢弃的：前端发了、后端没这个字段，
+    # 表现就是「点了保存、看着勾上了，刷新又变回去」，所以这里逐键护航。
+    from app.schemas import AiConfigIn
+
+    sample = {
+        "provider": "openai",
+        "baseUrl": "https://api.example.com/v1",
+        "model": "gpt-test",
+        "tools": True,
+        "readContent": True,
+        "writeFiles": True,
+        "moveFiles": True,
+        "quickTransfer": True,
+        "vision": True,
+        "thinking": True,
+        "protocol": "openai",
+        "maxInput": 4096,
+        "maxOutput": 2048,
+        "maxRounds": 12,
+    }
+    uncovered = [k for k in ai.DEFAULT_CONFIG if k not in sample and k != "key"]
+    check("样例覆盖了全部配置键", not uncovered, f"没覆盖 {uncovered}" if uncovered else "")
+    dumped = AiConfigIn.model_validate(sample).model_dump(exclude_none=True, by_alias=True)
+    dropped = [k for k in sample if k not in dumped]
+    check("配置入参一个字段都不丢", not dropped, f"丢了 {dropped}" if dropped else "")
+    check(
+        "开关值原样落库",
+        all(dumped.get(k) is True for k in ("tools", "readContent", "writeFiles", "moveFiles", "quickTransfer")),
+        str(dumped),
+    )
+
+    print("8. 写权限与增删改工具")
     denied = run_tool(
         USER_ID, "create_folder", {"path": "不该出现的目录"}, {"write": False, "move": False}
     )
