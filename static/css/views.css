@@ -3322,7 +3322,12 @@ html[data-ai="off"] .mascot__act[data-mascot-act="chat"] {
   margin-top: 4px;
   padding: 8px 4px;
   border-top: 1px solid var(--stroke-hair);
-  background: color-mix(in srgb, var(--dialog-surface) 86%, transparent);
+  /* 86% 是默认浓度；和别的卡片一样按「卡片」滑块倍数缩放，默认 1 = 原样 */
+  background: color-mix(
+    in srgb,
+    var(--dialog-surface) calc(var(--op-card, var(--card-a, 1)) * 86%),
+    transparent
+  );
   backdrop-filter: blur(14px);
   z-index: 1;
 }
