@@ -363,9 +363,16 @@ class AdminGcIn(CamelModel):
 
 
 class AdminDbReconnectIn(CamelModel):
-    """管理页手动重连：切到主库还是容灾 SQLite。"""
+    """管理页手动重连：切到主库还是次库。"""
 
     target: Literal["primary", "fallback"] = "primary"
+
+
+class AdminDbRolesIn(CamelModel):
+    """管理页选择主库 / 次库的数据库类型。次库可以选 none（不设置）。"""
+
+    primary: Literal["mysql", "sqlite"] = "sqlite"
+    secondary: Literal["none", "mysql", "sqlite"] = "none"
 
 
 class AdminLyricsIn(CamelModel):

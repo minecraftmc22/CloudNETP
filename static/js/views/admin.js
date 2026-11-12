@@ -87,8 +87,40 @@ function detailLine(raw) {
 }
 
 /* ------------------------------------------------------------------ */
-/* 数据库卡片：容灾状态 / 刷新配置 / 手动重连                          */
+/* 数据库卡片：主库 / 次库选择、容灾状态、刷新配置、手动重连            */
 /* ------------------------------------------------------------------ */
+const DB_KIND_LABEL = { mysql: "MySQL", sqlite: "SQLite" };
+
+function dbKind(kind) {
+  return DB_KIND_LABEL[kind] || kind || "—";
+}
+
+/** 下拉里的数据库类型：MySQL 没配连接信息时不能选 */
+function dbKindOptions(roles, kind) {
+  return ["mysql", "sqlite"]
+    .map((value) => {
+      const off = value === "mysql" && !roles.mysqlConfigured ? " disabled" : "";
+      const picked = kind === value ? " selected" : "";
+      return H`<option value="${value}"${picked}${off}>${dbKind(value)}</option>`;
+    })
+    .join("");
+}
+
+function dbSecondaryOptions(roles, kind) {
+  return [
+    ["none", t("不使用")],
+    ["mysql", "MySQL"],
+    ["sqlite", "SQLite"],
+  ]
+    .map(([value, label]) => {
+      const unconfigured = value === "mysql" && !roles.mysqlConfigured ? ' data-unconfigured="1"' : "";
+      const off = unconfigured ? " disabled" : "";
+      const picked = kind === value ? " selected" : "";
+      return H`<option value="${value}"${picked}${off}${unconfigured}>${label}</option>`;
+    })
+    .join("");
+}
+
 function dbCardMarkup(db) {
   const head = `<div class="settings-card__head"><svg class="icon icon--s"><use href="#i-database"/></svg>${t("数据库")}</div>`;
   if (!db) {
@@ -100,34 +132,81 @@ function dbCardMarkup(db) {
   const p = db.primary || {};
   const f = db.fallback || {};
   const w = db.watchdog || {};
+  const roles = db.roles || { primary: "sqlite", secondary: "none", mysqlConfigured: false };
+  const active = db.active || { role: db.mode || "primary", kind: roles.primary };
   const reach = p.reachable
     ? H`<span class="db-state is-ok">可达</span><small>${p.latencyMs} ms</small>`
     : H`<span class="db-state is-bad">不可达</span><small>${t("超时 {s}s", { s: p.connectTimeout })}</small>`;
   const fallbackState = f.enabled
     ? `${t(f.mirrored ? "可信副本" : "尚未镜像过主库")}${f.dirty ? t(" · 有未回迁数据") : ""}`
-    : t("未开启");
+    : t("未设置");
   const switched = db.switchedAt
     ? H`${formatTime(db.switchedAt)}${db.switchReason ? H` · ${escapeHtml(db.switchReason)}` : ""}`
     : t("进程启动后没有切换过");
   const held = w.held ? H`<span class="chip">已暂停自动回切</span>` : "";
-  const sqliteOnly = p.isSqlite;
+  const activeChip = `${t(active.role === "fallback" ? "次库" : "主库")} · ${dbKind(active.kind)}`;
+  const primarySqlite = roles.primary === "sqlite";
 
-  return H`<section class="settings-card" data-card="db">${head}
+  return H`<section class="settings-card" data-card="db" data-role-primary="${roles.primary}" data-role-secondary="${roles.secondary}">${head}
     <div class="setting-row">
       <div class="setting-row__main">
         <div class="setting-row__label">当前服务库
-          <span class="chip ${db.mode === "fallback" ? "chip--warn" : "chip--accent"}">${escapeHtml(t(db.modeLabel || db.mode))}</span>
+          <span class="chip ${active.role === "fallback" ? "chip--warn" : "chip--accent"}">${escapeHtml(activeChip)}</span>
           ${held}
         </div>
         <div class="setting-row__desc">${t("最近切换：{when}", { when: switched })}</div>
       </div>
     </div>
 
+    <div class="setting-row">
+      <div class="setting-row__main">
+        <div class="setting-row__label">主库</div>
+        <div class="setting-row__desc">${
+          primarySqlite
+            ? t("现在用本机的 SQLite 文件，单机部署够用；换成 MySQL 会把当前数据整体复制过去")
+            : t("现在用 MySQL；换成 SQLite 会把当前数据复制到本机文件，之后不依赖数据库服务")
+        }</div>
+      </div>
+      <span class="selectbox">
+        <select data-db-role="primary">${dbKindOptions(roles, roles.primary)}</select>
+        <svg class="icon icon--s"><use href="#i-chevron-down"/></svg>
+      </span>
+    </div>
+
+    <div class="setting-row">
+      <div class="setting-row__main">
+        <div class="setting-row__label">次库</div>
+        <div class="setting-row__desc">${
+          f.enabled
+            ? t("主库连不上时自动接管，平时定期把主库数据复制过来；恢复后先回迁再切回")
+            : t("选「不使用」就只跑主库，没有容灾与自动回切")
+        }</div>
+      </div>
+      <span class="selectbox">
+        <select data-db-role="secondary">${dbSecondaryOptions(roles, roles.secondary)}</select>
+        <svg class="icon icon--s"><use href="#i-chevron-down"/></svg>
+      </span>
+    </div>
+
+    <div class="setting-row">
+      <div class="setting-row__main">
+        <div class="setting-row__label">保存主库 / 次库${roles.source === "admin" ? H`<span class="chip">已保存</span>` : ""}</div>
+        <div class="setting-row__desc">${
+          roles.mysqlConfigured
+            ? t("换主库时会把当前库的数据整体复制到新库，旧库原样保留；目标库连不上会直接报错并保持现状")
+            : t("还没配置 MySQL 连接信息（.env 的 DATABASE_URL 或 DB_HOST / DB_USER / DB_PASSWORD / DB_NAME），暂时只能选 SQLite")
+        }</div>
+      </div>
+      <button class="btn btn--accent" type="button" data-db-act="roles">保存并切换</button>
+    </div>
+
     <div class="admin-facts">
-      <div class="is-wide"><span>主库</span><b class="mono" title="${escapeHtml(p.url || "")}">${escapeHtml(p.url || "—")}</b></div>
+      <div class="is-wide"><span>主库</span><b class="mono" title="${escapeHtml(p.url || "")}">${escapeHtml(p.path || p.url || "—")}</b></div>
       <div><span>探活</span>${reach}</div>
-      <div><span>副本状态</span><b>${fallbackState}</b></div>
-      <div class="is-wide"><span>容灾副本</span><b class="mono" title="${escapeHtml(f.path || "—")}">${escapeHtml(f.path || "—")}</b><small>${formatBytes(f.bytes || 0)}</small></div>
+      <div><span>次库状态</span><b>${fallbackState}</b></div>
+      <div class="is-wide"><span>次库</span><b class="mono" title="${escapeHtml(f.url || f.path || "—")}">${escapeHtml(f.enabled ? f.path || f.url : "—")}</b>${
+        f.kind === "sqlite" ? H`<small>${formatBytes(f.bytes || 0)}</small>` : ""
+      }</div>
       <div><span>自动容灾</span><b>${t(f.enabled ? "已开启" : "已关闭")}</b><small>${
         w.probeInterval > 0 ? t("探测 {s}s", { s: w.probeInterval }) : t("不自动探测")
       } · ${w.mirrorInterval > 0 ? t("镜像 {s}s", { s: w.mirrorInterval }) : t("不周期镜像")}</small></div>
@@ -139,32 +218,36 @@ function dbCardMarkup(db) {
     <div class="setting-row">
       <div class="setting-row__main">
         <div class="setting-row__label">刷新配置</div>
-        <div class="setting-row__desc">${t("重读 <code>.env</code> 里的 <code>DATABASE_URL</code> 与容灾参数，重建连接池并重新探活，不用重启服务")}</div>
+        <div class="setting-row__desc">${t("重读 <code>.env</code> 里的数据库与容灾参数，重建连接池并重新探活，不用重启服务")}</div>
       </div>
       <button class="btn" type="button" data-db-act="refresh">刷新配置</button>
     </div>
 
     <div class="setting-row">
       <div class="setting-row__main">
-        <div class="setting-row__label">重新连接 MySQL</div>
-        <div class="setting-row__desc">丢弃旧连接池重新握手；当前跑在 SQLite 时会先把本地数据回迁到主库，成功才切回</div>
+        <div class="setting-row__label">重新连接主库</div>
+        <div class="setting-row__desc">${t(
+          "丢弃旧连接池重新握手；当前跑在次库时会先把本地数据回迁到主库，成功才切回"
+        )}</div>
       </div>
-      <button class="btn" type="button" data-db-act="primary">重新连接 MySQL</button>
+      <button class="btn" type="button" data-db-act="primary">${t(
+        roles.primary === "mysql" ? "重新连接 MySQL" : "重新连接主库"
+      )}</button>
     </div>
 
     <div class="setting-row">
       <div class="setting-row__main">
-        <div class="setting-row__label">重新连接 SQLite</div>
+        <div class="setting-row__label">切到次库</div>
         <div class="setting-row__desc">${
-          sqliteOnly
-            ? t("当前 DATABASE_URL 本来就是 SQLite 文件，容灾切换只在主库指向远程 MySQL 时有意义")
-            : t("切到本地容灾库（切之前先镜像一份最新副本）；切过来会暂停自动回切，直到你点上面的按钮")
+          f.enabled
+            ? t("切过去之前会先镜像一份最新副本；切过来会暂停自动回切，直到你点上面的按钮")
+            : t("还没有设置次库，先在上面选一个类型再切")
         }</div>
       </div>
-      <button class="btn btn--subtle" type="button" data-db-act="fallback">重新连接 SQLite</button>
+      <button class="btn btn--subtle" type="button" data-db-act="fallback" ${f.enabled ? "" : "disabled"}>切到次库</button>
     </div>
 
-    <p class="admin-hint">连接串只显示到库名，密码在服务端已脱敏；手动切换与刷新都会记进审计日志。</p>
+    <p class="admin-hint">连接串只显示到库名，密码在服务端已脱敏；换库、手动切换与刷新都会记进审计日志。</p>
   </section>`;
 }
 
@@ -2041,6 +2124,53 @@ export function renderAdmin(root) {
         }
       }
 
+      /* --- 主库 / 次库下拉：两边都选 MySQL 等于同一个库备份自己，这种组合直接挡掉 --- */
+      const primarySel = card.querySelector('[data-db-role="primary"]');
+      const secondarySel = card.querySelector('[data-db-role="secondary"]');
+      function syncRoleSelects() {
+        if (!primarySel || !secondarySel) return;
+        const primary = primarySel.value;
+        for (const value of ["mysql", "sqlite"]) {
+          const option = secondarySel.querySelector(`option[value="${value}"]`);
+          if (!option) continue;
+          // SQLite + SQLite 是两个不同文件，可以互为备份；MySQL 只有一个库，撞上就没意义
+          const blocked = (value === "mysql" && primary === "mysql") || option.dataset.unconfigured === "1";
+          option.disabled = blocked;
+          if (blocked && secondarySel.value === value) secondarySel.value = "none";
+        }
+      }
+      primarySel?.addEventListener("change", syncRoleSelects);
+      secondarySel?.addEventListener("change", syncRoleSelects);
+      syncRoleSelects();
+
+      card.querySelector('[data-db-act="roles"]')?.addEventListener("click", async (event) => {
+        const button = event.currentTarget;
+        const primary = primarySel?.value || "sqlite";
+        const secondary = secondarySel?.value || "none";
+        const changed = primary !== card.dataset.rolePrimary || secondary !== card.dataset.roleSecondary;
+        const ok = await Dialog.confirm({
+          title: "保存主库 / 次库",
+          message: t(
+            "主库：{primary}<br>次库：{secondary}<br><br>换主库时会把当前库的数据整体复制到新库（旧库原样保留），文件本体不受影响。<br>目标库连不上会直接报错，当前库保持不变。",
+            { primary: dbKind(primary), secondary: secondary === "none" ? t("不使用") : dbKind(secondary) }
+          ),
+          confirmText: "保存并切换",
+          danger: changed,
+        });
+        if (!ok) return;
+        run(button, async () => {
+          const data = await api.post("/api/admin/db/roles", { primary, secondary });
+          paintDbCard(data.db);
+          const moved = data.result?.migratedRows || 0;
+          Toast.success(
+            t("主库已切到 {kind}{moved}", {
+              kind: dbKind(data.result?.primary || primary),
+              moved: moved ? t("，迁移 {n} 行", { n: moved }) : "",
+            })
+          );
+        });
+      });
+
       card.querySelector('[data-db-act="refresh"]')?.addEventListener("click", (event) => {
         const button = event.currentTarget;
         run(button, async () => {
@@ -2059,9 +2189,9 @@ export function renderAdmin(root) {
       card.querySelector('[data-db-act="primary"]')?.addEventListener("click", async (event) => {
         const button = event.currentTarget;
         const ok = await Dialog.confirm({
-          title: "重新连接 MySQL",
+          title: "重新连接主库",
           message: t(
-            "会丢弃当前连接池重新握手。<br>如果服务正跑在 SQLite 上，会先把本地库的数据回迁到主库，回迁成功才切回；主库连不上则保持现状并报错。"
+            "会丢弃当前连接池重新握手。<br>如果服务正跑在次库上，会先把次库的数据回迁到主库，回迁成功才切回；主库连不上则保持现状并报错。"
           ),
           confirmText: "重连",
         });
@@ -2070,18 +2200,18 @@ export function renderAdmin(root) {
           const data = await api.post("/api/admin/db/reconnect", { target: "primary" });
           const rows = data.result?.migratedRows || 0;
           paintDbCard(data.db);
-          Toast.success(t("已连上 MySQL{moved}", { moved: rows ? t("，回迁 {n} 行", { n: rows }) : "" }));
+          Toast.success(t("已连上主库{moved}", { moved: rows ? t("，回迁 {n} 行", { n: rows }) : "" }));
         });
       });
 
       card.querySelector('[data-db-act="fallback"]')?.addEventListener("click", async (event) => {
         const button = event.currentTarget;
         const ok = await Dialog.confirm({
-          title: "重新连接 SQLite",
+          title: "切到次库",
           message: t(
-            "会先镜像一份主库的最新副本，然后切到本地数据库服务。<br>切过来后自动回切会暂停，直到你点「重新连接 MySQL」或重启服务。"
+            "会先镜像一份主库的最新副本，然后切到次库服务。<br>切过去后自动回切会暂停，直到你点「重新连接主库」或重启服务。"
           ),
-          confirmText: "切到 SQLite",
+          confirmText: "切到次库",
           danger: true,
         });
         if (!ok) return;
@@ -2089,7 +2219,7 @@ export function renderAdmin(root) {
           const data = await api.post("/api/admin/db/reconnect", { target: "fallback" });
           const rows = data.result?.mirroredRows || 0;
           paintDbCard(data.db);
-          Toast.success(t("已切到 SQLite{moved}", { moved: rows ? t("，镜像 {n} 行", { n: rows }) : "" }));
+          Toast.success(t("已切到次库{moved}", { moved: rows ? t("，镜像 {n} 行", { n: rows }) : "" }));
         });
       });
     }

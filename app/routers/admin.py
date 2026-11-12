@@ -30,6 +30,7 @@ from ..models import User
 from ..schemas import (
     AdminAiDefaultIn,
     AdminDbReconnectIn,
+    AdminDbRolesIn,
     AdminGcIn,
     AdminLogPurgeIn,
     AdminLyricsIn,
@@ -441,6 +442,18 @@ def db_refresh(request: Request, me: AdminUser) -> dict:
         "admin_db_refresh",
         {"changes": result["changes"], "landed": result["landed"]},
     )
+    return {"result": result, "db": db_failover.describe()}
+
+
+@router.post("/db/roles")
+def db_roles(payload: AdminDbRolesIn, request: Request, me: AdminUser) -> dict:
+    """选择主库 / 次库的数据库类型；换主库时自动把当前数据搬过去。"""
+    check_origin(request)
+    try:
+        result = db_failover.apply_roles(payload.primary, payload.secondary)
+    except (RuntimeError, ValueError) as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from None
+    _db_audit(request, me.id, "admin_db_roles", result)
     return {"result": result, "db": db_failover.describe()}
 
 

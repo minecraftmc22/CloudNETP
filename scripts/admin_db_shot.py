@@ -157,43 +157,77 @@ def main() -> None:
             card = page.locator('[data-card="db"]')
             text = card.inner_text()
             check("卡片渲染出来了", "当前服务库" in text)
-            check("主库连接串已脱敏", "****" in text or "sqlite:///" in text, text.splitlines()[3][:60])
-            check("容灾副本路径可见", "fallback.db" in text)
+            check("主库连接串已脱敏（只剩文件/库名，没有账号密码）",
+                  "****" in text or ".db" in text or "sqlite:///" in text, text.splitlines()[3][:60])
+            check("次库路径可见", "fallback.db" in text)
             check("探活状态可见", "可达" in text or "不可达" in text)
-            check("三个动作按钮都在",
-                  card.locator('[data-db-act="refresh"]').count() == 1
+            check("四个动作按钮都在",
+                  card.locator('[data-db-act="roles"]').count() == 1
+                  and card.locator('[data-db-act="refresh"]').count() == 1
                   and card.locator('[data-db-act="primary"]').count() == 1
                   and card.locator('[data-db-act="fallback"]').count() == 1)
+            check("主库下拉存在", card.locator('[data-db-role="primary"]').count() == 1)
+            check("次库下拉存在", card.locator('[data-db-role="secondary"]').count() == 1)
+            check("主库下拉值 = sqlite", card.locator('[data-db-role="primary"]').input_value() == "sqlite",
+                  card.locator('[data-db-role="primary"]').input_value())
+            check("次库下拉值 = sqlite", card.locator('[data-db-role="secondary"]').input_value() == "sqlite",
+                  card.locator('[data-db-role="secondary"]').input_value())
 
             page.screenshot(path=str(OUT / "admin_db.png"), full_page=True)
             card.screenshot(path=str(OUT / "admin_db_card.png"))
 
-            print("\n[B] 刷新配置")
-            card.locator('[data-db-act="refresh"]').click()
+            print("\n[A2] 次库可以关掉，也可以再打开")
+            card.locator('[data-db-role="secondary"]').select_option("none")
+            card.locator('[data-db-act="roles"]').click()
+            page.wait_for_selector(".dialog [data-act='ok']", timeout=8000)
+            page.click(".dialog [data-act='ok']")
             page.wait_for_selector(".toast", timeout=15000)
-            toast = page.locator(".toast").last.inner_text()
-            check("刷新配置有提示", "配置" in toast or "刷新" in toast, toast)
+            page.wait_for_timeout(800)
+            text = page.locator('[data-card="db"]').inner_text()
+            check("次库显示未设置", "未设置" in text, text[-400:])
+            check("次库关掉后「切到次库」被禁用",
+                  page.locator('[data-db-act="fallback"]').is_disabled())
+            check("落盘文件写出来了", (tmp / "storage" / "db" / "roles.json").is_file())
+            card = page.locator('[data-card="db"]')
+            card.screenshot(path=str(OUT / "admin_db_no_secondary.png"))
+
+            page.locator('[data-card="db"] [data-db-role="secondary"]').select_option("sqlite")
+            page.locator('[data-db-act="roles"]').click()
+            page.wait_for_selector(".dialog [data-act='ok']", timeout=8000)
+            page.click(".dialog [data-act='ok']")
+            page.wait_for_timeout(1200)
+            text = page.locator('[data-card="db"]').inner_text()
+            check("次库恢复成 SQLite", "未设置" not in text, text[-400:])
+            check("「切到次库」恢复可用", not page.locator('[data-db-act="fallback"]').is_disabled())
+
+            print("\n[B] 刷新配置")
+            page.wait_for_timeout(3200)  # 等上一步的提示自己消失，免得读到旧 toast
+            page.locator('[data-card="db"] [data-db-act="refresh"]').click()
+            page.wait_for_selector(".toast", timeout=15000)
+            page.wait_for_timeout(300)
+            toast = " ".join(page.locator(".toast").all_inner_texts())
+            check("刷新配置有提示", "配置已刷新" in toast, toast)
             page.wait_for_timeout(600)
             check("刷新后卡片还在", page.locator('[data-card="db"]').count() == 1)
 
-            print("\n[C] 重新连接 SQLite")
+            print("\n[C] 切到次库")
             page.click('[data-db-act="fallback"]')
             page.wait_for_selector(".dialog [data-act='ok']", timeout=8000)
             page.screenshot(path=str(OUT / "admin_db_confirm.png"))
             page.click(".dialog [data-act='ok']")
             page.wait_for_timeout(1200)
             text = page.locator('[data-card="db"]').inner_text()
-            check("标签切到 SQLite 容灾", "SQLite 容灾" in text, text.splitlines()[1][:80])
+            check("标签切到次库 · SQLite", "次库 · SQLite" in text, text.splitlines()[1][:80])
             check("提示已暂停自动回切", "已暂停自动回切" in text)
             page.screenshot(path=str(OUT / "admin_db_fallback.png"), full_page=True)
 
-            print("\n[D] 重新连接 MySQL")
+            print("\n[D] 重新连接主库")
             page.click('[data-db-act="primary"]')
             page.wait_for_selector(".dialog [data-act='ok']", timeout=8000)
             page.click(".dialog [data-act='ok']")
             page.wait_for_timeout(1500)
             text = page.locator('[data-card="db"]').inner_text()
-            check("切回主库", "SQLite 容灾" not in text, text.splitlines()[1][:80])
+            check("切回主库", "次库 · SQLite" not in text, text.splitlines()[1][:80])
             check("回切原因有记录", "手动重连" in text or "没有切换过" in text)
 
             print("\n[E] 设置 → 对话设置 → 保存配置")

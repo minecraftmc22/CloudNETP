@@ -2,11 +2,15 @@ name: Build and Push Docker Image
 
 # 把仓库构建成多架构镜像，推到 Docker Hub 的 minecraftmc22/cloudnetp。
 #
-# 触发方式（二选一）：
-#   1) 打 tag 推送（发版用）：
+# 触发方式（三选一）：
+#   1) 改版本号就自动构建（推荐）：把 app/config.py 的 VERSION 往上加，
+#      提交推上 main 就会触发。工作流先查 Docker Hub 上这个版本存不存在，
+#      已经有同名镜像就直接跳过，所以「每个版本刚好构建一次」。
+#      → minecraftmc22/cloudnetp:<VERSION> + :latest（带 - 的预发布版本不顶 latest）
+#   2) 打 tag 推送（想手动发版时）：
 #        git tag v0.3.67 && git push origin v0.3.67
-#      → minecraftmc22/cloudnetp:0.3.67 + :latest（带 v 不带 v 都认；预发布 tag 如 v0.3.67-rc1 不顶 latest）
-#   2) 手动运行：Actions → Build and Push Docker Image → Run workflow
+#      → 同上，tag 里的版本号优先（带 v 不带 v 都认）
+#   3) 手动运行：Actions → Build and Push Docker Image → Run workflow
 #      可自定义镜像 tag（留空则取 app/config.py 的 VERSION），并决定是否更新 latest
 #
 # 需要先在仓库 Settings → Secrets and variables → Actions 里加两个 secret：
@@ -16,6 +20,11 @@ name: Build and Push Docker Image
 
 on:
   push:
+    branches:
+      - main
+    # 只有版本号文件变了才跑（路径过滤对 tag 推送不生效，所以打 tag 照旧触发）
+    paths:
+      - "app/config.py"
     tags:
       - "v*"          # v0.3.67
       - "[0-9]*"      # 0.3.67（不带 v 也认）
@@ -56,11 +65,12 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           REF_NAME: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
           INPUT_TAG: ${{ inputs.tag }}
           INPUT_LATEST: ${{ inputs.latest }}
         run: |
           set -eu
-          # 版本号以 app/config.py 为准，手动运行时可以作为默认 tag
+          # 版本号以 app/config.py 为准：分支推送时它就是镜像 tag
           version=$(grep -oE 'VERSION:[[:space:]]*str[[:space:]]*=[[:space:]]*"[^"]+"' app/config.py \
             | head -1 | sed -E 's/.*"([^"]+)"$/\1/')
           if [ -z "$version" ]; then
@@ -68,9 +78,16 @@ jobs:
             exit 1
           fi
 
-          if [ "$EVENT_NAME" = "push" ]; then
+          if [ "$EVENT_NAME" = "push" ] && [ "$REF_TYPE" = "tag" ]; then
             tag="$REF_NAME"
             # 预发布（带 - 的 tag）不覆盖 latest，避免测试版被当成正式版
+            case "$tag" in
+              *-*) latest=false ;;
+              *) latest=true ;;
+            esac
+          elif [ "$EVENT_NAME" = "push" ]; then
+            # 分支推送（改了 VERSION 提交上 main）：用代码里的版本号，正式版顶 latest
+            tag="$version"
             case "$tag" in
               *-*) latest=false ;;
               *) latest=true ;;
@@ -100,6 +117,7 @@ jobs:
             echo "version=$version"
             echo "image_tag=$image_tag"
             echo "latest=$latest"
+            echo "from_branch=$([ "$EVENT_NAME" = "push" ] && [ "$REF_TYPE" = "branch" ] && echo true || echo false)"
             echo "refs<<EOF"
             echo "$refs"
             echo "EOF"
@@ -120,13 +138,6 @@ jobs:
             echo "::warning::没配 DOCKERHUB_USERNAME / DOCKERHUB_TOKEN，这次只构建镜像、不推送"
           fi
 
-      # arm64 靠 QEMU 模拟；buildx 负责交叉构建与缓存
-      - name: 准备 QEMU
-        uses: docker/setup-qemu-action@v3
-
-      - name: 准备 Buildx
-        uses: docker/setup-buildx-action@v3
-
       - name: 登录 Docker Hub
         if: steps.creds.outputs.ok == 'true'
         uses: docker/login-action@v3
@@ -134,8 +145,35 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      # 分支推送时最容易重复跑（改了 VERSION 又补一个文档提交不会，但重新跑工作流会），
+      # 所以先问一句「这个版本的镜像是不是已经存在」——有就不再构建，省得白烧 CPU
+      - name: 该版本是否已构建过
+        id: exists
+        if: steps.creds.outputs.ok == 'true' && steps.tag.outputs.from_branch == 'true'
+        env:
+          TAG: ${{ steps.tag.outputs.image_tag }}
+        run: |
+          set -eu
+          if docker manifest inspect "$IMAGE:$TAG" >/dev/null 2>&1; then
+            echo "built=true" >> "$GITHUB_OUTPUT"
+            echo "镜像 $IMAGE:$TAG 已存在，跳过构建" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "built=false" >> "$GITHUB_OUTPUT"
+            echo "镜像 $IMAGE:$TAG 还没构建过，开始构建" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # arm64 靠 QEMU 模拟；buildx 负责交叉构建与缓存
+      - name: 准备 QEMU
+        if: steps.exists.outputs.built != 'true'
+        uses: docker/setup-qemu-action@v3
+
+      - name: 准备 Buildx
+        if: steps.exists.outputs.built != 'true'
+        uses: docker/setup-buildx-action@v3
+
       - name: 构建并推送
         id: build
+        if: steps.exists.outputs.built != 'true'
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -160,12 +198,16 @@ jobs:
         env:
           IMAGE_TAG: ${{ steps.tag.outputs.image_tag }}
           PUSHED: ${{ steps.creds.outputs.ok }}
+          SKIPPED: ${{ steps.exists.outputs.built }}
+          VERSION: ${{ steps.tag.outputs.version }}
           DIGEST: ${{ steps.build.outputs.digest }}
         run: |
           {
             echo "## CloudNETP 镜像"
             echo
-            if [ "$PUSHED" = "true" ]; then
+            if [ "$SKIPPED" = "true" ]; then
+              echo "版本 \`$VERSION\` 的镜像早就构建过了，本次跳过（没有新代码需要发布）。"
+            elif [ "$PUSHED" = "true" ]; then
               echo "已推送 \`minecraftmc22/cloudnetp:$IMAGE_TAG\`（linux/amd64 + linux/arm64）"
               echo
               echo '```bash'

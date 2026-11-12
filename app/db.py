@@ -51,8 +51,13 @@ def _build_engine(url: str) -> Any:
     return eng
 
 
+def build_engine(url: str) -> Any:
+    """按连接串造引擎（容灾那边给次库造引擎也走这里，参数保持一致）。"""
+    return _build_engine(url)
+
+
 # 记住造引擎时的连接串：engine.url 里的密码是掩码的，不能拿来比
-_engine_url = settings.DATABASE_URL
+_engine_url = settings.primary_db_url
 engine = _build_engine(_engine_url)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False, class_=Session)
 
@@ -61,16 +66,21 @@ class Base(DeclarativeBase):
     pass
 
 
+def engine_url() -> str:
+    """当前主引擎用的原始连接串（未脱敏，只给内部比较用）。"""
+    return _engine_url
+
+
 def rebuild_engine() -> bool:
-    """按当前 settings.DATABASE_URL 重建主库引擎，返回连接串是否真的变了。
+    """按角色解析出的主库连接串重建引擎，返回连接串是否真的变了。
 
     - 连接串没变：只丢弃旧连接池（等价于「重连一次」），正在飞的请求各自持有自己的连接，不受影响。
     - 变了：换新引擎 + 换 SessionLocal，旧引擎 dispose（已 checkout 的连接等它们归还）。
-    调用方（管理页刷新配置 / 手动重连）负责随后重新探活与切库。
+    调用方（管理页刷新配置 / 手动重连 / 切换角色）负责随后重新探活与切库。
     """
     global engine, SessionLocal, _engine_url
 
-    url = settings.DATABASE_URL
+    url = settings.primary_db_url
     if url == _engine_url:
         engine.dispose()
         return False

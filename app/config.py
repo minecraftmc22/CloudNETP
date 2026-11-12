@@ -77,20 +77,16 @@ def _get_bool(key: str, default: bool) -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
-def _compose_database_url() -> str:
-    """拼数据库连接串。
+def _mysql_url_from_env() -> str:
+    """从 DB_HOST / DB_USER / ... 拼 MySQL 连接串；没配账号库名时返回空串。
 
-    优先级：DATABASE_URL > DB_USER/DB_PASSWORD 组合 > 本地 dev.db。
-    密码里的 @ : / ? # 等字符会自动 URL 编码，不用手动转义。
+    和 `_compose_database_url` 的区别：这里**不兜底 SQLite**，
+    好让上层判断「到底有没有可用的 MySQL」。
     """
-    explicit = _get("DATABASE_URL").strip()
-    if explicit:
-        return explicit
-
     user = _get("DB_USER").strip()
     name = _get("DB_NAME").strip()
     if not user or not name:
-        return f"sqlite:///{(BASE_DIR / 'dev.db').as_posix()}"
+        return ""
 
     host = _get("DB_HOST", "127.0.0.1").strip() or "127.0.0.1"
     port = _get("DB_PORT", "3306").strip() or "3306"
@@ -100,10 +96,22 @@ def _compose_database_url() -> str:
     return f"{driver}://{quote(user, safe='')}:{password}@{host}:{port}/{name}?charset={charset}"
 
 
+def _compose_database_url() -> str:
+    """拼数据库连接串。
+
+    优先级：DATABASE_URL > DB_USER/DB_PASSWORD 组合 > 本地 dev.db。
+    密码里的 @ : / ? # 等字符会自动 URL 编码，不用手动转义。
+    """
+    explicit = _get("DATABASE_URL").strip()
+    if explicit:
+        return explicit
+    return _mysql_url_from_env() or f"sqlite:///{(BASE_DIR / 'dev.db').as_posix()}"
+
+
 class Settings:
     # ---- 应用 ----
     APP_NAME: str = _get("APP_NAME", "CloudNETP")
-    VERSION: str = "0.3.73"
+    VERSION: str = "0.3.74"
     DEBUG: bool = _get_bool("DEBUG", True)
 
     # ---- 监听与对外地址 ----
@@ -160,6 +168,11 @@ class Settings:
     # 平时定期把主库镜像进 SQLite，恢复后先把 SQLite 期间的变更回迁主库再切回。
     # 注意：按「单实例部署」设计，多实例同时写主库时不要开启。
     DB_FALLBACK_ENABLED: bool = _get_bool("DB_FALLBACK_ENABLED", True)
+    # 主库 / 次库的数据库类型：mysql 或 sqlite；次库还可以 none（不设置，等于关掉容灾）。
+    # 留空 = 自动推断（主库按 DATABASE_URL 判断，次库按 DB_FALLBACK_ENABLED 判断），
+    # 也就是老 .env 不用改；管理后台里选过的值优先于这里（存 storage/db/roles.json）。
+    DB_PRIMARY: str = _get("DB_PRIMARY", "").strip().lower()
+    DB_SECONDARY: str = _get("DB_SECONDARY", "").strip().lower()
     # 看门狗探测主库间隔（秒）。0 = 只在启动时选库，运行中不切换
     DB_PROBE_INTERVAL: int = _get_int("DB_PROBE_INTERVAL", 30)
     # 主库 → SQLite 镜像间隔（秒）。0 = 不做周期镜像（启动时仍会镜像一次）
@@ -256,7 +269,8 @@ class Settings:
 
     @property
     def is_sqlite(self) -> bool:
-        return self.DATABASE_URL.startswith("sqlite")
+        """当前**主库**是不是 SQLite（角色里选的，不是看 DATABASE_URL）。"""
+        return self.primary_role == "sqlite"
 
     @property
     def blob_dir(self) -> Path:
@@ -290,16 +304,128 @@ class Settings:
         """自定义背景图：storage/backgrounds/<user_id>-<随机>.webp"""
         return self.STORAGE_DIR / "backgrounds"
 
+    # ---- 主库 / 次库 ----
+    @property
+    def mysql_url(self) -> str:
+        """可用的 MySQL 连接串；DATABASE_URL 是 MySQL 就用它，否则看 DB_* 有没有配全。"""
+        url = self.DATABASE_URL.strip()
+        if url.startswith("mysql"):
+            return url
+        return _mysql_url_from_env()
+
+    @property
+    def sqlite_main_path(self) -> Path:
+        """SQLite 主库用的文件。
+
+        `DATABASE_URL` 本来就是 sqlite 时沿用它（老用户的 dev.db 不会被换掉，
+        管理后台点「主库 = SQLite」立刻看到自己的数据）；否则放到 storage/db/primary.db。
+        """
+        url = self.DATABASE_URL.strip()
+        if url.startswith("sqlite:///"):
+            raw = url[len("sqlite:///") :].split("?", 1)[0]
+            if raw and not raw.startswith(":"):  # 排除 sqlite:///:memory:
+                path = Path(raw)
+                return (path if path.is_absolute() else (BASE_DIR / path)).resolve()
+        return self.STORAGE_DIR / "db" / "primary.db"
+
+    @property
+    def sqlite_main_url(self) -> str:
+        url = self.DATABASE_URL.strip()
+        return url if url.startswith("sqlite") else f"sqlite:///{self.sqlite_main_path.as_posix()}"
+
+    @property
+    def sqlite_spare_path(self) -> Path:
+        """SQLite 次库用的文件：默认 storage/db/fallback.db，可用 SQLITE_PATH 改到别处。
+
+        和主库文件撞在一起时自动换个名字——自己备份自己没有任何意义。
+        """
+        if self.SQLITE_PATH:
+            path = Path(self.SQLITE_PATH).expanduser().resolve()
+        else:
+            path = self.STORAGE_DIR / "db" / "fallback.db"
+        if path == self.sqlite_main_path:
+            path = path.with_name(f"secondary{path.suffix or '.db'}")
+        return path
+
+    @property
+    def sqlite_spare_url(self) -> str:
+        return f"sqlite:///{self.sqlite_spare_path.as_posix()}"
+
+    @property
+    def roles(self) -> dict[str, str]:
+        """主库 / 次库类型：{"primary": mysql|sqlite, "secondary": none|mysql|sqlite, "source": ...}。
+
+        每个请求都可能问到，所以只做一次 stat + 内存比较（db_roles 自带 mtime 缓存）。
+        """
+        from . import db_roles
+
+        default_primary = "mysql" if self.DATABASE_URL.strip().startswith("mysql") else "sqlite"
+        default_secondary = "sqlite" if self.DB_FALLBACK_ENABLED else "none"
+
+        saved = db_roles.read(self.STORAGE_DIR)
+        if saved:
+            primary, secondary = saved["primary"], saved["secondary"]
+            source = "admin"
+        else:
+            primary = self.DB_PRIMARY if self.DB_PRIMARY in db_roles.PRIMARY_KINDS else default_primary
+            # 值写错（例如 DB_SECONDARY=mysql5）就退回自动推断，别让站点起不来
+            secondary = (
+                self.DB_SECONDARY
+                if self.DB_SECONDARY in db_roles.SECONDARY_KINDS
+                else default_secondary
+            )
+            source = "env" if (self.DB_PRIMARY or self.DB_SECONDARY) else "default"
+
+        # MySQL 没配账号/库名时选不了，退回 SQLite（否则启动就直接报连不上）
+        mysql_ready = bool(self.mysql_url)
+        if primary == "mysql" and not mysql_ready:
+            primary = "sqlite"
+        if secondary == "mysql" and not mysql_ready:
+            secondary = "none"
+        # 主库和次库都是同一个 MySQL 库等于自己备份自己，直接当没设置
+        if secondary == "mysql" and primary == "mysql":
+            secondary = "none"
+        if secondary not in db_roles.SECONDARY_KINDS:
+            secondary = "none"
+
+        return {"primary": primary, "secondary": secondary, "source": source}
+
+    @property
+    def primary_role(self) -> str:
+        return self.roles["primary"]
+
+    @property
+    def secondary_role(self) -> str:
+        return self.roles["secondary"]
+
+    @property
+    def primary_db_url(self) -> str:
+        """主库连接串：主库选 MySQL 就用 mysql_url，否则用本地 SQLite 文件。"""
+        return self.mysql_url if self.primary_role == "mysql" else self.sqlite_main_url
+
+    @property
+    def secondary_db_url(self) -> str:
+        """次库连接串；选「不使用」时为空串（= 不启用容灾）。"""
+        role = self.secondary_role
+        if role == "mysql":
+            return self.mysql_url
+        if role == "sqlite":
+            return self.sqlite_spare_url
+        return ""
+
+    @property
+    def secondary_enabled(self) -> bool:
+        return bool(self.secondary_db_url)
+
+    # 老名字保留：外部脚本与旧代码还在用 fallback_*
     @property
     def fallback_db_path(self) -> Path:
-        """容灾 SQLite：默认 storage/db/fallback.db，可用 SQLITE_PATH 改到别处。"""
-        if self.SQLITE_PATH:
-            return Path(self.SQLITE_PATH).expanduser().resolve()
-        return self.STORAGE_DIR / "db" / "fallback.db"
+        """SQLite 次库文件（老名字）。"""
+        return self.sqlite_spare_path
 
     @property
     def fallback_db_url(self) -> str:
-        return f"sqlite:///{self.fallback_db_path.as_posix()}"
+        return self.sqlite_spare_url
 
     # ---- 地址 / TLS 派生值 ----
     @property
@@ -388,6 +514,8 @@ def refresh_db_settings() -> dict[str, tuple[object, object]]:
     apply("DB_TIMEOUT", _get_int("DB_TIMEOUT", 60))
     apply("DB_AUTO_CREATE", _get_bool("DB_AUTO_CREATE", True))
     apply("DB_FALLBACK_ENABLED", _get_bool("DB_FALLBACK_ENABLED", True))
+    apply("DB_PRIMARY", _get("DB_PRIMARY", "").strip().lower())
+    apply("DB_SECONDARY", _get("DB_SECONDARY", "").strip().lower())
     apply("DB_PROBE_INTERVAL", _get_int("DB_PROBE_INTERVAL", 30))
     apply("DB_MIRROR_INTERVAL", _get_int("DB_MIRROR_INTERVAL", 300))
     apply("SQLITE_PATH", _get("SQLITE_PATH").strip())
