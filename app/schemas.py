@@ -141,6 +141,10 @@ class AiConfigIn(CamelModel):
     max_rounds: int | None = Field(default=None, ge=1, le=50)
     # 对话面板底部是否实时显示 token 消耗
     show_tokens: bool | None = None
+    # 是否把对话保存成历史记录（关掉后只不再新增，已有的还能看）
+    save_history: bool | None = None
+    # 长期记忆开关：自动提炼 + 注入提示词
+    memory: bool | None = None
 
 
 class AiProbeIn(CamelModel):
@@ -167,6 +171,34 @@ class AiChatIn(CamelModel):
 
 class AiPromptIn(CamelModel):
     prompt: str = Field(default="", max_length=8000)
+
+
+class AiHistoryMessageIn(CamelModel):
+    """历史对话里的一条消息（前端整段保存，服务端整体替换）。"""
+
+    role: Literal["user", "assistant"] = "user"
+    content: str = Field(default="", max_length=20000)
+    images: list[str] = Field(default_factory=list, max_length=4)
+
+
+class AiHistoryIn(CamelModel):
+    """创建 / 更新一段历史对话。title 省略时用第一句提问自动生成。"""
+
+    title: str | None = Field(default=None, max_length=200)
+    messages: list[AiHistoryMessageIn] = Field(default_factory=list, max_length=300)
+
+
+class AiMemoryItemIn(CamelModel):
+    """一条长期记忆。source 只做标记展示（自动 / 自定义），没有权限含义。"""
+
+    text: str = Field(min_length=1, max_length=200)
+    source: Literal["auto", "custom"] = "custom"
+
+
+class AiMemoriesIn(CamelModel):
+    """整体替换长期记忆列表（自动条目也能在这里删掉）。"""
+
+    memories: list[AiMemoryItemIn] = Field(default_factory=list, max_length=40)
 
 
 # --------------------------------------------------------------------------- #

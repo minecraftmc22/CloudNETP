@@ -240,6 +240,32 @@ function configMarkup() {
       </label>
     </div>
 
+    <div class="setting-row">
+      <div class="setting-row__main">
+        <div class="setting-row__label">保存对话记录</div>
+        <div class="setting-row__desc">
+          对话自动存进你的网盘账号，下次打开 CDP娘 还记得之前聊过什么、换台设备登录也能翻出来；关掉后不再保存新内容，已有的记录仍可查看
+        </div>
+      </div>
+      <label class="switch">
+        <input type="checkbox" data-ai-flag="saveHistory" ${cfg.saveHistory !== false ? "checked" : ""}>
+        <span class="switch__track"><span class="switch__knob"></span></span>
+      </label>
+    </div>
+
+    <div class="setting-row">
+      <div class="setting-row__main">
+        <div class="setting-row__label">长期记忆</div>
+        <div class="setting-row__desc">
+          CDP娘 会自动从对话里提炼你的偏好与习惯，形成跨对话的长期记忆（在对话面板「历史 → 长期记忆」里查看和增删，也可以自己写）；关掉后不再提炼、也不带入新对话
+        </div>
+      </div>
+      <label class="switch">
+        <input type="checkbox" data-ai-flag="memory" ${cfg.memory !== false ? "checked" : ""}>
+        <span class="switch__track"><span class="switch__knob"></span></span>
+      </label>
+    </div>
+
     <div class="setting-row setting-row--stack ai-perms">
       <div class="setting-row__main">
         <div class="setting-row__label">数据操作权限<span class="chip ai-perms__flag">需授权</span></div>
@@ -685,8 +711,13 @@ async function save(patch, { quiet = false } = {}) {
     }
     const base = document.querySelector("[data-ai-base]");
     if (base && patch.baseUrl !== undefined) base.value = state.cfg?.baseUrl || base.value;
-    // 这两项会影响对话面板的即时呈现，改完立刻通知它重读一次配置
-    if (patch.showTokens !== undefined || patch.vision !== undefined) {
+    // 这几项会影响对话面板的即时呈现，改完立刻通知它重读一次配置
+    if (
+      patch.showTokens !== undefined ||
+      patch.vision !== undefined ||
+      patch.saveHistory !== undefined ||
+      patch.memory !== undefined
+    ) {
       window.dispatchEvent(new CustomEvent("ai:config-changed"));
     }
     return true;

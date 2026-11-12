@@ -134,6 +134,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "maxRounds": 8,  # 一次对话里工具往返的轮次上限
     # 对话面板底部实时显示 token 消耗（走管理员默认接口时不统计，见 routers/ai.py）
     "showTokens": True,
+    # 把对话保存成历史记录（记忆）：关掉后不再新增，已有的仍可查看
+    "saveHistory": True,
+    # 长期记忆：从对话里自动提炼用户偏好/习惯并注入提示词（可自定义条目）
+    "memory": True,
 }
 
 PROTOCOLS = {"auto", "openai", "anthropic"}
@@ -214,6 +218,8 @@ def load_config(db: Session, user_id: int) -> dict:
     cfg["maxOutput"] = _clamp_int(cfg.get("maxOutput"))
     cfg["maxRounds"] = _clamp_rounds(cfg.get("maxRounds"))
     cfg["showTokens"] = bool(cfg.get("showTokens", True))
+    cfg["saveHistory"] = bool(cfg.get("saveHistory", True))
+    cfg["memory"] = bool(cfg.get("memory", True))
     cfg["key"] = decrypt_key(str(stored.get("key") or ""))
     return cfg
 
@@ -317,6 +323,8 @@ def save_config(db: Session, user_id: int, patch: dict) -> dict:
         "maxOutput",
         "maxRounds",
         "showTokens",
+        "saveHistory",
+        "memory",
     ):
         if field in patch and patch[field] is not None:
             stored[field] = patch[field]
@@ -750,6 +758,31 @@ TOOL_SPECS: list[dict] = [
             "parameters": {"type": "object", "properties": {}},
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "ask_user",
+            "description": (
+                "向用户提出一个问题并附上候选回答，等用户点选或自己写。"
+                "缺少继续完成任务所需的关键信息时用它（例如要整理哪个文件夹、"
+                "偏好哪种做法、不确定要操作的是哪个文件）。"
+                "候选回答由你自动生成 2-4 个短句，前端会额外提供一个「自定义」入口。"
+                "调用后本轮回答立即结束，用户的回答会作为下一条消息出现。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "question": {"type": "string", "description": "要问用户的问题，一两句话"},
+                    "options": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "候选回答（2-4 个，每个一句短语）",
+                    },
+                },
+                "required": ["question"],
+            },
+        },
+    },
 ]
 
 # 会读到文件正文的工具：属于「查看文件内容」权限，默认不开放。
@@ -800,6 +833,7 @@ TOOL_LABELS = {
     "read_text": "读取文件",
     "read_image": "查看图片",
     "storage_usage": "查看容量",
+    "ask_user": "向用户提问",
     "create_folder": "新建文件夹",
     "write_file": "写入文件",
     "rename_item": "重命名",
@@ -1487,7 +1521,10 @@ def system_prompt(db: Session, user: User, lang: str | None = None) -> str:
             f"- 用户昵称：{user.display_name or user.username}\n"
             f"- 云盘容量：已用 {_fmt_size(used)} / {_fmt_size(quota)}"
         )
-    return base + context
+    # 长期记忆段放最后（且依赖 user_service，这里函数内 import 避免环）
+    from .ai_memory import prompt_lines
+
+    return base + context + prompt_lines(db, user.id, lang)
 
 
 def read_prompt(db: Session) -> str:
@@ -1521,6 +1558,19 @@ def stream_chat(
     except Exception as exc:  # pragma: no cover
         logger.exception("AI 流式对话失败")
         yield ("error", {"message": f"对话失败：{type(exc).__name__} {exc}"})
+
+
+def _ask_payload(args: dict) -> dict | None:
+    """解析 ask_user 的参数。问题为空视为调用不合规，交回普通工具报错路径。"""
+    question = str(args.get("question") or "").strip()
+    if not question:
+        return None
+    options: list[str] = []
+    for option in args.get("options") or []:
+        text = str(option).strip()
+        if text and text not in options:
+            options.append(text)
+    return {"question": question[:400], "options": options[:6]}
 
 
 def _stream_openai(
@@ -1654,6 +1704,13 @@ def _stream_openai(
         )
         for index, call in enumerate(ordered):
             args = _safe_json(call["args"])
+            # 问答工具：不执行、直接把问题抛给用户，本轮到此为止
+            if call["name"] == "ask_user":
+                ask = _ask_payload(args)
+                if ask:
+                    yield ("ask", ask)
+                    yield ("done", {"usage": _usage_of(usage_total), "hadText": text_seen})
+                    return
             label = TOOL_LABELS.get(call["name"], call["name"] or "工具")
             touch = call["name"] in WRITE_TOOL_NAMES
             # id 让前端把「同一轮的两个调用」和「不同轮的同一个工具」区分开
@@ -1865,6 +1922,16 @@ def _stream_anthropic(
         results = []
         for i, call in enumerate(ordered):
             args = _safe_json(call["args"])
+            # 问答工具：与 OpenAI 分支一致，抛出问题即结束本轮
+            if call["name"] == "ask_user":
+                ask = _ask_payload(args)
+                if ask:
+                    yield ("ask", ask)
+                    yield (
+                        "done",
+                        {"usage": _usage_of(usage_total) if count_usage else None, "hadText": text_seen},
+                    )
+                    return
             label = TOOL_LABELS.get(call["name"], call["name"] or "工具")
             touch = call["name"] in WRITE_TOOL_NAMES
             # id 让前端把「同一轮的两个调用」和「不同轮的同一个工具」区分开

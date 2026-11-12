@@ -17,6 +17,7 @@ from sqlalchemy import (
     String,
     Text,
 )
+from sqlalchemy.dialects.mysql import MEDIUMTEXT
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .db import Base
@@ -84,6 +85,8 @@ class UserSetting(Base):
     # 看板娘 AI 对话配置（JSON：provider/baseUrl/model/tools/vision/thinking/protocol/
     # maxInput/maxOutput，以及加密后的 key）；空对象 = 还没配置
     ai_config: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    # 看板娘长期记忆（JSON 数组：[{text, source: auto|custom, createdAt}]）；空数组 = 没有
+    ai_memories: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     # 同意《快传使用规范》的时间；NULL = 还没同意（创建快传前必须同意一次）
     quick_terms_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
@@ -299,6 +302,50 @@ class QuickTransfer(Base):
         CheckConstraint("kind IN ('drop', 'send', 'pickup')", name="ck_quick_kind"),
         Index("idx_quick_owner", "owner_id", "kind", "created_at"),
         Index("idx_quick_peer", "peer_id", "kind", "created_at"),
+    )
+
+
+class AiChatSession(Base):
+    """一段被保存下来的看板娘对话（历史记录）。"""
+
+    __tablename__ = "ai_chat_sessions"
+
+    id: Mapped[int] = mapped_column(AutoPK, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    # 标题 = 第一句提问的截断；换标题只在这张表改，消息本体不动
+    title: Mapped[str] = mapped_column(String(200), nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
+
+    __table_args__ = (Index("idx_ais_user", "user_id", "updated_at"),)
+
+
+class AiChatMessage(Base):
+    """历史对话里的一条消息。images 是前端压好尺寸的 data URL 的 JSON 数组。
+
+    MySQL 的 TEXT 只有 64KB，一张 1024px 的 jpeg data URL 就能超，
+    所以正文与图片列在 MySQL 上用 MEDIUMTEXT（SQLite 的 TEXT 本来就不限长）。
+    """
+
+    __tablename__ = "ai_chat_messages"
+
+    id: Mapped[int] = mapped_column(AutoPK, primary_key=True, autoincrement=True)
+    session_id: Mapped[int] = mapped_column(
+        ForeignKey("ai_chat_sessions.id", ondelete="CASCADE"), nullable=False
+    )
+    role: Mapped[str] = mapped_column(String(9), nullable=False)
+    content: Mapped[str] = mapped_column(
+        Text().with_variant(MEDIUMTEXT(), "mysql"), nullable=False, default=""
+    )
+    # JSON 数组文本（["data:image/jpeg;base64,..."]）；空串 = 没带图
+    images: Mapped[str | None] = mapped_column(
+        Text().with_variant(MEDIUMTEXT(), "mysql"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
+
+    __table_args__ = (
+        CheckConstraint("role IN ('user', 'assistant')", name="ck_aim_role"),
+        Index("idx_aim_session", "session_id", "id"),
     )
 
 

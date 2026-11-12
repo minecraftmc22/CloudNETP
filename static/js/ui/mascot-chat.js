@@ -5,9 +5,11 @@
  * - 流式输出（SSE）：正文逐字出、思考过程单独一块、工具调用显示成小胶囊
  * - 只有配置里打开「图片输入」时才显示发图按钮
  * - 没配置时给一条「去设置」的引导，而不是让人对着输入框发呆
+ * - 历史对话：每轮问答 / 删改消息后整段存进账号（设置里可关），
+ *   再打开面板自动接着上次聊；「新对话」另起一段，旧的在抽屉里随时翻
  */
 
-import { escapeHtml } from "../api.js";
+import { api, escapeHtml } from "../api.js";
 import { H, getLang, t } from "../i18n.js";
 import { renderMarkdown } from "./markdown.js";
 import { Toast } from "./toast.js";
@@ -18,6 +20,8 @@ const HISTORY_LIMIT = 20;
 const MAX_IMAGES = 3;
 const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
 const IMAGE_MAX_SIDE = 1024;
+const SESSION_KEY = "mchat.session";
+const SAVE_DELAY = 600; // 防抖：问答结束 600ms 后再落库
 
 const state = {
   open: false,
@@ -39,6 +43,26 @@ const state = {
   fileInput: null,
   editBar: null,
   usageEl: null,
+  historyBtn: null,
+  historyEl: null,
+  historyListEl: null,
+  historyTab: "chats",
+  memListEl: null,
+  ringEl: null,
+  ringFillEl: null,
+  contextLimit: 0, // 模型输入上限（maxInput > 0 时用它，否则按 32k 估）
+  contextUsed: 0, // 最近一次的上下文占用（重读配置后按新分母重画圆环）
+  memoryOn: true, // 设置里的「长期记忆」开关
+  memTimer: 0, // 上次自动提炼记忆的时间（自动生成限频用）
+  // 当前这段对话在服务端的 id；0 = 还没保存过（新对话）
+  sessionId: 0,
+  // 抽屉里的长期记忆列表（与账号同步）
+  memories: [],
+  // 设置里的「保存对话记录」开关（关掉后不再自动存，已有记录仍能翻）
+  saveHistory: true,
+  // 本次页面加载后是否已经恢复过历史（只恢复一次）
+  restored: false,
+  saveTimer: 0,
   // token 消耗：turn = 当前这一问，session = 本次对话累计（新对话清零）
   usage: {
     show: false, // 设置里开着 + 不是走管理员默认接口
@@ -76,6 +100,9 @@ function ensurePanel() {
       <button class="icon-btn mchat__icon" type="button" data-mchat-new title="新对话" aria-label="新对话">
         <svg class="icon icon--s"><use href="#i-plus"/></svg>
       </button>
+      <button class="icon-btn mchat__icon" type="button" data-mchat-history title="历史对话" aria-label="历史对话">
+        <svg class="icon icon--s"><use href="#i-clock"/></svg>
+      </button>
       <button class="icon-btn mchat__icon" type="button" data-mchat-close title="收起" aria-label="收起">
         <svg class="icon icon--s"><use href="#i-close"/></svg>
       </button>
@@ -83,6 +110,31 @@ function ensurePanel() {
     <div class="mchat__banner" data-mchat-banner hidden>
       <span data-mchat-banner-text>还没有配置 AI 接口</span>
       <button class="btn btn--subtle btn--sm" type="button" data-mchat-settings>去设置</button>
+    </div>
+    <div class="mchat__history" data-mchat-history-panel hidden>
+      <div class="mchat__history-head">
+        <div class="mchat__history-tabs" role="tablist">
+          <button type="button" class="is-active" data-htab="chats">${t("历史对话")}</button>
+          <button type="button" data-htab="memory">${t("长期记忆")}</button>
+        </div>
+        <button class="icon-btn mchat__icon" type="button" data-mchat-history-close title="${t("关闭")}" aria-label="${t("关闭")}">
+          <svg class="icon icon--s"><use href="#i-close"/></svg>
+        </button>
+      </div>
+      <div class="mchat__history-body">
+        <div class="mchat__history-list" data-mchat-history-list></div>
+        <div class="mchat__mem" data-mchat-mem hidden>
+          <div class="mchat__mem-add">
+            <textarea data-mchat-mem-input rows="2" maxlength="200"
+                      placeholder="${t("写一条你想让 CDP娘 一直记得的事，比如：文件按日期命名、说话别太客套")}"></textarea>
+            <button class="btn btn--sm" type="button" data-mchat-mem-add>${t("添加")}</button>
+          </div>
+          <button class="btn btn--subtle btn--sm mchat__mem-gen" type="button" data-mchat-mem-gen>
+            <svg class="icon icon--s"><use href="#i-refresh"/></svg>${t("从当前对话提炼记忆")}
+          </button>
+          <ul class="mchat__mem-list" data-mchat-mem-list></ul>
+        </div>
+      </div>
     </div>
     <div class="mchat__feed" data-mchat-feed></div>
     <form class="mchat__compose" data-mchat-form>
@@ -99,6 +151,12 @@ function ensurePanel() {
         </button>
         <input type="file" accept="image/*" hidden data-mchat-file>
         <span class="mchat__tip">Enter 发送 · Shift+Enter 换行</span>
+        <span class="mchat__ring" data-mchat-ring hidden title="">
+          <svg viewBox="0 0 22 22" aria-hidden="true">
+            <circle class="mchat__ring-bg" cx="11" cy="11" r="8"/>
+            <circle class="mchat__ring-fill" data-mchat-ring-fill cx="11" cy="11" r="8"/>
+          </svg>
+        </span>
         <span class="mchat__usage" data-mchat-usage hidden></span>
         <button class="btn btn--primary btn--sm mchat__send" type="submit" data-mchat-send>
           <svg class="icon icon--s"><use href="#i-send"/></svg><span>发送</span>
@@ -119,13 +177,79 @@ function ensurePanel() {
   state.fileInput = panel.querySelector("[data-mchat-file]");
   state.editBar = panel.querySelector("[data-mchat-editing]");
   state.usageEl = panel.querySelector("[data-mchat-usage]");
+  state.historyBtn = panel.querySelector("[data-mchat-history]");
+  state.historyEl = panel.querySelector("[data-mchat-history-panel]");
+  state.historyListEl = panel.querySelector("[data-mchat-history-list]");
+  state.memListEl = panel.querySelector("[data-mchat-mem-list]");
+  state.ringEl = panel.querySelector("[data-mchat-ring]");
+  state.ringFillEl = panel.querySelector("[data-mchat-ring-fill]");
 
   panel.querySelector("[data-mchat-edit-cancel]").addEventListener("click", cancelEdit);
 
   panel.querySelector("[data-mchat-close]").addEventListener("click", closeMascotChat);
   panel.querySelector("[data-mchat-new]").addEventListener("click", () => {
     resetChat();
+    toggleHistory(false);
     Toast.info("开了一段新对话");
+  });
+  state.historyBtn.addEventListener("click", () => toggleHistory());
+  panel
+    .querySelector("[data-mchat-history-close]")
+    .addEventListener("click", () => toggleHistory(false));
+  panel.querySelectorAll("[data-htab]").forEach((tab) => {
+    tab.addEventListener("click", () => switchHistoryTab(tab.dataset.htab));
+  });
+  state.historyListEl.addEventListener("click", (event) => {
+    const del = event.target.closest("[data-hdel]");
+    if (del) {
+      confirmDeleteSession(del, Number(del.dataset.hdel));
+      return;
+    }
+    const item = event.target.closest("[data-hopen]");
+    if (item) openSession(Number(item.dataset.hopen));
+  });
+  panel.querySelector("[data-mchat-mem-add]").addEventListener("click", async () => {
+    const input = panel.querySelector("[data-mchat-mem-input]");
+    const text = (input.value || "").trim();
+    if (!text) {
+      Toast.warn(t("先写点什么再添加"));
+      return;
+    }
+    const item = { text, source: "custom" };
+    const list = await saveMemories([...state.memories, item]);
+    if (list) {
+      input.value = "";
+      Toast.success(t("已记下这一条"));
+    }
+  });
+  panel.querySelector("[data-mchat-mem-gen]").addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    if (!state.messages.length) {
+      Toast.warn(t("先聊几句，才有东西可以提炼"));
+      return;
+    }
+    button.disabled = true;
+    try {
+      const result = await api.post("/api/ai/memories/generate", {
+        messages: state.messages.map((m) => ({ role: m.role, content: m.content || "" })),
+      });
+      state.memories = result.memories || state.memories;
+      renderMemories();
+      Toast.success(
+        result.added ? t("提炼出 {n} 条新记忆", { n: result.added }) : t("这段对话里没有值得新记的内容")
+      );
+    } catch (err) {
+      Toast.error(err.message || t("提炼失败"));
+    } finally {
+      button.disabled = false;
+    }
+  });
+  state.memListEl.addEventListener("click", async (event) => {
+    const del = event.target.closest("[data-mdel]");
+    if (!del) return;
+    const index = Number(del.dataset.mdel);
+    const list = await saveMemories(state.memories.filter((_, i) => i !== index));
+    if (list) Toast.success(t("已删掉这条记忆"));
   });
   panel.querySelector("[data-mchat-settings]").addEventListener("click", () => {
     location.hash = "#/settings";
@@ -250,7 +374,13 @@ export function openMascotChat() {
   followMascot();
   window.requestAnimationFrame(followMascot);
   refreshConfig(true);
-  if (state.greeting) renderGreeting();
+  // 每次页面加载只恢复一次：上次聊到一半关掉浏览器，回来还能接着聊
+  if (!state.restored) {
+    state.restored = true;
+    restoreLastSession();
+  } else if (state.greeting) {
+    renderGreeting();
+  }
   window.setTimeout(() => state.input?.focus(), 60);
   scrollFeed(true);
 }
@@ -298,6 +428,14 @@ async function refreshConfig(force = false) {
     // 走管理员默认接口时账单不归用户，服务端也不下发用量，这里一并收起来
     state.usage.show = aiOn && cfg.source !== "default" && cfg.showTokens !== false;
     paintUsage();
+    // 历史对话开关：关掉后不再自动保存（已有的仍能从抽屉里翻出来看）
+    state.saveHistory = aiOn && cfg.saveHistory !== false;
+    // 长期记忆开关：关掉后不再自动提炼，也暂时不注入提示词
+    state.memoryOn = aiOn && cfg.memory !== false;
+    // 上下文圆环的分母：用户没填「输入上限」时按 32k 估一个可感知的基准
+    state.contextLimit = Number(cfg.maxInput) > 0 ? Number(cfg.maxInput) : 32000;
+    // 刚在设置里改过上限：用同一个占用值按新分母立刻重画，别留着旧的警示色
+    paintContext(state.contextUsed);
     if (state.banner) {
       state.banner.hidden = state.ready;
       if (!state.ready) {
@@ -322,18 +460,30 @@ async function refreshConfig(force = false) {
 /* 消息渲染                                                           */
 /* ------------------------------------------------------------------ */
 function resetChat() {
-  state.messages = [];
-  state.images = [];
+  state.sessionId = 0;
+  try {
+    window.localStorage.removeItem(SESSION_KEY);
+  } catch {
+    /* 隐私模式等存不了就算了 */
+  }
+  clearFeed();
   state.greeting = true;
-  state.feed.innerHTML = "";
   state.usage.turn = { input: 0, output: 0 };
   state.usage.session = { input: 0, output: 0 };
   state.usage.live = false;
   paintUsage();
-  clearEdit();
-  renderAttach();
   renderGreeting();
   autoGrow();
+}
+
+/** 只清界面与消息，不动 sessionId / 用量（切换历史会话时用） */
+function clearFeed() {
+  state.messages = [];
+  state.images = [];
+  state.greeting = false;
+  state.feed.innerHTML = "";
+  clearEdit();
+  renderAttach();
 }
 
 /** 从被点的按钮找到它所在的消息对象（DOM 上只存 uid） */
@@ -416,6 +566,8 @@ function startUsageTurn(promptText) {
   state.usage.available = true;
   state.usage.live = true;
   paintUsage();
+  // 圆环先按估算的输入画，done 之后有真值再覆盖
+  paintContext(state.usage.turn.input);
 }
 
 /** 服务端给的 done.usage 落地：覆盖本轮的估算值，并累进会话 */
@@ -435,6 +587,327 @@ function settleUsage(usage) {
   };
   state.usage.available = true;
   paintUsage();
+  // 真实的输入 token 数 ≈ 这一轮发出去的上下文占用，比估算准
+  if (input > 0) paintContext(input);
+}
+
+/* ------------------------------------------------------------------ */
+/* 历史对话持久化                                                       */
+/* ------------------------------------------------------------------ */
+function persistSchedule() {
+  if (!state.saveHistory || !state.ready || !state.messages.length) return;
+  window.clearTimeout(state.saveTimer);
+  state.saveTimer = window.setTimeout(persistNow, SAVE_DELAY);
+}
+
+async function persistNow() {
+  if (!state.saveHistory || !state.ready || !state.messages.length) return;
+  const body = {
+    messages: state.messages.map((m) => ({
+      role: m.role,
+      content: m.content || "",
+      images: m.role === "user" ? m.images || [] : [],
+    })),
+  };
+  try {
+    if (state.sessionId) {
+      await api.put(`/api/ai/sessions/${state.sessionId}`, body);
+    } else {
+      const result = await api.post("/api/ai/sessions", body);
+      state.sessionId = Number(result.id) || 0;
+    }
+    if (state.sessionId) {
+      window.localStorage.setItem(SESSION_KEY, String(state.sessionId));
+    }
+    maybeGenerateMemory();
+  } catch {
+    /* 存不进去不打扰聊天：下次问答结束还会再试 */
+  }
+}
+
+/** 所有消息都删光时把这段对话也一并删掉，别在列表里留一个空会话 */
+async function discardSession() {
+  const id = state.sessionId;
+  state.sessionId = 0;
+  try {
+    window.localStorage.removeItem(SESSION_KEY);
+  } catch {
+    /* 忽略 */
+  }
+  if (!id) return;
+  try {
+    await api.del(`/api/ai/sessions/${id}`);
+  } catch {
+    /* 删不掉就让它留在列表里，用户可以手动删 */
+  }
+}
+
+function restoreLastSession() {
+  let id = 0;
+  try {
+    id = Number(window.localStorage.getItem(SESSION_KEY) || 0);
+  } catch {
+    /* 忽略 */
+  }
+  if (!id || !state.saveHistory) {
+    if (state.greeting) renderGreeting();
+    return;
+  }
+  openSession(id, { silent: true }).catch(() => {
+    // 存的会话已被删掉 / 换了账号：清掉记录回到问候页
+    try {
+      window.localStorage.removeItem(SESSION_KEY);
+    } catch {
+      /* 忽略 */
+    }
+    state.sessionId = 0;
+    state.greeting = true;
+    renderGreeting();
+  });
+}
+
+async function openSession(id, { silent = false } = {}) {
+  const data = await api.get(`/api/ai/sessions/${id}`);
+  if (!silent && state.busy) {
+    Toast.warn(t("等这轮说完再切换对话"));
+    return;
+  }
+  state.sessionId = id;
+  try {
+    window.localStorage.setItem(SESSION_KEY, String(id));
+  } catch {
+    /* 忽略 */
+  }
+  clearFeed();
+  state.usage.turn = { input: 0, output: 0 };
+  (data.messages || []).forEach((message) => {
+    const item = { uid: ++uidSeq, role: message.role, content: message.content || "", images: message.images || [] };
+    state.messages.push(item);
+    item.el = item.role === "user" ? appendUser(item) : appendBot(item, { streaming: false }).row;
+  });
+  toggleHistory(false);
+  if (!state.messages.length) {
+    state.greeting = true;
+    renderGreeting();
+  }
+  // 刚恢复的这段还没请求过模型，按已有消息先估一个上下文占用
+  paintContext(estimateTokens(state.messages.map((m) => m.content || "").join("\n")));
+  scrollFeed(true);
+}
+
+/* ------------------------------------------------------------------ */
+/* 历史抽屉（对话 + 长期记忆）                                          */
+/* ------------------------------------------------------------------ */
+function toggleHistory(force) {
+  const panel = state.historyEl;
+  if (!panel) return;
+  const open = force === undefined ? panel.hidden : Boolean(force);
+  panel.hidden = !open;
+  // 头部留在原位：抽屉打开时只把会话区收起来，三个图标仍然能点
+  state.panel?.classList.toggle("is-history", open);
+  if (open) renderHistory();
+}
+
+function switchHistoryTab(tab) {
+  state.historyTab = tab;
+  if (!state.historyEl || state.historyEl.hidden) toggleHistory(true);
+  state.historyEl.querySelectorAll("[data-htab]").forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.htab === tab);
+  });
+  state.historyListEl.hidden = tab !== "chats";
+  state.historyListEl.parentElement.querySelector("[data-mchat-mem]").hidden = tab !== "memory";
+  if (tab === "memory") renderMemories();
+}
+
+function fmtWhen(iso) {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  const diff = Date.now() - date.getTime();
+  const minutes = Math.floor(diff / 60000);
+  if (minutes < 1) return t("刚刚");
+  if (minutes < 60) return t("{n} 分钟前", { n: minutes });
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return t("{n} 小时前", { n: hours });
+  const days = Math.floor(hours / 24);
+  if (days < 30) return t("{n} 天前", { n: days });
+  return date.toLocaleDateString();
+}
+
+async function renderHistory() {
+  switchHistoryTab(state.historyTab || "chats");
+  state.historyListEl.innerHTML = `<div class="mchat__history-empty">${t("正在加载")}</div>`;
+  try {
+    const data = await api.get("/api/ai/sessions");
+    const list = data.sessions || [];
+    if (!list.length) {
+      state.historyListEl.innerHTML = `<div class="mchat__history-empty">${t("还没有保存过对话")}</div>`;
+      return;
+    }
+    state.historyListEl.innerHTML = list
+      .map(
+        (item) => H`<div class="mchat__history-item ${item.id === state.sessionId ? "is-active" : ""}" data-hopen="${item.id}">
+          <div class="mchat__history-text">
+            <b>${escapeHtml(item.title || t("新对话"))}</b>
+            <span>${t("{n} 条消息", { n: item.count })} · ${fmtWhen(item.updatedAt)}</span>
+          </div>
+          <button type="button" class="icon-btn mchat__icon" data-hdel="${item.id}" title="${t("删除")}" aria-label="${t("删除")}">
+            <svg class="icon icon--s"><use href="#i-trash"/></svg>
+          </button>
+        </div>`
+      )
+      .join("");
+  } catch {
+    state.historyListEl.innerHTML = `<div class="mchat__history-empty">${t("加载历史对话失败")}</div>`;
+  }
+}
+
+function confirmDeleteSession(button, id) {
+  if (button.dataset.armed === "1") {
+    window.clearTimeout(Number(button.dataset.timer || 0));
+    delete button.dataset.armed;
+    button.textContent = "";
+    button.innerHTML = H`<svg class="icon icon--s"><use href="#i-trash"/></svg>`;
+    deleteSession(id);
+    return;
+  }
+  button.dataset.armed = "1";
+  button.textContent = t("确认");
+  const timer = window.setTimeout(() => {
+    delete button.dataset.armed;
+    button.textContent = "";
+    button.innerHTML = H`<svg class="icon icon--s"><use href="#i-trash"/></svg>`;
+  }, 3000);
+  button.dataset.timer = String(timer);
+}
+
+async function deleteSession(id) {
+  try {
+    await api.del(`/api/ai/sessions/${id}`);
+    if (id === state.sessionId) {
+      resetChat();
+      toggleHistory(false);
+    } else {
+      renderHistory();
+    }
+    Toast.success(t("已删除这段对话"));
+  } catch (err) {
+    Toast.error(err.message || t("删除失败"));
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* 长期记忆                                                            */
+/* ------------------------------------------------------------------ */
+async function renderMemories() {
+  if (!state.memListEl) return;
+  const list = state.memListEl;
+  list.innerHTML = `<div class="mchat__history-empty">${t("正在加载")}</div>`;
+  try {
+    if (!state.memories.length) {
+      const data = await api.get("/api/ai/memories");
+      state.memories = data.memories || [];
+    }
+    if (!state.memories.length) {
+      list.innerHTML = `<div class="mchat__history-empty">${t("还没有记忆；聊几句之后 CDP娘 会自动把值得记的提炼出来，也可以在这里手动添加")}</div>`;
+      return;
+    }
+    list.innerHTML = state.memories
+      .map(
+        (item, index) => H`<li class="mchat__mem-item">
+          <span class="chip ${item.source === "auto" ? "chip--accent" : ""}">${item.source === "auto" ? t("自动") : t("自定义")}</span>
+          <span class="mchat__mem-text">${escapeHtml(item.text)}</span>
+          <button type="button" class="icon-btn mchat__icon" data-mdel="${index}" title="${t("删除")}" aria-label="${t("删除")}">
+            <svg class="icon icon--s"><use href="#i-close"/></svg>
+          </button>
+        </li>`
+      )
+      .join("");
+  } catch {
+    list.innerHTML = `<div class="mchat__history-empty">${t("加载记忆失败")}</div>`;
+  }
+}
+
+async function saveMemories(items) {
+  try {
+    const data = await api.put("/api/ai/memories", {
+      memories: items.map((item) => ({ text: item.text, source: item.source })),
+    });
+    state.memories = data.memories || [];
+    renderMemories();
+    return state.memories;
+  } catch (err) {
+    Toast.error(err.message || t("保存失败"));
+    return null;
+  }
+}
+
+/** 一轮问答结束后：对话够长且离上次提炼超过 10 分钟，就在后台提炼一次记忆 */
+function maybeGenerateMemory() {
+  if (!state.memoryOn || state.messages.length < 6) return;
+  const last = Number(window.localStorage.getItem("mchat.memgen") || 0);
+  if (Date.now() - last < 10 * 60 * 1000) return;
+  try {
+    window.localStorage.setItem("mchat.memgen", String(Date.now()));
+  } catch {
+    /* 忽略 */
+  }
+  api
+    .post("/api/ai/memories/generate", {
+      messages: state.messages.map((m) => ({ role: m.role, content: m.content || "" })),
+    })
+    .then((result) => {
+      state.memories = result.memories || state.memories;
+    })
+    .catch(() => {
+      /* 自动提炼失败就等下次 */
+    });
+}
+
+/* ------------------------------------------------------------------ */
+/* 上下文占用（圆环）                                                   */
+/* ------------------------------------------------------------------ */
+const RING_LENGTH = 2 * Math.PI * 8; // r=8 的周长
+
+function paintContext(inputTokens) {
+  const el = state.ringEl;
+  if (!el) return;
+  const limit = state.contextLimit || 0;
+  const used = Math.max(0, Math.round(Number(inputTokens) || 0));
+  state.contextUsed = used;
+  if (!limit || !used) {
+    el.hidden = true;
+    return;
+  }
+  const ratio = Math.min(1, used / limit);
+  el.hidden = false;
+  el.classList.toggle("is-warn", ratio >= 0.8);
+  state.ringFillEl.style.strokeDashoffset = String(RING_LENGTH * (1 - ratio));
+  el.title = t("当前对话约占上下文 {u} / {limit} tokens（{pct}%）", {
+    u: fmtTokens(used),
+    limit: fmtTokens(limit),
+    pct: Math.round(ratio * 100),
+  });
+}
+
+/* ------------------------------------------------------------------ */
+/* ask 事件：CDP娘 向用户提问                                          */
+/* ------------------------------------------------------------------ */
+function appendAsk(question, options) {
+  const item = { uid: ++uidSeq, role: "assistant", content: question };
+  state.messages.push(item);
+  const target = appendBot(item, { streaming: false });
+  item.el = target.row;
+  const list = (options || []).map((text) => String(text).trim()).filter(Boolean).slice(0, 6);
+  const chips = document.createElement("div");
+  chips.className = "mchat__chips mchat__chips--ask";
+  chips.innerHTML = H`
+    ${list.map((text) => H`<button type="button" class="mchat__chip" data-say="${escapeHtml(text)}">${escapeHtml(text)}</button>`).join("")}
+    <button type="button" class="mchat__chip" data-ask-custom>${t("自定义…")}</button>`;
+  target.row.insertBefore(chips, target.row.querySelector(".mchat__ops"));
+  chips.querySelector("[data-ask-custom]")?.addEventListener("click", () => {
+    state.input?.focus();
+  });
+  scrollFeed();
 }
 
 function appendUser(item) {
@@ -465,7 +938,7 @@ function appendUser(item) {
   return row;
 }
 
-function appendBot(item) {
+function appendBot(item, { streaming = true } = {}) {
   state.feed.querySelector(".mchat__hello")?.remove();
   const row = document.createElement("div");
   row.className = "mchat__msg is-bot";
@@ -475,7 +948,7 @@ function appendBot(item) {
       <summary class="mchat__think-head">${t("思考过程")}</summary>
       <div class="mchat__think-body"></div>
     </details>
-    <div class="mchat__bubble mchat__bubble--bot is-streaming"></div>
+    <div class="mchat__bubble mchat__bubble--bot ${streaming ? "is-streaming" : ""}"></div>
     <details class="mchat__tools" hidden>
       <summary class="mchat__tools-head">
         <svg class="icon"><use href="#i-bolt"/></svg>
@@ -487,6 +960,10 @@ function appendBot(item) {
     <div class="mchat__ops">
       <button class="mchat__op" type="button" data-act="del">${t("删除")}</button>
     </div>`;
+  if (!streaming) {
+    const bubble = row.querySelector(".mchat__bubble");
+    bubble.innerHTML = renderMarkdown(item.content || "") || "";
+  }
   // 展开「使用工具」时顺带把每条结果也打开：一次点击就能看到全部细节
   const toolsEl = row.querySelector(".mchat__tools");
   toolsEl.addEventListener("toggle", (event) => {
@@ -708,6 +1185,8 @@ async function send(text) {
   const item = { uid: ++uidSeq, role: "user", content, images };
   state.messages.push(item);
   item.el = appendUser(item);
+  // 之前那道「选择题」已经作答：把候选胶囊收走，避免再点出别的答案
+  state.feed.querySelectorAll(".mchat__chips--ask").forEach((node) => node.remove());
 
   await streamReply(item);
 }
@@ -762,6 +1241,11 @@ async function streamReply(item) {
       if (event === "tool") {
         toolEntry(target.toolsBody, data);
         scrollFeed();
+        return;
+      }
+      if (event === "ask") {
+        // 问答工具：CDP娘 反过来向用户提问，选项渲染成胶囊，点选即回答
+        appendAsk(data.question || "", data.options || []);
         return;
       }
       if (event === "meta") {
@@ -824,6 +1308,8 @@ async function streamReply(item) {
       appendNotice(t("已停止"), "muted");
     }
     scrollFeed();
+    // 一轮落定（成功 / 失败 / 停止都算）：把这段对话整存进历史记录
+    persistSchedule();
   }
 }
 
@@ -871,6 +1357,12 @@ function removeItem(item) {
     message.errEl?.remove();
     if (state.editing?.uid === message.uid) clearEdit();
   });
+  if (!state.messages.length) {
+    // 删光了：这段对话没内容了，服务端那份也一起删掉
+    void discardSession();
+  } else {
+    persistSchedule();
+  }
   Toast.success(t("已删除这条消息"));
 }
 

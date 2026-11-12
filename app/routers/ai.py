@@ -4,6 +4,8 @@
 * ``POST /api/ai/probe``        测试连接 + 拉模型列表（用页面上填的，不必先保存）
 * ``POST /api/ai/chat``         SSE 流式对话（含工具调用 / 图片输入 / 思考模式）
 * ``GET/PUT /api/ai/prompt``    系统提示词（仅管理员）
+* ``GET/POST /api/ai/sessions`` 历史对话：列表 / 新建（保存当前这段对话）
+* ``GET/PUT/DELETE /api/ai/sessions/{id}`` 读取 / 整体替换 / 删除
 """
 
 from __future__ import annotations
@@ -18,11 +20,18 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
-from .. import ai_defaults, ai_service as ai
+from .. import ai_defaults, ai_service as ai, ai_memory, chat_history
 from ..db import get_db
 from ..deps import get_current_user, require_admin
 from ..models import User
-from ..schemas import AiChatIn, AiConfigIn, AiProbeIn, AiPromptIn
+from ..schemas import (
+    AiChatIn,
+    AiConfigIn,
+    AiHistoryIn,
+    AiMemoriesIn,
+    AiProbeIn,
+    AiPromptIn,
+)
 from ..security import check_origin
 from ..settings_store import set_value
 from ..user_service import log_action
@@ -202,3 +211,124 @@ def update_prompt(payload: AiPromptIn, request: Request, db: DbSession, admin: A
     log_action(db, "ai_prompt_update", admin.id, {"length": len(stored)}, request)
     db.commit()
     return {"prompt": stored}
+
+
+# --------------------------------------------------------------------------- #
+# 历史对话（保存记忆）：设置里关掉「保存对话记录」后只读不写
+# --------------------------------------------------------------------------- #
+def _require_history_enabled(db: DbSession, user: CurrentUser) -> None:
+    if not ai.load_config(db, user.id).get("saveHistory", True):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "设置里已关闭「保存对话记录」")
+
+
+@router.get("/sessions")
+def list_history(db: DbSession, user: CurrentUser) -> dict:
+    return {"sessions": chat_history.list_sessions(db, user.id)}
+
+
+@router.post("/sessions")
+def create_history(
+    payload: AiHistoryIn, request: Request, db: DbSession, user: CurrentUser
+) -> dict:
+    check_origin(request)
+    _require_history_enabled(db, user)
+    try:
+        result = chat_history.create_session(
+            db, user.id, payload.model_dump(by_alias=True, exclude_none=True)
+        )
+    except chat_history.HistoryError as exc:
+        raise HTTPException(exc.status, exc.message) from None
+    log_action(db, "ai_history_create", user.id, {"id": result["id"]}, request)
+    return result
+
+
+@router.get("/sessions/{session_id}")
+def read_history(session_id: int, db: DbSession, user: CurrentUser) -> dict:
+    try:
+        return chat_history.load_session(db, user.id, session_id)
+    except chat_history.HistoryError as exc:
+        raise HTTPException(exc.status, exc.message) from None
+
+
+@router.put("/sessions/{session_id}")
+def replace_history(
+    session_id: int,
+    payload: AiHistoryIn,
+    request: Request,
+    db: DbSession,
+    user: CurrentUser,
+) -> dict:
+    check_origin(request)
+    _require_history_enabled(db, user)
+    try:
+        result = chat_history.save_messages(
+            db, user.id, session_id, payload.model_dump(by_alias=True, exclude_none=True)
+        )
+    except chat_history.HistoryError as exc:
+        raise HTTPException(exc.status, exc.message) from None
+    return result
+
+
+@router.delete("/sessions/{session_id}")
+def delete_history(
+    session_id: int, request: Request, db: DbSession, user: CurrentUser
+) -> dict:
+    check_origin(request)
+    try:
+        chat_history.delete_session(db, user.id, session_id)
+    except chat_history.HistoryError as exc:
+        raise HTTPException(exc.status, exc.message) from None
+    return {"ok": True}
+
+
+# --------------------------------------------------------------------------- #
+# 长期记忆
+# --------------------------------------------------------------------------- #
+@router.get("/memories")
+def get_memories(db: DbSession, user: CurrentUser) -> dict:
+    return {
+        "memories": ai_memory.load_memories(db, user.id),
+        "enabled": bool(ai.load_config(db, user.id).get("memory", True)),
+    }
+
+
+@router.put("/memories")
+def replace_memories(
+    payload: AiMemoriesIn, request: Request, db: DbSession, user: CurrentUser
+) -> dict:
+    check_origin(request)
+    cleaned = ai_memory.save_memories(db, user.id, [dict(m) for m in payload.memories])
+    return {"memories": cleaned}
+
+
+@router.post("/memories/generate")
+def generate_memories(
+    payload: AiChatIn, request: Request, db: DbSession, user: CurrentUser
+) -> dict:
+    """把最近这段对话交给模型提炼长期记忆，去重合并后返回全量列表。"""
+    check_origin(request)
+    if not ai_defaults.ai_enabled():
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "管理员已关闭 AI 功能")
+    user_cfg = ai.load_config(db, user.id)
+    if not user_cfg.get("memory", True):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "设置里已关闭「长期记忆」")
+    cfg, source = ai.effective_config(db, user.id)
+    if not (cfg["baseUrl"] and cfg["key"] and cfg["model"]):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "还没配置 AI 接口，提炼不了")
+    messages = [m.model_dump() for m in payload.messages if (m.content or "").strip()]
+    if not messages:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "先聊几句再提炼")
+    try:
+        memories, added = ai_memory.generate_from_messages(db, user, cfg, messages, payload.lang)
+    except ai.AiError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, exc.message) from None
+    # 走管理员默认接口时账单不归用户，这次调用也要记一笔（量级很小）
+    log_action(
+        db,
+        "ai_memory_generate",
+        user.id,
+        {"added": added, "from": "default" if source == "default" else "user"},
+        request,
+    )
+    db.commit()
+    return {"memories": memories, "added": added}

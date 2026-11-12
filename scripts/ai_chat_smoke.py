@@ -351,6 +351,8 @@ def main() -> int:
         "maxOutput": 2048,
         "maxRounds": 12,
         "showTokens": True,
+        "saveHistory": True,
+        "memory": True,
     }
     uncovered = [k for k in ai.DEFAULT_CONFIG if k not in sample and k != "key"]
     check("样例覆盖了全部配置键", not uncovered, f"没覆盖 {uncovered}" if uncovered else "")
@@ -361,7 +363,16 @@ def main() -> int:
         "开关值原样落库",
         all(
             dumped.get(k) is True
-            for k in ("tools", "readContent", "writeFiles", "moveFiles", "quickTransfer", "showTokens")
+            for k in (
+                "tools",
+                "readContent",
+                "writeFiles",
+                "moveFiles",
+                "quickTransfer",
+                "showTokens",
+                "saveHistory",
+                "memory",
+            )
         ),
         str(dumped),
     )

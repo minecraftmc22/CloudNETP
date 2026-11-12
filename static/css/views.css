@@ -1699,6 +1699,204 @@ html[data-ai="off"] .mascot__act[data-mascot-act="chat"] {
 .mchat__notice.is-muted {
   color: var(--text-3);
 }
+/* ask 工具的问题选项：胶囊排在回答气泡下面，最后一个是「自定义…」 */
+.mchat__chips--ask {
+  max-width: 90%;
+  align-self: flex-start;
+  padding-left: 2px;
+}
+.mchat__chip--custom {
+  border-style: solid;
+  color: var(--text-3);
+  background: transparent;
+}
+/* 历史抽屉：打开时占满头部以下的区域，头部三个按钮始终可点 */
+.mchat.is-history .mchat__feed,
+.mchat.is-history .mchat__compose,
+.mchat.is-history .mchat__banner {
+  display: none;
+}
+.mchat__history {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: color-mix(in srgb, var(--dialog-surface) 97%, transparent);
+  backdrop-filter: blur(28px) saturate(1.35);
+}
+.mchat__history[hidden] {
+  display: none;
+}
+.mchat__history-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 10px 8px 14px;
+  border-bottom: 1px solid var(--stroke-hair);
+}
+.mchat__history-tabs {
+  flex: 1;
+  display: flex;
+  gap: 4px;
+}
+.mchat__history-tabs button {
+  padding: 5px 10px;
+  border-radius: var(--radius-pill);
+  border: 1px solid transparent;
+  background: transparent;
+  font-size: 12px;
+  color: var(--text-3);
+  transition: color var(--dur-fast) var(--ease-standard),
+    background var(--dur-fast) var(--ease-standard);
+}
+.mchat__history-tabs button.is-active {
+  color: var(--text-1);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.mchat__history-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 10px;
+}
+.mchat__history-list[hidden],
+.mchat__mem[hidden] {
+  display: none;
+}
+.mchat__history-empty {
+  padding: 18px 8px;
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: var(--text-3);
+  text-align: center;
+}
+.mchat__history-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-standard),
+    border-color var(--dur-fast) var(--ease-standard);
+}
+.mchat__history-item:hover {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+.mchat__history-item.is-active {
+  border-color: color-mix(in srgb, var(--accent) 32%, transparent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.mchat__history-item .mchat__history-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.mchat__history-item b {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mchat__history-item span {
+  font-size: 10.5px;
+  color: var(--text-3);
+}
+.mchat__history-item .mchat__icon {
+  width: 24px;
+  height: 24px;
+  color: var(--text-3);
+}
+.mchat__history-item .mchat__icon:hover,
+.mchat__history-item .mchat__icon[data-armed="1"] {
+  color: var(--danger);
+}
+/* 长期记忆页 */
+.mchat__mem {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.mchat__mem-add {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+}
+.mchat__mem-add textarea {
+  flex: 1;
+  min-width: 0;
+  resize: none;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--stroke);
+  background: var(--layer-2);
+  color: var(--text-1);
+  font-size: 12px;
+  line-height: 1.6;
+  font-family: inherit;
+}
+.mchat__mem-add textarea:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--stroke));
+}
+.mchat__mem-add .btn {
+  flex: none;
+}
+.mchat__mem-gen {
+  align-self: flex-start;
+}
+.mchat__mem-gen[disabled] {
+  opacity: 0.6;
+}
+.mchat__mem-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.mchat__mem-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--layer-2);
+  border: 1px solid var(--stroke-hair);
+}
+.mchat__mem-item .chip {
+  flex: none;
+  font-size: 10px;
+  padding: 2px 8px;
+}
+.mchat__mem-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+.mchat__mem-item .mchat__icon {
+  width: 22px;
+  height: 22px;
+  flex: none;
+  color: var(--text-3);
+}
+.mchat__mem-item .mchat__icon:hover {
+  color: var(--danger);
+}
 /* 输入区 */
 .mchat__compose {
   border-top: 1px solid var(--stroke-hair);
@@ -1806,6 +2004,39 @@ html[data-ai="off"] .mascot__act[data-mascot-act="chat"] {
   font-variant-numeric: tabular-nums;
   color: var(--text-2);
   white-space: nowrap;
+}
+/* 上下文占用圆环：stroke 按占比转圈，快满时转警示色 */
+.mchat__ring {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  cursor: help;
+}
+.mchat__ring[hidden] {
+  display: none;
+}
+.mchat__ring svg {
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+.mchat__ring circle {
+  fill: none;
+  stroke-width: 3;
+}
+.mchat__ring-bg {
+  stroke: var(--layer-3);
+}
+.mchat__ring-fill {
+  stroke: var(--accent);
+  /* 周长 2πr (r=8)≈50.27；JS 只改 strokeDashoffset */
+  stroke-dasharray: 50.27;
+  stroke-dashoffset: 50.27;
+  stroke-linecap: round;
+  transition: stroke-dashoffset var(--dur-base) var(--ease-standard);
+}
+.mchat__ring.is-warn .mchat__ring-fill {
+  stroke: var(--danger);
 }
 .mchat__send.is-stop {
   background: color-mix(in srgb, var(--danger) 16%, transparent);

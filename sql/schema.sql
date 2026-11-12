@@ -225,3 +225,30 @@ INSERT INTO system_settings (k, v) VALUES
   ('chunk_size_bytes', '5242880'),
   ('trash_retention_days', '30')
 ON DUPLICATE KEY UPDATE v = VALUES(v);
+
+-- ------------------------------------------------------------
+-- 看板娘 AI 历史对话（0.3.78）
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS ai_chat_sessions (
+  id         BIGINT       NOT NULL AUTO_INCREMENT,
+  user_id    BIGINT       NOT NULL,
+  title      VARCHAR(200) NOT NULL DEFAULT '',
+  created_at DATETIME     NOT NULL,
+  updated_at DATETIME     NOT NULL,
+  PRIMARY KEY (id),
+  KEY idx_ais_user (user_id, updated_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE TABLE IF NOT EXISTS ai_chat_messages (
+  id         BIGINT       NOT NULL AUTO_INCREMENT,
+  session_id BIGINT       NOT NULL,
+  role       VARCHAR(9)   NOT NULL,
+  content    MEDIUMTEXT   NOT NULL,
+  images     MEDIUMTEXT   NULL,
+  created_at DATETIME     NOT NULL,
+  PRIMARY KEY (id),
+  KEY idx_aim_session (session_id, id),
+  CONSTRAINT fk_aim_session FOREIGN KEY (session_id)
+    REFERENCES ai_chat_sessions (id) ON DELETE CASCADE,
+  CONSTRAINT ck_aim_role CHECK (role IN ('user', 'assistant'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;

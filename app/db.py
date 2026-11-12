@@ -145,6 +145,8 @@ _COLUMN_PATCHES: dict[str, dict[str, str]] = {
         "surface_opacity": "JSON NULL",
         # 看板娘 AI 配置（老库补列后为 NULL，读取处统一按空对象处理）
         "ai_config": "JSON NULL",
+        # 看板娘长期记忆（老库补列后为 NULL，读取处统一按空数组处理）
+        "ai_memories": "JSON NULL",
         # 界面语言（老库补列后为 NULL，前端按浏览器语言兜底）
         "language": "VARCHAR(16) NULL",
         # 同意《快传使用规范》的时间；老库补列后为 NULL，即需要重新同意一次
