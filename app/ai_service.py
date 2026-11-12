@@ -1573,6 +1573,49 @@ def _ask_payload(args: dict) -> dict | None:
     return {"question": question[:400], "options": options[:6]}
 
 
+def _repair_tool_pairs(messages: list[dict]) -> None:
+    """发请求前兜底：assistant(tool_calls) 后必须紧跟每个 id 对应的 tool 消息。
+
+    OpenAI / 兼容接口会严格校验这一段，中间夹一条 user 消息（或数量不足）就返回
+    "insufficient tool messages following tool_calls message"。正常链路已按顺序拼好，
+    这里只在真检测到缺口时把同批 tool 回复搬回来、缺的补一条占位，避免整个对话 400。
+    就地修改 messages。
+    """
+    i = 0
+    while i < len(messages):
+        msg = messages[i]
+        calls = msg.get("tool_calls") if isinstance(msg, dict) and msg.get("role") == "assistant" else None
+        if not isinstance(calls, list) or not calls:
+            i += 1
+            continue
+        ids = [c.get("id") for c in calls if isinstance(c, dict) and c.get("id")]
+        if not ids:
+            i += 1
+            continue
+        j = i + 1
+        got: set[str] = set()
+        while j < len(messages) and messages[j].get("role") == "tool":
+            got.add(messages[j].get("tool_call_id"))
+            j += 1
+        if all(cid in got for cid in ids):
+            i = j
+            continue
+        replies: dict[str, dict] = {}
+        rest: list[dict] = []
+        for later in messages[i + 1 :]:
+            cid = later.get("tool_call_id")
+            if later.get("role") == "tool" and cid in ids and cid not in replies:
+                replies[cid] = later
+            else:
+                rest.append(later)
+        filled = [
+            replies.get(cid) or {"role": "tool", "tool_call_id": cid, "content": "（工具结果缺失）"}
+            for cid in ids
+        ]
+        messages[i + 1 :] = filled + rest
+        i += 1 + len(ids)
+
+
 def _stream_openai(
     user: User, cfg: dict, messages: list[dict], system: str, want_usage: bool = True
 ) -> Iterator[tuple[str, dict]]:
@@ -1598,6 +1641,8 @@ def _stream_openai(
         use_tools = bool(specs) and round_index < rounds
         if specs and round_index == rounds:
             yield ("notice", {"message": f"工具调用已达上限（{rounds} 轮），这里先按已有结果回答"})
+        # 兜底：任何意外插进来的消息都别破坏 tool_calls → tool 回复的配对
+        _repair_tool_pairs(convo)
         payload: dict[str, Any] = {
             "model": cfg["model"],
             "messages": convo,
@@ -1688,6 +1733,20 @@ def _stream_openai(
             return
 
         ordered = [calls[i] for i in sorted(calls)]
+        # 问答工具要在本轮把 assistant(tool_calls) 写进 convo 之前拦掉：
+        # 一旦写了却拿不到 tool 回复，下游若有会话状态就会报「tool 消息不足」。
+        # 同时它也意味着模型缺信息，这一轮其它工具没必要先跑一半。
+        asking = None
+        for call in ordered:
+            if call["name"] == "ask_user":
+                asking = _ask_payload(_safe_json(call["args"]))
+                if asking:
+                    break
+        if asking:
+            yield ("ask", asking)
+            yield ("done", {"usage": _usage_of(usage_total), "hadText": text_seen})
+            return
+
         convo.append(
             {
                 "role": "assistant",
@@ -1702,15 +1761,9 @@ def _stream_openai(
                 ],
             }
         )
+        pending_images: list[dict] = []
         for index, call in enumerate(ordered):
             args = _safe_json(call["args"])
-            # 问答工具：不执行、直接把问题抛给用户，本轮到此为止
-            if call["name"] == "ask_user":
-                ask = _ask_payload(args)
-                if ask:
-                    yield ("ask", ask)
-                    yield ("done", {"usage": _usage_of(usage_total), "hadText": text_seen})
-                    return
             label = TOOL_LABELS.get(call["name"], call["name"] or "工具")
             touch = call["name"] in WRITE_TOOL_NAMES
             # id 让前端把「同一轮的两个调用」和「不同轮的同一个工具」区分开
@@ -1746,9 +1799,13 @@ def _stream_openai(
                     "content": result.text[:8000],
                 }
             )
-            # OpenAI 的 tool 消息装不下图片：紧跟一条 user 消息把图递过去
+            # OpenAI 的 tool 消息装不下图片：先攒着，循环结束后统一补一条 user 消息
             if result.images:
-                convo.append({"role": "user", "content": _openai_image_parts(result.images)})
+                pending_images.extend(result.images)
+        # 所有 tool 回复必须紧跟着 assistant(tool_calls)。图片若插在中间，
+        # 上游会报 "insufficient tool messages following tool_calls message"。
+        if pending_images:
+            convo.append({"role": "user", "content": _openai_image_parts(pending_images)})
 
 
 def _reasoning_effort_ok(cfg: dict) -> bool:
@@ -1906,6 +1963,20 @@ def _stream_anthropic(
             return
 
         ordered = [blocks[i] for i in sorted(blocks)]
+        # 与 OpenAI 分支一致：问用户这件事在写进 convo 之前就结束本轮
+        asking = None
+        for call in ordered:
+            if call["name"] == "ask_user":
+                asking = _ask_payload(_safe_json(call["args"]))
+                if asking:
+                    break
+        if asking:
+            yield ("ask", asking)
+            yield (
+                "done",
+                {"usage": _usage_of(usage_total) if count_usage else None, "hadText": text_seen},
+            )
+            return
         assistant_blocks: list[dict] = []
         if text_buffer:
             assistant_blocks.append({"type": "text", "text": "".join(text_buffer)})
@@ -1922,16 +1993,6 @@ def _stream_anthropic(
         results = []
         for i, call in enumerate(ordered):
             args = _safe_json(call["args"])
-            # 问答工具：与 OpenAI 分支一致，抛出问题即结束本轮
-            if call["name"] == "ask_user":
-                ask = _ask_payload(args)
-                if ask:
-                    yield ("ask", ask)
-                    yield (
-                        "done",
-                        {"usage": _usage_of(usage_total) if count_usage else None, "hadText": text_seen},
-                    )
-                    return
             label = TOOL_LABELS.get(call["name"], call["name"] or "工具")
             touch = call["name"] in WRITE_TOOL_NAMES
             # id 让前端把「同一轮的两个调用」和「不同轮的同一个工具」区分开
