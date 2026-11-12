@@ -680,6 +680,9 @@ async function openSession(id, { silent = false } = {}) {
   }
   clearFeed();
   state.usage.turn = { input: 0, output: 0 };
+  state.usage.session = { input: 0, output: 0 };
+  state.usage.live = false;
+  paintUsage();
   (data.messages || []).forEach((message) => {
     const item = { uid: ++uidSeq, role: message.role, content: message.content || "", images: message.images || [] };
     state.messages.push(item);
