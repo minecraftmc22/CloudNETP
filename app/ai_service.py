@@ -146,6 +146,10 @@ PROVIDERS = {"", "openai", "deepseek", "custom"}
 # 工具往返轮次上限：一轮里模型可以同时调多个工具，所以这不是「工具次数」。
 # 到上限后不再给工具，让它用已有结果收尾，而不是把半截对话直接掐断。
 MAX_TOOL_ROUNDS = 8
+# 0 = 「无限制」：不主动收回工具，模型想调几轮就调几轮。
+# 仍留一个极高的熔断轮次，避免模型陷进死循环后无限次请求把额度烧光。
+UNLIMITED_ROUNDS = 0
+HARD_MAX_TOOL_ROUNDS = 200
 HTTP_TIMEOUT = 180
 PROBE_TIMEOUT = 20
 
@@ -236,11 +240,29 @@ def _clamp_int(value: Any) -> int:
 
 
 def _clamp_rounds(value: Any) -> int:
+    """轮次配置：0 = 无限制，其余夹到 1–50；读到脏数据时回落到默认 8。"""
     try:
         number = int(value)
     except (TypeError, ValueError):
         return MAX_TOOL_ROUNDS
+    if number == UNLIMITED_ROUNDS:
+        return UNLIMITED_ROUNDS
     return max(1, min(50, number))
+
+
+def _round_budget(cfg: dict) -> tuple[bool, int]:
+    """返回 (是否无限制, 本次最多跑几轮工具)。
+
+    ``stream_chat`` 也可能被直接传入没经过 ``load_config`` 规整的 cfg（例如内部
+    提炼记忆、冒烟脚本），所以这里自己再规整一遍，别依赖调用方。
+    """
+    try:
+        rounds = int(cfg.get("maxRounds", MAX_TOOL_ROUNDS))
+    except (TypeError, ValueError):
+        rounds = MAX_TOOL_ROUNDS
+    if rounds == UNLIMITED_ROUNDS:
+        return True, HARD_MAX_TOOL_ROUNDS
+    return False, max(1, min(50, rounds))
 
 
 def effective_config(db: Session, user_id: int) -> tuple[dict, str]:
@@ -1635,12 +1657,17 @@ def _stream_openai(
     usage_total = {"input": 0, "output": 0}
     include_usage = want_usage
 
-    rounds = cfg.get("maxRounds") or MAX_TOOL_ROUNDS
+    unlimited, rounds = _round_budget(cfg)
     for round_index in range(rounds + 1):
         # 最后一轮不再给工具：让模型拿已有结果收尾，而不是忽然断掉
         use_tools = bool(specs) and round_index < rounds
         if specs and round_index == rounds:
-            yield ("notice", {"message": f"工具调用已达上限（{rounds} 轮），这里先按已有结果回答"})
+            message = (
+                f"已连续调用 {rounds} 轮工具，为避免死循环先按已有结果回答"
+                if unlimited
+                else f"工具调用已达上限（{rounds} 轮），这里先按已有结果回答"
+            )
+            yield ("notice", {"message": message})
         # 兜底：任何意外插进来的消息都别破坏 tool_calls → tool 回复的配对
         _repair_tool_pairs(convo)
         payload: dict[str, Any] = {
@@ -1868,12 +1895,17 @@ def _stream_anthropic(
     count_usage = want_usage
     max_tokens = cfg["maxOutput"] or 4096
 
-    rounds = cfg.get("maxRounds") or MAX_TOOL_ROUNDS
+    unlimited, rounds = _round_budget(cfg)
     for round_index in range(rounds + 1):
         # 与 OpenAI 分支一致：最后一轮不给工具，逼它收尾
         use_tools = bool(specs) and round_index < rounds
         if specs and round_index == rounds:
-            yield ("notice", {"message": f"工具调用已达上限（{rounds} 轮），这里先按已有结果回答"})
+            message = (
+                f"已连续调用 {rounds} 轮工具，为避免死循环先按已有结果回答"
+                if unlimited
+                else f"工具调用已达上限（{rounds} 轮），这里先按已有结果回答"
+            )
+            yield ("notice", {"message": message})
         payload: dict[str, Any] = {
             "model": cfg["model"],
             "max_tokens": max_tokens,

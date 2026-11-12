@@ -1317,4 +1317,7 @@ export default {
   "CDP娘 会自动从对话里提炼你的偏好与习惯，形成跨对话的长期记忆（在对话面板「历史 → 长期记忆」里查看和增删，也可以自己写）；关掉后不再提炼、也不带入新对话": "CDP娘 automatically extracts your preferences and habits into a long-term memory that carries across conversations (view, add or delete them under History → Long-term memory in the chat panel). Turn this off to stop extracting and injecting.",
 
   "保存对话记录": "Save chat history",
+
+  "无限制": "Unlimited",
+  "一次对话里模型最多来回调几轮工具；到上限会收回工具，让它基于已有结果收尾。选「无限制」后不再主动收尾，但仍留 200 轮熔断，避免模型死循环一直扣费": "How many tool round-trips the model may make in one reply; when the limit is reached, tools are withdrawn so it wraps up with what it has. Unlimited does not cut it off, but a 200-round safeguard still stops a runaway loop from burning through your quota.",
 };

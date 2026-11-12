@@ -48,7 +48,12 @@ with SessionLocal() as _db:
     _db.commit()
     USER_ID = int(_user.id)
 
-STATE: dict[str, int] = {"chat_calls": 0, "anthropic_calls": 0, "saw_stream_options": 0}
+STATE: dict[str, int] = {
+    "chat_calls": 0,
+    "anthropic_calls": 0,
+    "saw_stream_options": 0,
+    "round_probe": 0,  # 「跑满十轮」场景里已经发出的工具轮数
+}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -127,14 +132,20 @@ class Handler(BaseHTTPRequestHandler):
         messages = body.get("messages") or []
         has_tool_result = any(m.get("role") == "tool" for m in messages)
         wants_tools = bool(body.get("tools"))
-        loop_mode = any(
+        probe_mode = any(
+            isinstance(m.get("content"), str) and "跑满十轮" in m["content"] for m in messages
+        )
+        loop_mode = probe_mode or any(
             isinstance(m.get("content"), str) and "一直用工具" in m["content"] for m in messages
         )
         self._sse_open()
 
-        # 「一直用工具」模式：有工具就一直要，收走工具才肯说话，用来验证轮次上限
+        # 「一直用工具」模式：有工具就一直要，收走工具才肯说话，用来验证轮次上限。
+        # 「跑满十轮」是它的变体：第 10 轮之后自己收口，用来验证「无限制」确实不被默认 8 轮截断。
         if loop_mode:
-            if wants_tools:
+            if wants_tools and not (probe_mode and STATE["round_probe"] >= 10):
+                if probe_mode:
+                    STATE["round_probe"] += 1
                 self._sse({"choices": [{"index": 0, "delta": {"tool_calls": [
                     {"index": 0, "id": f"loop_{STATE['chat_calls']}", "type": "function",
                      "function": {"name": "storage_usage", "arguments": "{}"}}
@@ -481,6 +492,49 @@ def main() -> int:
         check("能读回轮次", ai.load_config(db, USER_ID)["maxRounds"] == 12)
         ai.save_config(db, USER_ID, {"maxRounds": 99})
         check("超范围会被夹到 50", ai.load_config(db, USER_ID)["maxRounds"] == 50)
+
+    print("10. 工具轮次：无限制（maxRounds=0）")
+    from pydantic import ValidationError
+
+    check(
+        "轮次预算：0 = 无限制 + 熔断",
+        ai._round_budget({"maxRounds": 0}) == (True, ai.HARD_MAX_TOOL_ROUNDS),
+        str(ai._round_budget({"maxRounds": 0})),
+    )
+    check("轮次预算：普通值照旧", ai._round_budget({"maxRounds": 3}) == (False, 3))
+    check("轮次预算：没填按默认 8", ai._round_budget({}) == (False, ai.MAX_TOOL_ROUNDS))
+    check("轮次预算：None 按默认 8", ai._round_budget({"maxRounds": None}) == (False, ai.MAX_TOOL_ROUNDS))
+    try:
+        AiConfigIn.model_validate({"maxRounds": 0})
+        check("入参允许 0（ge=0）", True)
+    except ValidationError:
+        check("入参允许 0（ge=0）", False)
+    try:
+        AiConfigIn.model_validate({"maxRounds": -1})
+        check("入参仍拒绝负数", False)
+    except ValidationError:
+        check("入参仍拒绝负数", True)
+
+    STATE["round_probe"] = 0
+    before = STATE["chat_calls"]
+    events = collect(dict(cfg, maxRounds=0), [{"role": "user", "content": "跑满十轮"}], "你是CDP娘")
+    rounds_done = [p for k, p in events if k == "tool" and p.get("status") == "done"]
+    notices = [p.get("message") for k, p in events if k == "notice"]
+    check("无限制能越过默认 8 轮", len(rounds_done) == 10, str(len(rounds_done)))
+    check("自然收尾，不发「已达上限」提示", not notices, str(notices))
+    check(
+        "请求次数 = 10 轮工具 + 1 次收尾",
+        STATE["chat_calls"] - before == 11,
+        str(STATE["chat_calls"] - before),
+    )
+    tail_text = "".join(p["text"] for k, p in events if k == "delta")
+    check("收尾仍然有正文", "先说到这里" in tail_text, repr(tail_text))
+
+    with SessionLocal() as db:
+        saved = ai.save_config(db, USER_ID, {"maxRounds": 0})
+        check("无限制能存", saved.get("maxRounds") == 0, str(saved.get("maxRounds")))
+        check("无限制能读回（没被 or 默认值吞掉）", ai.load_config(db, USER_ID)["maxRounds"] == 0)
+        ai.save_config(db, USER_ID, {"maxRounds": 8})
 
     server.shutdown()
     shutil.rmtree(_TMP_DIR, ignore_errors=True)

@@ -208,7 +208,7 @@ function configMarkup() {
     <div class="setting-row setting-row--stack">
       <div class="setting-row__main">
         <div class="setting-row__label">工具轮次上限</div>
-        <div class="setting-row__desc">一次对话里模型最多来回调几轮工具；到上限会收回工具，让它基于已有结果收尾</div>
+        <div class="setting-row__desc">一次对话里模型最多来回调几轮工具；到上限会收回工具，让它基于已有结果收尾。选「无限制」后不再主动收尾，但仍留 200 轮熔断，避免模型死循环一直扣费</div>
       </div>
       <div class="ai-tokens">
         <div class="ai-chips" data-ai-rounds>
@@ -218,10 +218,11 @@ function configMarkup() {
                 H`<button type="button" class="ai-chip ${Number(cfg.maxRounds) === n ? "is-active" : ""}" data-ai-round="${n}">${t("{n} 轮", { n })}</button>`
             )
             .join("")}
+          <button type="button" class="ai-chip ${Number(cfg.maxRounds) === 0 ? "is-active" : ""}" data-ai-round="0">${t("无限制")}</button>
           <span class="ai-token-custom">
             <input type="number" min="1" max="50" step="1" placeholder="1-50"
                    data-ai-rounds-input
-                   value="${[3, 5, 8, 12, 20].includes(Number(cfg.maxRounds)) ? "" : Number(cfg.maxRounds || 8)}">
+                   value="${[0, 3, 5, 8, 12, 20].includes(Number(cfg.maxRounds)) ? "" : Number(cfg.maxRounds || 8)}">
           </span>
         </div>
       </div>
@@ -630,12 +631,17 @@ function bind(body) {
     });
 
     const chipRounds = roundsWrap?.querySelector("[data-ai-round].is-active");
-    const rawRounds = roundsInput?.value
+    const hasCustom = Boolean(roundsInput?.value);
+    const rawRounds = hasCustom
       ? Number(roundsInput.value)
       : chipRounds
         ? Number(chipRounds.dataset.aiRound)
         : 8;
-    patch.maxRounds = Math.min(50, Math.max(1, Math.round(rawRounds || 8)));
+    // 0 = 无限制，只能由「无限制」快捷项选中；自定义输入框仍然只收 1–50
+    patch.maxRounds =
+      !hasCustom && rawRounds === 0
+        ? 0
+        : Math.min(50, Math.max(1, Math.round(Number.isFinite(rawRounds) ? rawRounds : 8)));
 
     // 密钥留空 = 不改（后端也是这个语义），只有真填了才提交
     const keyValue = key.value.trim();

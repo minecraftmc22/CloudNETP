@@ -137,8 +137,8 @@ class AiConfigIn(CamelModel):
     protocol: Literal["auto", "openai", "anthropic"] | None = None
     max_input: int | None = Field(default=None, ge=0, le=2_000_000)
     max_output: int | None = Field(default=None, ge=0, le=2_000_000)
-    # 一次对话里工具往返的轮次上限（1–50，默认 8）
-    max_rounds: int | None = Field(default=None, ge=1, le=50)
+    # 一次对话里工具往返的轮次上限（1–50，0 = 无限制，默认 8）
+    max_rounds: int | None = Field(default=None, ge=0, le=50)
     # 对话面板底部是否实时显示 token 消耗
     show_tokens: bool | None = None
     # 是否把对话保存成历史记录（关掉后只不再新增，已有的还能看）
