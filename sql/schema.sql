@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS user_settings (
   user_id       BIGINT     NOT NULL,
   theme_mode    TINYINT    NOT NULL DEFAULT 2 COMMENT '0 亮 1 暗 2 跟随系统',
   accent_color  VARCHAR(16) NOT NULL DEFAULT '#c084fc',
+  accent_style  JSON     NULL COMMENT '主题色样式：mode=solid|gradient, colors=[#rrggbb]',
   wallpaper     VARCHAR(64) NOT NULL DEFAULT 'sakura',
   show_mascot   TINYINT(1) NOT NULL DEFAULT 1,
   show_petals   TINYINT(1) NOT NULL DEFAULT 1,

@@ -45,19 +45,20 @@
   position: relative;
   padding: 14px 16px 13px;
   border-radius: var(--radius-l);
-  background: color-mix(
+  background-color: color-mix(
     in srgb,
     var(--layer-2) calc(var(--op-card, var(--card-a, 1)) * 100%),
     transparent
   );
+  background-image: var(--accent-tint, none);
   border: 1px solid var(--stroke-hair);
   overflow: hidden;
   transition: border-color var(--dur-fast) var(--ease-standard),
-    background var(--dur-fast) var(--ease-standard);
+    background-color var(--dur-fast) var(--ease-standard);
 }
 .stat-card:hover {
   border-color: color-mix(in srgb, var(--accent) 24%, var(--stroke-hair));
-  background: color-mix(
+  background-color: color-mix(
     in srgb,
     var(--layer-3) calc(var(--op-card, var(--card-a, 1)) * 100%),
     transparent

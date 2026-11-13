@@ -1320,4 +1320,17 @@ export default {
 
   "无限制": "Unlimited",
   "一次对话里模型最多来回调几轮工具；到上限会收回工具，让它基于已有结果收尾。选「无限制」后不再主动收尾，但仍留 200 轮熔断，避免模型死循环一直扣费": "How many tool round-trips the model may make in one reply; when the limit is reached, tools are withdrawn so it wraps up with what it has. Unlimited does not cut it off, but a 200-round safeguard still stops a runaway loop from burning through your quota.",
+
+  "单色": "Solid",
+  "渐变": "Gradient",
+  "添加颜色": "Add color",
+  "移除这个颜色": "Remove this color",
+  "渐变颜色 {n}": "Gradient color {n}",
+  "用于按钮、选中状态和卡片底色；可以单色，也可以渐变（最多 5 个颜色）": "Used for buttons, selection states and card backgrounds. Pick a single color or a gradient of up to 5 colors.",
+  "已从背景取到 {n} 个颜色，也可以自己调整": "Picked {n} colors from the background — feel free to tweak them",
+  "背景已更新，主题色改用图片渐变": "Background updated; the accent now uses a gradient taken from the image",
+  "樱霞": "Cherry dusk",
+  "晨海": "Morning sea",
+  "琥珀霞": "Amber dusk",
+  "极光": "Aurora",
 };

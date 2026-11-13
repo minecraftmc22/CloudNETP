@@ -289,7 +289,7 @@
   width: 3px;
   height: 0;
   border-radius: var(--radius-pill);
-  background: var(--accent);
+  background: var(--accent-grad);
   transform: translateY(-50%);
   transition: height var(--dur-base) var(--ease-fluent),
     box-shadow var(--dur-base) var(--ease-standard);

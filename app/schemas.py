@@ -83,6 +83,9 @@ class PasswordOnlyIn(CamelModel):
 class SettingsIn(CamelModel):
     theme_mode: Literal[0, 1, 2] | None = None
     accent_color: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
+    # 主题色样式：mode=solid|gradient，colors 是 1–5 个 #rrggbb（渐变时至少 2 个）；
+    # 具体清洗在路由里做，这里只收成 dict，避免把任意结构写进库
+    accent_style: dict | None = None
     wallpaper: str | None = Field(default=None, max_length=64)
     show_mascot: bool | None = None
     show_petals: bool | None = None

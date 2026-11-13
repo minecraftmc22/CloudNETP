@@ -528,6 +528,13 @@
   .accent-tools {
     justify-content: flex-start;
   }
+  .accent-editor__head,
+  .accent-solid {
+    justify-content: flex-start;
+  }
+  .grad-presets {
+    margin-left: 0;
+  }
   .wallpaper-actions {
     padding: 0 14px 12px;
   }

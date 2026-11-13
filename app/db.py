@@ -143,6 +143,8 @@ _COLUMN_PATCHES: dict[str, dict[str, str]] = {
         "lyrics_style": "JSON NULL",
         "background_image": "VARCHAR(64) NULL",
         "surface_opacity": "JSON NULL",
+        # 主题色样式（单色 / 渐变）：老库补列后为 NULL，读取处按空对象处理
+        "accent_style": "JSON NULL",
         # 看板娘 AI 配置（老库补列后为 NULL，读取处统一按空对象处理）
         "ai_config": "JSON NULL",
         # 看板娘长期记忆（老库补列后为 NULL，读取处统一按空数组处理）

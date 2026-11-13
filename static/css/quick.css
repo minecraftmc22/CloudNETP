@@ -91,11 +91,12 @@
   padding: 22px;
   border-radius: var(--radius-l);
   border: 1px solid color-mix(in srgb, var(--danger) 30%, var(--stroke-hair));
-  background: color-mix(
+  background-color: color-mix(
     in srgb,
     var(--dialog-surface) calc(var(--op-card, var(--card-a, 1)) * 88%),
     transparent
   );
+  background-image: var(--accent-tint, none);
 }
 
 .quick-gate__head {
@@ -165,11 +166,12 @@
   padding: 18px;
   border-radius: var(--radius-l);
   border: 1px solid var(--stroke-hair);
-  background: color-mix(
+  background-color: color-mix(
     in srgb,
     var(--dialog-surface) calc(var(--op-card, var(--card-a, 1)) * 88%),
     transparent
   );
+  background-image: var(--accent-tint, none);
   margin-bottom: 14px;
 }
 
@@ -381,11 +383,12 @@
   padding: 12px 14px;
   border-radius: var(--radius-m);
   border: 1px solid var(--stroke-hair);
-  background: color-mix(
+  background-color: color-mix(
     in srgb,
     var(--dialog-surface) calc(var(--op-card, var(--card-a, 1)) * 88%),
     transparent
   );
+  background-image: var(--accent-tint, none);
 }
 
 .quick-row.is-dead {
@@ -620,7 +623,7 @@
   height: 100%;
   width: 0;
   border-radius: var(--radius-pill);
-  background: var(--accent);
+  background: var(--accent-grad);
   transition: width var(--dur-fast) linear;
 }
 

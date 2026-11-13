@@ -41,6 +41,15 @@
   --accent: var(--accent-user);
   --accent-warm: #f9a8d4;
   --accent-ink: #ffffff;
+  /* 单色时的默认观感（与旧版一致）；选「渐变」后由 JS 覆盖成多色 */
+  --accent-grad: linear-gradient(
+    135deg,
+    var(--accent) 0%,
+    color-mix(in srgb, var(--accent) 55%, #ff9ecb) 100%
+  );
+  --accent-bar: linear-gradient(90deg, var(--accent), var(--accent-warm));
+  /* 卡片底色上的主题薄雾：JS 按主题算好透明度后覆盖，登录页等没有卡片的地方保持 none */
+  --accent-tint: none;
 
   --nav-w: 264px;
   --nav-w-collapsed: 48px;

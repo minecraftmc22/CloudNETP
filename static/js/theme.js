@@ -12,6 +12,64 @@ export const ACCENT_PRESETS = [
   { name: "珊瑚", value: "#fb7185" },
 ];
 
+/** 预设渐变：用户不想自己配多个颜色时一键选 */
+export const ACCENT_GRADIENTS = [
+  { name: "樱霞", colors: ["#c084fc", "#f472b6"] },
+  { name: "晨海", colors: ["#60a5fa", "#34d399"] },
+  { name: "琥珀霞", colors: ["#fbbf24", "#fb7185"] },
+  { name: "极光", colors: ["#34d399", "#60a5fa", "#c084fc"] },
+];
+
+const HEX_RE = /^#[0-9a-f]{6}$/;
+const DEFAULT_ACCENT = "#c084fc";
+
+/**
+ * 把用户配置解析成 { mode, colors }。
+ * 渐变不足两色（老数据 / 手改坏了）时按单色处理，避免渲染出半截渐变。
+ */
+export function accentStyleOf(settings = {}) {
+  const style = settings.accentStyle || {};
+  const base = String(settings.accentColor || DEFAULT_ACCENT).toLowerCase();
+  const primary = HEX_RE.test(base) ? base : DEFAULT_ACCENT;
+  const raw = Array.isArray(style.colors) ? style.colors : [];
+  const colors = [...new Set(raw.map((c) => String(c || "").toLowerCase()).filter((c) => HEX_RE.test(c)))].slice(0, 5);
+  if (style.mode === "gradient" && colors.length >= 2) return { mode: "gradient", colors };
+  return { mode: "solid", colors: [primary] };
+}
+
+/** 同色系的第二个颜色：色相挪一点、亮一点，单张背景图也能出好看的渐变 */
+export function accentCompanion(hex) {
+  const text = String(hex || "").toLowerCase();
+  if (!HEX_RE.test(text)) return DEFAULT_ACCENT;
+  const [h, s, l] = rgbToHsl(
+    parseInt(text.slice(1, 3), 16),
+    parseInt(text.slice(3, 5), 16),
+    parseInt(text.slice(5, 7), 16)
+  );
+  return hslToHex(h + 28, clamp(s * 0.96, 0.5, 0.92), clamp(l + 0.08, 0.5, 0.8));
+}
+
+function withAlpha(hex, alpha) {
+  const a = Math.round(clamp(alpha, 0, 1) * 255)
+    .toString(16)
+    .padStart(2, "0");
+  return `${hex}${a}`;
+}
+
+function gradientCss(colors, angle = "135deg") {
+  if (!colors.length) return DEFAULT_ACCENT;
+  if (colors.length === 1) return `linear-gradient(${angle}, ${colors[0]} 0%, ${colors[0]} 100%)`;
+  const step = 100 / (colors.length - 1);
+  const stops = colors.map((c, i) => `${c} ${(i * step).toFixed(1)}%`).join(", ");
+  return `linear-gradient(${angle}, ${stops})`;
+}
+
+/** 卡片上那层主题薄雾：亮色淡一点、暗色稍重，深色底才看得出色调 */
+function accentTint(colors, theme) {
+  const alpha = theme === "dark" ? 0.18 : 0.12;
+  return gradientCss(colors.map((c) => withAlpha(c, alpha)));
+}
+
 export const WALLPAPERS = [
   { id: "sakura", name: "樱雾" },
   { id: "night", name: "夜樱" },
@@ -128,6 +186,27 @@ export function resolveTheme(mode) {
   return MEDIA.matches ? "dark" : "light";
 }
 
+/**
+ * 写主题色相关的四个变量：
+ *   --accent-user  主色（color-mix / 文字 / 边框都用它，必须是纯色）
+ *   --accent-grad  按钮、图标块等「色块」用的渐变
+ *   --accent-bar   进度条用的渐变
+ *   --accent-tint  卡片底色上叠的那层主题薄雾
+ * 单色时不覆盖前两个，让 CSS 里的默认粉紫过渡继续生效（老观感不变）。
+ */
+function applyAccentStyle(root, settings, theme) {
+  const accent = accentStyleOf(settings);
+  root.style.setProperty("--accent-user", accent.colors[0]);
+  root.style.setProperty("--accent-tint", accentTint(accent.colors, theme));
+  if (accent.mode === "gradient") {
+    root.style.setProperty("--accent-grad", gradientCss(accent.colors, "135deg"));
+    root.style.setProperty("--accent-bar", gradientCss(accent.colors, "90deg"));
+  } else {
+    root.style.removeProperty("--accent-grad");
+    root.style.removeProperty("--accent-bar");
+  }
+}
+
 export function applyAppearance(settings = {}) {
   const root = document.documentElement;
   const mode = settings.themeMode ?? 2;
@@ -140,7 +219,7 @@ export function applyAppearance(settings = {}) {
   root.dataset.theme = theme;
   root.dataset.wallpaper = wallpaper;
   root.dataset.petals = settings.showPetals === false ? "off" : "on";
-  root.style.setProperty("--accent-user", settings.accentColor || "#c084fc");
+  applyAccentStyle(root, settings, theme);
   applySurfaceOpacity(settings.surfaceOpacity);
 
   if (custom) {
@@ -247,28 +326,35 @@ function hslToHex(h, s, l) {
   return `#${to(r1)}${to(g1)}${to(b1)}`;
 }
 
+/** 两个色相在环上的最短距离（度） */
+function hueDistance(a, b) {
+  const d = Math.abs(a - b) % 360;
+  return d > 180 ? 360 - d : d;
+}
+
 /**
- * 取图中出现最多的颜色（按色相聚类，灰/近白/近黑不参与，避免照片大面积
+ * 取图中最显著的几种颜色（按色相聚类，灰/近白/近黑不参与，避免照片大面积
  * 天空、阴影把主色拉成灰色），再把饱和度和明度收进「适合当主题色」的区间。
+ * 色相太接近的桶会合并，保证拿来当渐变时有区分度。
  * source: ImageBitmap / HTMLImageElement / HTMLCanvasElement
  */
-export function dominantColor(source) {
+export function dominantColors(source, limit = 3) {
   const SIZE = 72;
   const canvas = document.createElement("canvas");
   canvas.width = SIZE;
   canvas.height = SIZE;
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
-  if (!ctx) return null;
+  if (!ctx) return [];
   try {
     ctx.drawImage(source, 0, 0, SIZE, SIZE);
   } catch {
-    return null; // 跨域图不能取像素
+    return []; // 跨域图不能取像素
   }
   let px;
   try {
     px = ctx.getImageData(0, 0, SIZE, SIZE).data;
   } catch {
-    return null;
+    return [];
   }
 
   const buckets = new Map(); // 24 个色相桶
@@ -295,22 +381,33 @@ export function dominantColor(source) {
     buckets.set(idx, b2);
   }
 
-  let best = null;
-  for (const b of buckets.values()) if (!best || b.w > best.w) best = b;
+  const ranked = [...buckets.entries()]
+    .filter(([, b]) => b.w > 0)
+    .sort((a, b) => b[1].w - a[1].w);
 
-  if (best && best.w > 0) {
-    const [h, s, l] = rgbToHsl(best.r / best.w, best.g / best.w, best.b / best.w);
-    return hslToHex(h, clamp(s, 0.62, 0.9), clamp(l, 0.62, 0.74));
+  const picked = [];
+  for (const [, b] of ranked) {
+    if (picked.length >= limit) break;
+    const [h, s, l] = rgbToHsl(b.r / b.w, b.g / b.w, b.b / b.w);
+    // 与已选颜色色相太近就跳过：优先保证渐变的跨度
+    if (picked.some((p) => hueDistance(p.h, h) < 26)) continue;
+    picked.push({ h, hex: hslToHex(h, clamp(s, 0.62, 0.9), clamp(l, 0.62, 0.74)) });
   }
+  if (picked.length) return picked.map((p) => p.hex);
 
   // 整张图都偏低饱和：退回最频繁的那一桶，强行提一点饱和度
   let topKey = null;
   let topN = 0;
   for (const [k, n] of plain) if (n > topN) [topKey, topN] = [k, n];
-  if (topKey === null) return null;
+  if (topKey === null) return [];
   const r = ((topKey >> 8) & 15) * 17;
   const g = ((topKey >> 4) & 15) * 17;
   const b = (topKey & 15) * 17;
   const [h, s, l] = rgbToHsl(r, g, b);
-  return hslToHex(h, clamp(s, 0.35, 0.8), clamp(l, 0.58, 0.72));
+  return [hslToHex(h, clamp(s, 0.35, 0.8), clamp(l, 0.58, 0.72))];
+}
+
+/** 只要一个主色时的便捷入口 */
+export function dominantColor(source) {
+  return dominantColors(source, 1)[0] || null;
 }

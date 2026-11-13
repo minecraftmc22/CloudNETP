@@ -51,6 +51,7 @@ def user_payload(db: Session, user: User) -> dict[str, Any]:
         "settings": {
             "themeMode": s.theme_mode,
             "accentColor": s.accent_color,
+            "accentStyle": s.accent_style or {},
             "wallpaper": s.wallpaper,
             "backgroundImage": (
                 f"/api/background/{s.background_image}" if s.background_image else None

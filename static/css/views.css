@@ -53,7 +53,7 @@
 }
 .auth-lang__btn.is-active {
   color: #fff;
-  background: var(--accent);
+  background: var(--accent-grad);
 }
 
 .auth-stage {
@@ -260,7 +260,7 @@
   transition: opacity var(--dur-fast) var(--ease-standard);
 }
 .auth-agree input:checked {
-  background: var(--accent);
+  background: var(--accent-grad);
   border-color: var(--accent);
 }
 .auth-agree input:checked ~ .auth-agree__box .icon {
@@ -564,12 +564,14 @@
 
 .settings-card {
   border-radius: var(--radius-l);
-  /* 卡片底色跟着「设置 → 外观 → 卡片」的滑块走：--op-card 是倍数，默认 1 = 原样 */
-  background: color-mix(
+  /* 卡片底色跟着「设置 → 外观 → 卡片」的滑块走：--op-card 是倍数，默认 1 = 原样；
+     上面再叠一层主题色薄雾，换主题色 / 渐变时卡片会一起变 */
+  background-color: color-mix(
     in srgb,
     var(--layer-3) calc(var(--op-card, var(--card-a, 1)) * 100%),
     transparent
   );
+  background-image: var(--accent-tint, none);
   border: 1px solid var(--stroke-hair);
   overflow: hidden;
 }
@@ -747,6 +749,138 @@ a.setting-row--link:hover .setting-row__chevron {
   opacity: 0.45;
 }
 
+/* --- 主题色编辑器：单色 / 渐变 --- */
+.accent-editor {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  width: 100%;
+}
+.accent-editor__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: space-between;
+}
+.accent-editor__pick {
+  gap: 5px;
+  white-space: nowrap;
+}
+.accent-editor__pick:disabled {
+  opacity: 0.45;
+}
+.accent-mode {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--radius-pill);
+  background: var(--fill-subtle);
+  border: 1px solid var(--stroke-hair);
+}
+.accent-mode__btn {
+  padding: 3px 14px;
+  border-radius: var(--radius-pill);
+  font-size: 12px;
+  color: var(--text-2);
+  transition: color var(--dur-fast) var(--ease-standard),
+    background var(--dur-fast) var(--ease-standard);
+}
+.accent-mode__btn:hover {
+  color: var(--text-1);
+}
+.accent-mode__btn.is-active {
+  background: var(--accent-grad);
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+.accent-solid {
+  display: flex;
+  justify-content: flex-end;
+}
+.accent-gradient {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.accent-stops {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.accent-stop {
+  position: relative;
+  width: 34px;
+  height: 34px;
+}
+.accent-stop::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-s);
+  background: var(--stop, var(--accent));
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35), var(--shadow-1);
+}
+.accent-stop input[type="color"] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: none;
+  opacity: 0;
+  cursor: pointer;
+}
+.accent-stop__del {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--dialog-surface);
+  border: 1px solid var(--stroke);
+  color: var(--text-2);
+  z-index: 2;
+}
+.accent-stop__del .icon {
+  width: 10px;
+  height: 10px;
+}
+.accent-stop__del:hover {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 40%, var(--stroke));
+}
+.accent-stop__del:disabled {
+  display: none;
+}
+.accent-gradient__foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.grad-presets {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+.grad-preset {
+  width: 30px;
+  height: 18px;
+  border-radius: var(--radius-xs);
+  border: 1px solid var(--stroke-hair);
+  box-shadow: var(--shadow-1);
+  transition: transform var(--dur-fast) var(--ease-fluent);
+}
+.grad-preset:hover {
+  transform: translateY(-1px) scale(1.04);
+}
+
 .wallpaper-row {
   display: flex;
   gap: 10px;
@@ -916,7 +1050,7 @@ a.setting-row--link:hover .setting-row__chevron {
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  background: var(--accent);
+  background: var(--accent-grad);
   border: 2px solid var(--bg-a);
   box-shadow: var(--shadow-1);
   transition: transform var(--dur-fast) var(--ease-standard);
@@ -928,7 +1062,7 @@ a.setting-row--link:hover .setting-row__chevron {
   width: 12px;
   height: 12px;
   border-radius: 50%;
-  background: var(--accent);
+  background: var(--accent-grad);
   border: 2px solid var(--bg-a);
   box-shadow: var(--shadow-1);
   cursor: pointer;
@@ -1381,7 +1515,7 @@ html[data-ai="off"] .mascot__act[data-mascot-act="chat"] {
   height: 6px;
   margin-left: 3px;
   border-radius: 50%;
-  background: var(--accent);
+  background: var(--accent-grad);
   vertical-align: middle;
   animation: mchat-blink 1s var(--ease-standard) infinite;
 }
@@ -1617,7 +1751,7 @@ html[data-ai="off"] .mascot__act[data-mascot-act="chat"] {
   background: var(--text-3);
 }
 .mchat__tool.is-running .mchat__dot {
-  background: var(--accent);
+  background: var(--accent-grad);
   animation: mchat-blink 1s var(--ease-standard) infinite;
 }
 .mchat__tool pre {
@@ -2449,11 +2583,12 @@ html[data-ai="off"] .mascot__act[data-mascot-act="chat"] {
 
 .about-card {
   border-radius: var(--radius-l);
-  background: color-mix(
+  background-color: color-mix(
     in srgb,
     var(--layer-3) calc(var(--op-card, var(--card-a, 1)) * 100%),
     transparent
   );
+  background-image: var(--accent-tint, none);
   border: 1px solid var(--stroke-hair);
   overflow: hidden;
 }
@@ -2693,7 +2828,7 @@ html[data-ai="off"] .mascot__act[data-mascot-act="chat"] {
   box-shadow: inset 0 0 0 1.5px var(--stroke-strong);
 }
 .about-log__item.is-latest .about-log__dot {
-  background: var(--accent);
+  background: var(--accent-grad);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent);
 }
 .about-log__head {
@@ -3017,11 +3152,13 @@ html[data-ai="off"] .mascot__act[data-mascot-act="chat"] {
   border-radius: 8px;
   border: 1px solid var(--stroke-hair);
   /* 74% 是默认浓度，滑块按倍数缩放它 */
-  background: color-mix(
+  background-color: color-mix(
     in srgb,
     var(--dialog-surface) calc(var(--op-card, var(--card-a, 1)) * 74%),
     transparent
   );
+  /* 设置页外层 .settings-card 是透明的，真正露出来的底色在这层，主题薄雾也叠这里 */
+  background-image: var(--accent-tint, none);
   overflow: hidden;
 }
 /* 第一行不需要顶部分隔线，否则圆角处会有一道多余的横线 */
@@ -3323,11 +3460,12 @@ html[data-ai="off"] .mascot__act[data-mascot-act="chat"] {
   padding: 8px 4px;
   border-top: 1px solid var(--stroke-hair);
   /* 86% 是默认浓度；和别的卡片一样按「卡片」滑块倍数缩放，默认 1 = 原样 */
-  background: color-mix(
+  background-color: color-mix(
     in srgb,
     var(--dialog-surface) calc(var(--op-card, var(--card-a, 1)) * 86%),
     transparent
   );
+  background-image: var(--accent-tint, none);
   backdrop-filter: blur(14px);
   z-index: 1;
 }

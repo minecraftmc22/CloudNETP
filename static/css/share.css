@@ -423,7 +423,7 @@ body {
   transition: transform var(--dur-fast) var(--ease-fluent);
 }
 .pickbox:checked {
-  background: var(--accent);
+  background: var(--accent-grad);
   border-color: var(--accent);
 }
 .pickbox:checked::after {

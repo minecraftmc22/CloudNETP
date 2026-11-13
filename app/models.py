@@ -64,6 +64,8 @@ class UserSetting(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
     theme_mode: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=2)  # 0 亮 1 暗 2 跟随
     accent_color: Mapped[str] = mapped_column(String(16), nullable=False, default="#c084fc")
+    # 主题色样式（JSON：mode=solid|gradient，colors=[#rrggbb...]）；空对象 = 单色
+    accent_style: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     wallpaper: Mapped[str] = mapped_column(String(64), nullable=False, default="sakura")
     # 自定义背景图只存文件名；wallpaper=="custom" 时才有意义
     background_image: Mapped[str | None] = mapped_column(String(64), nullable=True)

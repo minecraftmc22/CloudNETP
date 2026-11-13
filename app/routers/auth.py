@@ -692,6 +692,36 @@ def get_avatar(
     )
 
 
+def _hex_color(value) -> str:
+    """校验 #rrggbb，合法返回小写形式，否则空串。"""
+    text = str(value or "").strip()
+    if len(text) != 7 or not text.startswith("#"):
+        return ""
+    try:
+        int(text[1:], 16)
+    except ValueError:
+        return ""
+    return text.lower()
+
+
+def _clean_accent_style(value: dict) -> dict:
+    """主题色样式只收单色/渐变两种模式与合法色值，渐变至少两色。"""
+    if not isinstance(value, dict):
+        return {}
+    mode = "gradient" if value.get("mode") == "gradient" else "solid"
+    colors: list[str] = []
+    raw = value.get("colors")
+    if isinstance(raw, list):
+        for item in raw[:12]:  # 先截断再校验，避免超长数组拖慢请求
+            color = _hex_color(item)
+            if color and color not in colors:
+                colors.append(color)
+    colors = colors[:5]
+    if mode == "gradient" and len(colors) < 2:
+        mode = "solid"
+    return {"mode": mode, "colors": colors}
+
+
 @router.patch("/me/settings")
 def update_settings(
     payload: SettingsIn,
@@ -704,6 +734,7 @@ def update_settings(
     allowed = {
         "theme_mode",
         "accent_color",
+        "accent_style",
         "wallpaper",
         "show_mascot",
         "show_petals",
@@ -731,6 +762,8 @@ def update_settings(
                     for k in ("nav", "titlebar", "panel", "dialog", "card")
                     if isinstance((v := value.get(k)), (int, float)) and not isinstance(v, bool)
                 }
+            elif field == "accent_style":
+                value = _clean_accent_style(value)
             setattr(row, field, value)
     db.commit()
     return {"settings": user_payload(db, user)["settings"]}
