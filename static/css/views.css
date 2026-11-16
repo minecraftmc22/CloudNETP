@@ -1099,7 +1099,10 @@ a.setting-row--link:hover .setting-row__chevron {
   user-select: none;
   translate: var(--mascot-dx, 0px) var(--mascot-dy, 0px);
   transform-origin: bottom right;
-  transition: opacity var(--dur-slow) var(--ease-standard),
+  /* 滚轮缩放别一格一跳：宽高各自过渡过去，滚轮只负责改目标值。
+     云朵模式下高度是 auto（跟着宽度走），只有 Live2D 模式才需要过渡 height。 */
+  transition: width var(--dur-base) var(--ease-fluent),
+    height var(--dur-base) var(--ease-fluent), opacity var(--dur-slow) var(--ease-standard),
     transform var(--dur-slow) var(--ease-fluent);
 }
 .mascot.is-dragging {
@@ -1133,6 +1136,19 @@ a.setting-row--link:hover .setting-row__chevron {
 .mascot__size.is-on {
   opacity: 1;
   translate: 0 0;
+}
+/* 每滚一格重新触发一次小弹跳，能看出确实跳了一档 */
+.mascot__size.is-tick {
+  animation: mascot-size-tick 180ms var(--ease-fluent);
+}
+
+@keyframes mascot-size-tick {
+  from {
+    transform: scale(0.88);
+  }
+  to {
+    transform: scale(1);
+  }
 }
 .mascot__stage {
   position: relative;

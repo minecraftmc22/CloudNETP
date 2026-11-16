@@ -91,6 +91,8 @@ export function renderQuick(root) {
     lastPickup: null,
     // null = 还没问到；false = 必须先同意规范
     termsAccepted: null,
+    // 标签栏的入场动画只放一次
+    tabsIn: false,
   };
 
   root.innerHTML = H`
@@ -125,6 +127,26 @@ export function renderQuick(root) {
   const summaryEl = root.querySelector("[data-summary]");
   const gateEl = root.querySelector("[data-gate]");
   const bodyEl = root.querySelector("[data-body]");
+
+  /* ---------------- 入场动画 ----------------
+   * 面板每次重绘都会换掉整棵子树：只在「切标签 / 首次进来 / 刷新 / 新建记录」这类
+   * 整块重建的时机补动画，选目录、删一条、上传进度这些小重绘不重播，免得点一下闪一下。 */
+  function playIn(nodes, { stagger = 0, delay = 0, typed = "quick-rise" } = {}) {
+    [...(nodes || [])].forEach((el, index) => {
+      if (!el) return;
+      el.classList.add(typed);
+      const wait = delay + stagger * Math.min(index, 9);
+      if (wait) el.style.setProperty("--enter-i", `${wait}ms`);
+      el.addEventListener(
+        "animationend",
+        () => {
+          el.classList.remove(typed);
+          el.style.removeProperty("--enter-i");
+        },
+        { once: true }
+      );
+    });
+  }
 
   /* ---------------- 使用规范闸门 ---------------- */
   function paintGate() {
@@ -176,7 +198,7 @@ export function renderQuick(root) {
       return;
     }
     paintTabs();
-    paintPanel();
+    paintPanel(true);
   }
 
   function paintTabs() {
@@ -187,11 +209,16 @@ export function renderQuick(root) {
         <span>${t(tab.label)}${tab.key === "send" && state.unread ? ` (${state.unread})` : ""}</span>
       </button>`
     ).join("");
+    // 标签栏只在第一次露面时滑进来，切标签不重播（否则点一下抖一下）
+    if (!state.tabsIn) {
+      state.tabsIn = true;
+      playIn(tabsEl.querySelectorAll(".quick-tab"), { stagger: 40, typed: "quick-slide" });
+    }
     tabsEl.querySelectorAll("[data-tab]").forEach((btn) => {
       btn.addEventListener("click", () => {
         state.tab = btn.dataset.tab;
         paintTabs();
-        paintPanel();
+        paintPanel(true);
       });
     });
   }
@@ -210,11 +237,15 @@ export function renderQuick(root) {
     }
   }
 
-  function paintPanel() {
+  function paintPanel(fresh = false) {
     paintSummary();
     if (state.tab === "drop") paintDrop();
     else if (state.tab === "send") paintSend();
     else paintPickup();
+    if (!fresh) return;
+    // 卡片依次浮起，列表条目再跟着逐条冒出来
+    playIn(panelEl.querySelectorAll(":scope > .quick-card"), { stagger: 70 });
+    playIn(panelEl.querySelectorAll(".quick-list > *"), { stagger: 34, delay: 70 });
   }
 
   /* ---------------- 扫码直传 ---------------- */
@@ -282,6 +313,9 @@ export function renderQuick(root) {
         state.lastDrop = data.drop;
         state.drops = [data.drop, ...state.drops];
         paintDrop();
+        // 新生成的二维码与刚冒出来的那条记录单独弹一下，比整块重绘更有点「生成成功」的手感
+        playIn(panelEl.querySelectorAll(".quick-share"), { typed: "quick-pop" });
+        playIn(panelEl.querySelectorAll(".quick-list > .quick-row:first-child"), { typed: "quick-pop" });
         Toast.success(t("链接已生成，手机扫码即可上传"));
       } catch (err) {
         Toast.error(err.message);
@@ -441,6 +475,7 @@ export function renderQuick(root) {
         </span>`
         )
         .join("");
+      playIn(chipsEl.querySelectorAll(".quick-chip"), { stagger: 30, typed: "quick-pop" });
       chipsEl.querySelectorAll("[data-remove]").forEach((btn) => {
         btn.addEventListener("click", () => {
           state.sendNodes = state.sendNodes.filter((node) => node.id !== Number(btn.dataset.remove));
@@ -480,7 +515,7 @@ export function renderQuick(root) {
         state.sendNodes = [];
         Toast.success(t("已发送给 {name}", { name: to }));
         await loadAll();
-        paintPanel();
+        paintPanel(true);
       } catch (err) {
         Toast.error(err.message);
       } finally {
@@ -717,6 +752,7 @@ export function renderQuick(root) {
 
     const addItems = (rows) => {
       const seen = new Set(state.pickupItems.map((row) => row.id));
+      const added = [];
       for (const row of rows) {
         if (seen.has(row.id)) continue;
         state.pickupItems.push({
@@ -728,8 +764,17 @@ export function renderQuick(root) {
           uses: state.maxUses,
           uploaded: Boolean(row.uploaded),
         });
+        added.push(row.id);
       }
       paintItems();
+      // 只给刚加进来的那几行弹一下，已经在列表里的不动
+      if (added.length) {
+        const ids = new Set(added.map(String));
+        playIn(
+          [...itemsEl.querySelectorAll(".quick-item-row")].filter((el) => ids.has(el.dataset.item)),
+          { stagger: 32, typed: "quick-pop" }
+        );
+      }
     };
 
     async function uploadLocal(fileList) {
@@ -842,6 +887,8 @@ export function renderQuick(root) {
         state.pickupItems = [];
         state.uploading = [];
         paintPickup();
+        playIn(panelEl.querySelectorAll(".quick-share"), { typed: "quick-pop" });
+        playIn(panelEl.querySelectorAll(".quick-list > .quick-row:first-child"), { typed: "quick-pop" });
         Toast.success(t("取件码已生成"));
       } catch (err) {
         Toast.error(err.message);
@@ -933,6 +980,9 @@ export function renderQuick(root) {
         state.lookupError = err.message;
       }
       paintLookup();
+      playIn(lookupBox.querySelectorAll(".quick-lookup, .quick-lookup__error"), {
+        typed: "quick-pop",
+      });
     };
 
     panelEl.querySelector('[data-act="lookup"]').addEventListener("click", lookup);

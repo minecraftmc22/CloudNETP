@@ -1010,3 +1010,109 @@
 .quick-card .quick-field--grow {
   max-width: 360px;
 }
+
+/* ------------------------------------------------------------------ */
+/* 入场动画                                                            */
+/* 由 JS 打上 .quick-rise / .quick-pop / .quick-slide，动画结束自己摘掉； */
+/* --enter-i 控制逐条延迟，让一屏内容依次浮现而不是一起跳出来。        */
+/* ------------------------------------------------------------------ */
+@keyframes quick-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes quick-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes quick-slide {
+  from {
+    opacity: 0;
+    transform: translateX(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.quick-rise {
+  animation: quick-rise 300ms var(--ease-fluent) both;
+  animation-delay: var(--enter-i, 0ms);
+}
+
+.quick-pop {
+  animation: quick-pop 320ms var(--ease-fluent) both;
+  animation-delay: var(--enter-i, 0ms);
+}
+
+.quick-slide {
+  animation: quick-slide 260ms var(--ease-fluent) both;
+  animation-delay: var(--enter-i, 0ms);
+}
+
+/* 这两块在视图里只渲染一次，直接挂动画即可 */
+.quick-warn {
+  animation: quick-rise 320ms var(--ease-fluent) both;
+}
+
+.quick-gate {
+  animation: quick-rise 340ms var(--ease-fluent) both;
+}
+
+/* 公开页：整张卡浮起，清单里的文件依次出现 */
+.quick-pub {
+  animation: quick-rise 320ms var(--ease-fluent) both;
+}
+
+.quick-items:not([data-done]) > * {
+  animation: quick-rise 280ms var(--ease-fluent) both;
+}
+
+.quick-items > :nth-child(2) {
+  animation-delay: 44ms;
+}
+
+.quick-items > :nth-child(3) {
+  animation-delay: 88ms;
+}
+
+.quick-items > :nth-child(4) {
+  animation-delay: 132ms;
+}
+
+.quick-items > :nth-child(5) {
+  animation-delay: 176ms;
+}
+
+.quick-items > :nth-child(n + 6) {
+  animation-delay: 200ms;
+}
+
+/* 公开页的拖放区：拖进来的那一下用缩放回应，别只是换个边框色 */
+.quick-drop {
+  transition: border-color var(--dur-fast), background var(--dur-fast),
+    transform var(--dur-fast) var(--ease-fluent);
+}
+
+.quick-drop.is-over {
+  transform: scale(1.01);
+}
+
+/* 公开页每传一个文件冒一行，出现时轻轻浮上来 */
+.quick-up {
+  animation: quick-rise 260ms var(--ease-fluent) both;
+}

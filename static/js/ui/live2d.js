@@ -539,9 +539,22 @@ export function initLive2DMascot({ stage, host, bubble, pick, pickLabel, onPoke,
       host.appendChild(sizeTag);
     }
     sizeTag.textContent = `${percent}%`;
+    // 重新触发一下小弹跳：连滚时数字每跳一档都跟着「哒」一下
+    sizeTag.classList.remove("is-tick");
+    void sizeTag.offsetWidth;
+    sizeTag.classList.add("is-tick");
     sizeTag.classList.add("is-on");
     window.clearTimeout(sizeTimer);
     sizeTimer = window.setTimeout(() => sizeTag?.classList.remove("is-on"), 900);
+  }
+
+  /* 滚轮缩放的收尾标记：宽高过渡走完再让画布按最终尺寸重排 */
+  let zoomTimer = 0;
+  function markZooming() {
+    if (!host) return;
+    host.classList.add("is-zooming");
+    window.clearTimeout(zoomTimer);
+    zoomTimer = window.setTimeout(() => host?.classList.remove("is-zooming"), 300);
   }
 
   function onHostWheel(event) {
@@ -558,7 +571,16 @@ export function initLive2DMascot({ stage, host, bubble, pick, pickLabel, onPoke,
       if (!delta) return;
       // 一格滚轮约 100，触控板一次只给几十：折算成 2~8 个百分点
       const step = Math.max(-8, Math.min(8, Math.round(-delta / 14))) || (delta < 0 ? 2 : -2);
-      showSizeTag(setMascotScale(getMascotScale() + step));
+      const current = getMascotScale();
+      const next = Math.max(60, Math.min(180, current + step));
+      // 已经顶到头也把当前值亮一下，让人知道是到边界了而不是没反应
+      if (next === current) {
+        showSizeTag(current);
+        return;
+      }
+      // 只改目标值，宽高的动效交给 CSS 过渡；连滚时它会从当前位置继续追
+      markZooming();
+      showSizeTag(setMascotScale(next));
     });
   }
 
@@ -591,9 +613,21 @@ export function initLive2DMascot({ stage, host, bubble, pick, pickLabel, onPoke,
     refresh();
   }
 
+  let fitRaf = 0;
+  let fitTimer = 0;
+
   const onResize = () => {
     applyOffset();
-    fit();
+    // 宽高带过渡动画：缩放过程中先别按中间尺寸反复重排画布，
+    // 等滚轮停下、过渡走完再按最终大小对齐一次（默认 220ms 过渡，留点余量）。
+    if (!host?.classList.contains("is-zooming") && !fitRaf) {
+      fitRaf = window.requestAnimationFrame(() => {
+        fitRaf = 0;
+        fit();
+      });
+    }
+    window.clearTimeout(fitTimer);
+    fitTimer = window.setTimeout(fit, 280);
   };
 
   pick?.addEventListener("click", () => {

@@ -460,6 +460,9 @@ function renderDrop(data) {
         </div>`
       )
       .join("");
+    // 只让刚传完的那一条弹一下，已经在列表里的不重播
+    const last = doneBox.lastElementChild;
+    if (last) last.classList.add("quick-pop");
   }
 
   function makeRow(upload) {
