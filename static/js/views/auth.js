@@ -204,7 +204,6 @@ const template = () => H`
       </form>
 
       <div class="auth-foot">
-        <span data-version>CloudNETP</span>
         <a class="auth-foot__link" href="/pickup">
           <svg class="icon"><use href="#i-bolt"/></svg>
           <span>${t("有取件码？去取件")}</span>
@@ -227,7 +226,6 @@ export function renderAuth(root, { meta = {}, onSuccess }) {
   const thumb = el("[data-thumb]");
   const titleEl = el("[data-title]");
   const subEl = el("[data-sub]");
-  const versionEl = el("[data-version]");
   const announceEl = el("[data-auth-announce]");
   const accountLabel = el("[data-account-label]");
   const accountInput = form.querySelector('[name="account"]');
@@ -265,7 +263,6 @@ export function renderAuth(root, { meta = {}, onSuccess }) {
     });
   });
 
-  versionEl.textContent = `${meta.appName || "CloudNETP"} v${meta.version || "0.1.0"}`;
   renderAnnounce(announceEl, meta.announcement, { card: true });
 
   let mode = "login";

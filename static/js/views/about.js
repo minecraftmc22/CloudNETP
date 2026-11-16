@@ -68,6 +68,14 @@ const AUTHOR = {
 
 const CHANGELOG = [
   {
+    version: "0.3.86",
+    title: "登录页不再挂版本号",
+    items: [
+      "去掉登录卡片页脚那行「CloudNETP vX.X.X」，页脚只留「有取件码？去取件」",
+      "顺手把这个链接的图标与上方输入框对齐（之前被自身内边距顶进去 6px）；版本号在「关于」页和标题栏都还能看到",
+    ],
+  },
+  {
     version: "0.3.85",
     title: "看板娘不会被压扁了",
     items: [
