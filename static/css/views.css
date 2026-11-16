@@ -1108,6 +1108,10 @@ a.setting-row--link:hover .setting-row__chevron {
 .mascot.is-dragging {
   cursor: grabbing;
 }
+/* 切模型时用：先关掉宽高过渡量完尺寸，再放开，避免画布被中间尺寸拉扁 */
+.mascot.no-size-anim {
+  transition: none;
+}
 .mascot.is-hidden {
   opacity: 0;
   transform: translateY(24px) scale(0.94);

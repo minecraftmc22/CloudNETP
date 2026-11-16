@@ -249,10 +249,15 @@ export function initLive2DMascot({ stage, host, bubble, pick, pickLabel, onPoke,
       state.model = model;
       state.current = entry;
       writeSaved(entry.id);
+      // 云朵宽 158、Live2D 宽 232：切过去时先关掉宽高过渡再量，
+      // 否则 clientWidth 还是过渡起点的窄尺寸，画布会被 CSS 拉扁
+      host?.classList.add("no-size-anim");
       host?.classList.add("is-live");
+      void stage.offsetWidth;
       if (pickLabel) pickLabel.textContent = entry.name;
       state.trim = measureTrim(model, app);
       fit();
+      host?.classList.remove("no-size-anim");
       Promise.resolve(model.motion?.("Idle")).catch(() => {});
     } catch (err) {
       console.warn("[live2d] 模型加载失败", entry.url, err?.message || err);
@@ -615,6 +620,7 @@ export function initLive2DMascot({ stage, host, bubble, pick, pickLabel, onPoke,
 
   let fitRaf = 0;
   let fitTimer = 0;
+  let shapeRaf = 0;
 
   const onResize = () => {
     applyOffset();
@@ -632,6 +638,18 @@ export function initLive2DMascot({ stage, host, bubble, pick, pickLabel, onPoke,
 
   pick?.addEventListener("click", () => {
     next();
+  });
+
+  // 宽高过渡结束（滚轮缩放、切模型、窗口尺寸变化）时按最终尺寸再对齐一次：
+  // 画布 backing 停在旧尺寸就会被 CSS 拉扁，必须补这一刀
+  host?.addEventListener("transitionend", (event) => {
+    if (event.target !== host) return;
+    if (event.propertyName !== "width" && event.propertyName !== "height") return;
+    if (shapeRaf) return;
+    shapeRaf = window.requestAnimationFrame(() => {
+      shapeRaf = 0;
+      fit();
+    });
   });
 
   // 右上角「看板娘」开关只是切 #mascot 的 is-hidden，这里跟着停/开渲染，别白烧 GPU

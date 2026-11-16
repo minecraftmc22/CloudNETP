@@ -257,6 +257,25 @@ def main() -> int:
             )
             check("没有残留的动画 class", left == 0, f"剩余 {left}")
 
+            print("\n[C2] 画布没被 CSS 拉扁（切模型后要按最终尺寸重排）")
+            shape_js = """() => {
+              const c = document.querySelector('#mascot canvas');
+              if (!c) return null;
+              const r = c.getBoundingClientRect();
+              return {
+                backing: [c.width, c.height],
+                rect: [r.width, r.height],
+                ratio: (c.width / c.height) / (r.width / r.height),
+              };
+            }"""
+            shape0 = page.evaluate(shape_js)
+            check("取到画布", bool(shape0), str(shape0))
+            check(
+                "开局画布宽高比与盒子一致",
+                bool(shape0) and abs(shape0["ratio"] - 1) < 0.02,
+                str(shape0 and [shape0["backing"], [round(v, 1) for v in shape0["rect"]], round(shape0["ratio"], 3)]),
+            )
+
             print("\n[D] 看板娘滚轮缩放是过渡而不是一格一跳")
             page.goto(f"{base}/#/files", wait_until="domcontentloaded")
             page.wait_for_selector("#mascot:not(.is-hidden)", timeout=20000)
@@ -310,6 +329,12 @@ def main() -> int:
             end = page.evaluate("document.querySelector('#mascot').getBoundingClientRect().width")
             check("缩放值确实变大了", scale > 1, f"{scale}")
             check("宽度落到目标尺寸", abs(end - start * scale) <= 1.6, f"{start:.1f} × {scale} = {start * scale:.1f} vs {end:.1f}")
+            shape1 = page.evaluate(shape_js)
+            check(
+                "缩放后画布宽高比仍与盒子一致",
+                bool(shape1) and abs(shape1["ratio"] - 1) < 0.02,
+                str(shape1 and [shape1["backing"], [round(v, 1) for v in shape1["rect"]], round(shape1["ratio"], 3)]),
+            )
             check(
                 "停下后清掉 is-zooming",
                 not page.evaluate("document.querySelector('#mascot').classList.contains('is-zooming')"),
