@@ -1333,4 +1333,8 @@ export default {
   "晨海": "Morning sea",
   "琥珀霞": "Amber dusk",
   "极光": "Aurora",
+
+  "正在加载歌词…": "Loading lyrics…",
+  "正在切换歌词…": "Switching lyrics…",
+  "慢点，歌词还在加载中": "Easy there — lyrics are still loading",
 };

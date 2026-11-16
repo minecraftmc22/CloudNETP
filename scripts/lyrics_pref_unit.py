@@ -89,5 +89,8 @@ tmp.unlink(missing_ok=True)
 tmp4.unlink(missing_ok=True)
 
 print()
-print("FAILED:", failures if failures else "无")
-sys.exit(1 if failures else 0)
+if failures:
+    print("FAILED:", failures)
+    sys.exit(1)
+print("全部通过")
+sys.exit(0)

@@ -386,6 +386,41 @@
   font-size: 14px;
   color: rgba(255, 255, 255, 0.6);
 }
+/* 切换歌词时的加载态：盖在歌词区上，播放条仍可操作。
+   z-index 要比设置面板（6）高，否则「正在切换」被面板挡住看不见；
+   pointer-events: none 是有意的 —— 面板还能点，用户连点才有机会收到「慢点」提示。 */
+.lyr__loading {
+  position: absolute;
+  inset: 0;
+  z-index: 7;
+  pointer-events: none;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.82);
+  background: color-mix(in srgb, #120d1d 30%, transparent);
+  animation: lyr-fade 160ms var(--ease-standard);
+}
+.lyr__loading[hidden] {
+  display: none;
+}
+/* 歌词背景是深色，转圈用白色系，别用主题色 */
+.lyr__loading .spinner {
+  width: 22px;
+  height: 22px;
+  border-color: rgba(255, 255, 255, 0.18);
+  border-top-color: rgba(255, 255, 255, 0.86);
+}
+@keyframes lyr-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
 /* 封面视图（无歌词或手动切换） */
 .lyr__artview {
   position: absolute;
@@ -624,6 +659,23 @@
   margin: 0;
   font-size: 12px;
   color: var(--text-2);
+}
+/* 切换歌词中：面板里的常驻提示带一个小转圈 */
+.lyr__panel-status.is-busy {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--accent);
+}
+.lyr__panel-status.is-busy::before {
+  content: "";
+  width: 11px;
+  height: 11px;
+  flex: none;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--accent) 26%, transparent);
+  border-top-color: var(--accent);
+  animation: spin 720ms linear infinite;
 }
 .lyr__srcpane {
   display: flex;

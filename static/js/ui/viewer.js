@@ -7,6 +7,7 @@ import { api, escapeHtml, formatBytes } from "../api.js";
 import { H, t } from "../i18n.js";
 import { store } from "../store.js";
 import { renderMarkdown } from "./markdown.js";
+import { Toast } from "./toast.js";
 import { mountOffice, OFFICE_KINDS } from "./office.js";
 import {
   buildVideoPlugins,
@@ -744,40 +745,56 @@ export function openViewer(item, { onDownload } = {}) {
         artDueEmpty = true;
       }
     };
-    const loadLyrics = async () => {
-      lines = [];
-      activeSet = new Set();
-      listEl.innerHTML = "";
-      emptyEl.hidden = true;
-      root.classList.remove("is-static");
-      if (artDueEmpty) {
-        root.classList.remove("is-art");
-        artDueEmpty = false;
-      }
-      let data;
-      try {
-        data = await api.get(`/api/nodes/${node.id}/lyrics`);
-      } catch (err) {
-        if (!document.contains(root)) return;
-        showEmpty(err?.message || "歌词加载失败");
-        return;
-      }
-      if (!document.contains(root)) return;
-      if (!data.lines || !data.lines.length) {
-        showEmpty(data.error || "这首歌没有歌词");
-        return;
-      }
-      if (data.unsynced) root.classList.add("is-static"); // 纯文本歌词：不高亮不跟随
-      renderLines(data);
 
-      // 来源标签：内嵌 / 自定义 / 网易云·逐字 / 网易云·逐行 / 歌词库
-      let badge = "";
-      if (data.source === "embedded") badge = t("内嵌歌词");
-      else if (data.source === "custom") badge = t("自定义歌词");
-      else if (data.provider === "netease") {
-        badge = `${t("网易云")} · ${data.granularity === "word" ? t("逐字") : t("逐行")}`;
-      } else if (data.provider === "lyriclib") badge = t("歌词库");
-      metaEl.textContent = badge ? `${metaBase} · ${badge}` : metaBase;
+    /* --- 切换歌词时的局部加载态：盖在歌词区上，不影响播放条 --- */
+    const loadingEl = root.querySelector("[data-lyr-loading]");
+    const loadingTextEl = root.querySelector("[data-lyr-loading-text]");
+    const setLyricLoading = (on, text) => {
+      if (!loadingEl) return;
+      if (text && loadingTextEl) loadingTextEl.textContent = text;
+      loadingEl.hidden = !on;
+    };
+
+    const loadLyrics = async ({ loading = false } = {}) => {
+      if (loading) setLyricLoading(true, t("正在加载歌词…"));
+      try {
+        lines = [];
+        activeSet = new Set();
+        listEl.innerHTML = "";
+        emptyEl.hidden = true;
+        root.classList.remove("is-static");
+        if (artDueEmpty) {
+          root.classList.remove("is-art");
+          artDueEmpty = false;
+        }
+        let data;
+        try {
+          data = await api.get(`/api/nodes/${node.id}/lyrics`);
+        } catch (err) {
+          if (!document.contains(root)) return;
+          showEmpty(err?.message || "歌词加载失败");
+          return;
+        }
+        if (!document.contains(root)) return;
+        if (!data.lines || !data.lines.length) {
+          showEmpty(data.error || "这首歌没有歌词");
+          return;
+        }
+        if (data.unsynced) root.classList.add("is-static"); // 纯文本歌词：不高亮不跟随
+        renderLines(data);
+
+        // 来源标签：内嵌 / 自定义 / 网易云·逐字 / 网易云·逐行 / 歌词库
+        let badge = "";
+        if (data.source === "embedded") badge = t("内嵌歌词");
+        else if (data.source === "custom") badge = t("自定义歌词");
+        else if (data.provider === "netease") {
+          badge = `${t("网易云")} · ${data.granularity === "word" ? t("逐字") : t("逐行")}`;
+        } else if (data.provider === "lyriclib") badge = t("歌词库");
+        metaEl.textContent = badge ? `${metaBase} · ${badge}` : metaBase;
+      } finally {
+        // 成功、没歌词、请求失败都要收掉，别让转圈一直挂着
+        if (loading) setLyricLoading(false);
+      }
     };
 
     /* --- 歌词设置面板：来源（每首歌） + 样式（跟随账号） --- */
@@ -979,18 +996,44 @@ export function openViewer(item, { onDownload } = {}) {
       Object.entries(panes).forEach(([key, el]) => (el.hidden = key !== mode));
       segHintEl.textContent = hintFor(mode);
     };
-    const status = (msg) => {
+    // sticky = 不自动消失，由调用方手动收起（加载中提示用）；busy 会带一个小转圈
+    let statusTimer = 0;
+    const status = (msg, { sticky = false, busy = false } = {}) => {
       statusEl.textContent = msg;
       statusEl.hidden = false;
-      window.setTimeout(() => (statusEl.hidden = true), 2400);
+      statusEl.classList.toggle("is-busy", busy);
+      window.clearTimeout(statusTimer);
+      if (!sticky) statusTimer = window.setTimeout(() => (statusEl.hidden = true), 2400);
     };
+    const clearStatus = () => {
+      window.clearTimeout(statusTimer);
+      statusEl.hidden = true;
+      statusEl.classList.remove("is-busy");
+    };
+
+    // 切换歌词：同一时间只跑一个请求；用户连点就提醒，而不是排队打接口。
+    // 面板开着时提示放面板里（不盖住内容），收起后再在歌词区转圈。
+    let lyricBusy = false;
     const applyPref = async (body) => {
+      if (lyricBusy) {
+        Toast.warn(t("慢点，歌词还在加载中"));
+        return;
+      }
+      lyricBusy = true;
+      if (panel.hidden) setLyricLoading(true, t("正在切换歌词…"));
+      else status(t("正在切换歌词…"), { sticky: true, busy: true });
       try {
         await api.put(`/api/nodes/${node.id}/lyrics-pref`, body);
         closePanel();
-        loadLyrics();
+        setLyricLoading(true, t("正在切换歌词…"));
+        await loadLyrics();
+        clearStatus();
       } catch (err) {
+        setLyricLoading(false);
         status(err?.message || "保存失败");
+      } finally {
+        lyricBusy = false;
+        setLyricLoading(false);
       }
     };
 
@@ -1185,6 +1228,10 @@ export function openViewer(item, { onDownload } = {}) {
             </div>
           </div>
           <div class="lyr__empty" data-lyr-empty hidden></div>
+          <div class="lyr__loading" data-lyr-loading hidden>
+            <span class="spinner"></span>
+            <span data-lyr-loading-text>${t("正在加载歌词…")}</span>
+          </div>
         </div>
         <div class="lyr__bar">
           <button class="lyr__toggle" type="button" data-lyr-toggle title="播放 / 暂停（空格）">
