@@ -211,6 +211,8 @@ def register(
         email_verified=False,
         dav_ha1=da.ha1(username, payload.password),
         role=1 if is_first else 0,
+        # 第一次注册的账号就是超级管理员：只有超管能调整成员角色
+        is_super=is_first,
         quota_bytes=settings_store.get_int(db, "default_quota_bytes") or settings.default_quota_bytes,
         token_version=1,
         created_at=utcnow(),

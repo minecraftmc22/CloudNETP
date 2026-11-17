@@ -360,6 +360,8 @@ class AdminUserPatchIn(CamelModel):
     quota_bytes: int | None = Field(default=None, ge=0, le=1024**5)
     banned: bool | None = None
     role: Literal[0, 1] | None = None
+    # 超管标记：只有超级管理员能改；设为 true 时同时升为管理员
+    is_super: bool | None = None
 
 
 class AdminSettingsIn(CamelModel):

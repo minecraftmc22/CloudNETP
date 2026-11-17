@@ -299,6 +299,24 @@
   font-size: 11.5px;
   color: var(--text-3);
 }
+/* 普通管理员的只读提示：成员角色归超管管 */
+.admin-notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-s);
+  background: var(--fill-hover);
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.admin-notice .icon {
+  flex: none;
+  color: var(--text-3);
+}
 .admin-chips {
   display: flex;
   gap: 6px;
@@ -475,6 +493,13 @@
   color: var(--warn);
   background: var(--warn-soft);
   border-color: color-mix(in srgb, var(--warn) 24%, transparent);
+}
+
+/* 超级管理员：跟主题色走，和管理员的绿色区分开 */
+.admin-badge.is-super {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 32%, transparent);
 }
 
 /* ---------------- 分页 ---------------- */

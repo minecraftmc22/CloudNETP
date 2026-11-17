@@ -317,7 +317,7 @@ export function renderAuth(root, { meta = {}, onSuccess }) {
     accountInput.autocomplete = next === "login" ? "username" : "username";
     titleEl.textContent = next === "login" ? t("欢迎回来") : t("创建你的空间");
     subEl.textContent =
-      next === "login" ? t("登录后继续管理你的文件") : t("首个注册账号会自动成为管理员");
+      next === "login" ? t("登录后继续管理你的文件") : t("首个注册账号会自动成为超级管理员");
     submit.querySelector("span").textContent = next === "login" ? t("登录") : t("注册并进入");
     passwordInput.autocomplete = next === "login" ? "current-password" : "new-password";
     strengthBox.hidden = next !== "register";

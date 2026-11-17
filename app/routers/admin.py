@@ -127,6 +127,17 @@ def patch_user(
     if payload.banned is not None and bool(target.banned) != payload.banned:
         if target.id == me.id:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "不能封禁自己")
+        if payload.banned and target.is_super:
+            # 封超管等于绕过「超管不能降级超管」的限制，一律先取消超管身份
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST, "不能封禁超级管理员，请先取消其超级管理员身份"
+            )
+        if target.role == 1 and not me.is_super:
+            # 管理员成员归超管管：否则两个管理员可以互相封号 / 悄悄解封
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                "只有超级管理员能封禁或解封管理员",
+            )
         if payload.banned and target.role == 1 and admin.admin_count(db) <= 1:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "至少需要保留一名可用管理员")
         target.banned = payload.banned
@@ -141,9 +152,16 @@ def patch_user(
         )
         changed.append("banned")
 
+    # 角色与超管标记都属于「成员权限」，只有超管能动（普通管理员只能看）
     if payload.role is not None and int(target.role) != payload.role:
+        if not me.is_super:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "只有超级管理员能调整成员角色")
         if target.id == me.id:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "不能修改自己的角色")
+        if target.is_super:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST, "不能直接把超级管理员降为普通用户，请先取消其超管身份"
+            )
         if target.role == 1 and admin.admin_count(db) <= 1:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "至少需要保留一名管理员")
         target.role = payload.role
@@ -155,6 +173,35 @@ def patch_user(
             request,
         )
         changed.append("role")
+
+    if payload.is_super is not None and bool(target.is_super) != payload.is_super:
+        if not me.is_super:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "只有超级管理员能调整成员角色")
+        if target.id == me.id:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST, "不能取消自己的超级管理员身份"
+            )
+        if payload.is_super:
+            if target.banned:
+                raise HTTPException(
+                    status.HTTP_400_BAD_REQUEST, "这个账号已被封禁，先解封再设为超管"
+                )
+            target.is_super = True
+            target.role = 1  # 超管必然同时是管理员
+        else:
+            if admin.super_count(db, exclude_id=target.id) <= 0:
+                raise HTTPException(
+                    status.HTTP_400_BAD_REQUEST, "至少需要保留一名超级管理员"
+                )
+            target.is_super = False  # 退回普通管理员，不连管理员一起取消
+        log_action(
+            db,
+            "admin_user_super",
+            me.id,
+            {"target": target.username, "isSuper": payload.is_super},
+            request,
+        )
+        changed.append("super")
 
     if not changed:
         return {"user": admin.user_row(db, target)}
@@ -170,6 +217,16 @@ def reset_password(
     """重置为一次性随机密码：只在这里明文返回一次，库里仍只存哈希。"""
     check_origin(request)
     target = _load_user(db, user_id)
+    if target.is_super and not me.is_super:
+        # 能重置超管密码就等于能接管超管账号，普通管理员不行
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, "只有超级管理员能重置其他超级管理员的密码"
+        )
+    if target.role == 1 and target.id != me.id and not me.is_super:
+        # 同级管理员互相重置密码同样是接管，归超管处理
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, "只有超级管理员能重置其他管理员的密码"
+        )
     temp = _temp_password()
     target.password_hash = hash_password(temp)
     target.dav_ha1 = da.ha1(target.username, temp)  # WebDAV 用 Digest，得同步
@@ -185,6 +242,14 @@ def delete_user(user_id: int, request: Request, db: DbSession, me: AdminUser) ->
     target = _load_user(db, user_id)
     if target.id == me.id:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "不能删除自己")
+    if target.is_super:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "不能删除超级管理员，请先取消其超级管理员身份"
+        )
+    if target.role == 1 and not me.is_super:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, "只有超级管理员能删除管理员"
+        )
     if target.role == 1 and admin.admin_count(db) <= 1:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "至少需要保留一名管理员")
 

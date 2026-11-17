@@ -29,7 +29,15 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
 
 
 def require_admin(user: User = Depends(get_current_user)) -> User:
-    if user.role != 1:
+    # is_super 也算管理员：数据库里把 is_super 打开就能用，不必同时手改 role
+    if user.role != 1 and not user.is_super:
         # 用 404 而非 403，不暴露管理端点是否存在
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not Found")
+    return user
+
+
+def require_super(user: User = Depends(require_admin)) -> User:
+    """超级管理员：能调整成员角色。普通管理员走到这里一律 403。"""
+    if not user.is_super:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "只有超级管理员能调整成员角色")
     return user

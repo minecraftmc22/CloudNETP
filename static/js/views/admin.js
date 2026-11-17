@@ -781,6 +781,14 @@ export function renderAdmin(root) {
         <div class="grow"></div>
         <span class="admin-count" data-count></span>
       </div>
+      ${
+        store.get().user?.isSuper
+          ? ""
+          : H`<div class="admin-notice">
+              <svg class="icon icon--s"><use href="#i-lock"/></svg>
+              <span>${t("成员角色只有超级管理员能调整；你可以查看成员、调整配额与密码、封禁账号。")}</span>
+            </div>`
+      }
       <div data-table>${loading()}</div>
       <div class="admin-pager" data-pager></div>`;
 
@@ -881,7 +889,12 @@ export function renderAdmin(root) {
 
   function userRowHtml(user) {
     const pct = percent(user.usedBytes, user.quotaBytes || 1);
-    const roleChip = user.role === 1 ? H`<span class="admin-badge is-ok">管理员</span>` : "";
+    // 超管同时是管理员，所以先判超管，别让两个徽章叠在一起
+    const roleChip = user.isSuper
+      ? H`<span class="admin-badge is-super">${t("超级管理员")}</span>`
+      : user.role === 1
+        ? H`<span class="admin-badge is-ok">管理员</span>`
+        : "";
     const status = user.banned
       ? H`<span class="admin-badge is-banned">已封禁</span>`
       : H`<span class="admin-badge is-ok">正常</span>`;
@@ -922,43 +935,74 @@ export function renderAdmin(root) {
   }
 
   function openUserMenu(anchor, user, reload) {
-    const self = store.get().user?.id === user.id;
+    const me = store.get().user || {};
+    const self = me.id === user.id;
+    const meSuper = Boolean(me.isSuper);
+    const targetSuper = Boolean(user.isSuper);
+    // 管理员成员归超管管：普通管理员连同级管理员的密码 / 封禁 / 删除都碰不到
+    const lockedMember = user.role === 1 && !meSuper;
+    const roleName = targetSuper ? "超级管理员" : user.role === 1 ? "管理员" : "普通用户";
+
+    const items = [
+      { label: "查看审计日志", icon: "i-clock", onClick: () => openUserLogs(user) },
+      { label: "调整配额", icon: "i-cloud", onClick: () => changeQuota(user, reload) },
+      {
+        label: "重置密码",
+        icon: "i-key",
+        // 能重置超管密码就等于能接管超管账号，普通管理员不给这个入口
+        disabled: lockedMember,
+        onClick: () => resetPassword(user),
+      },
+      { sep: true },
+    ];
+
+    if (meSuper) {
+      items.push({
+        label: targetSuper ? "取消超级管理员" : "设为超级管理员",
+        icon: "i-star",
+        disabled: self,
+        onClick: () => setSuper(user, !targetSuper, reload),
+      });
+      // 超管要退回普通用户，得先取消超管身份，这里就不显示「取消管理员」免得绕晕
+      if (!targetSuper) {
+        items.push({
+          label: user.role === 1 ? "取消管理员" : "设为管理员",
+          icon: "i-shield",
+          disabled: self,
+          onClick: () => setRole(user, reload),
+        });
+      }
+    } else {
+      items.push({ label: "成员角色由超级管理员管理", icon: "i-lock", disabled: true });
+    }
+
+    items.push(
+      { sep: true },
+      {
+        label: user.banned ? "解封账号" : "封禁账号",
+        icon: "i-alert",
+        danger: !user.banned,
+        disabled: self || targetSuper || lockedMember,
+        onClick: () => setBanned(user, reload),
+      },
+      { sep: true },
+      {
+        label: "删除用户",
+        icon: "i-trash",
+        danger: true,
+        disabled: self || targetSuper || lockedMember,
+        onClick: () => deleteUser(user, reload),
+      }
+    );
+
     openMenu({
       anchor,
       align: "end",
       header: {
         name: user.displayName || user.username,
-        meta: H`@${user.username} · #${user.id} · ${t(user.role === 1 ? "管理员" : "普通用户")} · ${formatBytes(
-          user.usedBytes
-        )}`,
+        meta: H`@${user.username} · #${user.id} · ${t(roleName)} · ${formatBytes(user.usedBytes)}`,
       },
-      items: [
-        { label: "查看审计日志", icon: "i-clock", onClick: () => openUserLogs(user) },
-        { label: "调整配额", icon: "i-cloud", onClick: () => changeQuota(user, reload) },
-        { label: "重置密码", icon: "i-key", onClick: () => resetPassword(user) },
-        { sep: true },
-        {
-          label: user.role === 1 ? "取消管理员" : "设为管理员",
-          icon: "i-shield",
-          disabled: self,
-          onClick: () => setRole(user, reload),
-        },
-        {
-          label: user.banned ? "解封账号" : "封禁账号",
-          icon: "i-alert",
-          danger: !user.banned,
-          disabled: self,
-          onClick: () => setBanned(user, reload),
-        },
-        { sep: true },
-        {
-          label: "删除用户",
-          icon: "i-trash",
-          danger: true,
-          disabled: self,
-          onClick: () => deleteUser(user, reload),
-        },
-      ],
+      items,
     });
   }
 
@@ -1047,6 +1091,29 @@ export function renderAdmin(root) {
     try {
       await api.patch(`/api/admin/users/${user.id}`, { role: next });
       Toast.success(next === 1 ? "已设为管理员" : "已取消管理员");
+      reload();
+    } catch (err) {
+      Toast.error(err.message);
+    }
+  }
+
+  async function setSuper(user, next, reload) {
+    const ok = await Dialog.confirm({
+      title: next ? "设为超级管理员" : "取消超级管理员",
+      message: next
+        ? t("{name} 将成为超级管理员：可以调整其他成员的角色，也能取消别人的超管身份。", {
+            name: `<b>${escapeHtml(user.username)}</b>`,
+          })
+        : t("{name} 将退回普通管理员：仍能进管理后台看用户和日志，但不能再增减管理员。", {
+            name: `<b>${escapeHtml(user.username)}</b>`,
+          }),
+      confirmText: next ? "设为超管" : "取消超管",
+      danger: !next,
+    });
+    if (!ok) return;
+    try {
+      await api.patch(`/api/admin/users/${user.id}`, { isSuper: next });
+      Toast.success(next ? "已设为超级管理员" : "已取消超级管理员");
       reload();
     } catch (err) {
       Toast.error(err.message);

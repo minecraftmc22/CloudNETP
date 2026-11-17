@@ -152,7 +152,9 @@ function showAuth() {
       if (firstAdmin) {
         Dialog.alert({
           title: t("你是第一位用户"),
-          message: t("该账号已自动获得<strong>管理员</strong>权限，可以进入「管理后台」调整配额与系统设置。"),
+          message: t(
+            "该账号已自动成为<strong>超级管理员</strong>：可以进入「管理后台」调整成员角色、配额与系统设置；普通管理员只能查看成员，不能增减管理员。"
+          ),
         });
       } else {
         Toast.success(`欢迎回来，${user.username}`);

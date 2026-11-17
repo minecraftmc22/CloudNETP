@@ -48,6 +48,9 @@ class User(Base):
     # 只在注册 / 改密 / 登录时写入，老账号为 NULL 时需先登录一次补齐
     dav_ha1: Mapped[str | None] = mapped_column(String(32), nullable=True)
     role: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=0)  # 0 普通 1 管理员
+    # 超级管理员：第一个注册的账号自动获得，可在数据库里给多个账号打开。
+    # 只有超管能调整成员角色；超管一定同时是管理员（role=1）。
+    is_super: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     quota_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False, default=10 * 1024**3)
     used_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     banned: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

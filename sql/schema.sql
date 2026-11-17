@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS users (
   avatar        VARCHAR(64)  NULL COMMENT '头像文件名，文件在 storage/avatars/',
   dav_ha1       VARCHAR(32)  NULL COMMENT 'WebDAV Digest 用的 MD5(user:realm:password)',
   role          TINYINT      NOT NULL DEFAULT 0 COMMENT '0 普通 1 管理员',
+  is_super      TINYINT(1)   NOT NULL DEFAULT 0 COMMENT '超级管理员：只有超管能调整成员角色',
   quota_bytes   BIGINT       NOT NULL DEFAULT 10737418240 COMMENT '默认 10 GiB',
   used_bytes    BIGINT       NOT NULL DEFAULT 0 COMMENT '冗余累加，配额判断 O(1)',
   banned        TINYINT(1)   NOT NULL DEFAULT 0,

@@ -250,6 +250,7 @@ def list_users(
                 "displayName": user.display_name or user.username,
                 "avatarUrl": f"/api/avatar/{user.avatar}" if user.avatar else None,
                 "role": user.role,
+                "isSuper": bool(user.is_super),
                 "quotaBytes": int(user.quota_bytes),
                 "usedBytes": int(user.used_bytes),
                 "liveBytes": stat.get("liveBytes", 0),
@@ -300,6 +301,7 @@ def user_row(db: Session, user: User) -> dict:
         "displayName": user.display_name or user.username,
         "avatarUrl": f"/api/avatar/{user.avatar}" if user.avatar else None,
         "role": user.role,
+        "isSuper": bool(user.is_super),
         "quotaBytes": int(user.quota_bytes),
         "usedBytes": int(user.used_bytes),
         "liveBytes": int(user.used_bytes),
@@ -351,12 +353,25 @@ def settings_payload(db: Session) -> dict:
 
 
 def admin_count(db: Session) -> int:
+    """可用管理员数量（含超管）。"""
     return int(
         db.scalar(
-            select(func.count()).select_from(User).where(User.role == 1, User.banned.is_(False))
+            select(func.count())
+            .select_from(User)
+            .where(User.role == 1, User.banned.is_(False))
         )
         or 0
     )
+
+
+def super_count(db: Session, *, exclude_id: int | None = None) -> int:
+    """可用超管数量；`exclude_id` 用来判断「取消这个人之后还有没有超管」。"""
+    stmt = select(func.count()).select_from(User).where(
+        User.role == 1, User.is_super.is_(True), User.banned.is_(False)
+    )
+    if exclude_id is not None:
+        stmt = stmt.where(User.id != exclude_id)
+    return int(db.scalar(stmt) or 0)
 
 
 def purge_user(db: Session, user: User) -> dict:

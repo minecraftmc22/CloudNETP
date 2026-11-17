@@ -6,7 +6,7 @@ import logging
 from collections.abc import Iterator
 from typing import Any
 
-from sqlalchemy import String, create_engine, event, inspect
+from sqlalchemy import String, create_engine, event, inspect, text
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from .config import settings
@@ -121,11 +121,13 @@ def ensure_schema(target_engine: Any) -> None:
             existing = set(inspect(conn).get_table_names())
         if expected <= existing:
             _sync_columns(target_engine)
+            _bootstrap_super_admin(target_engine)
             return
     except Exception:  # 检查失败就走正常 create_all
         pass
     Base.metadata.create_all(bind=target_engine)
     _sync_columns(target_engine)
+    _bootstrap_super_admin(target_engine)
 
 
 def init_db() -> None:
@@ -165,6 +167,8 @@ _COLUMN_PATCHES: dict[str, dict[str, str]] = {
         "dav_ha1": "VARCHAR(32) NULL",
         "email": "VARCHAR(254) NULL",
         "email_verified": "BOOLEAN NOT NULL DEFAULT 0",
+        # 超级管理员：老库补列后默认 0，再由 _bootstrap_super_admin 提第一个管理员
+        "is_super": "BOOLEAN NOT NULL DEFAULT 0",
     },
     "shares": {
         # 合集分享：根节点 id 的 JSON 数组；NULL = 单节点分享
@@ -230,3 +234,34 @@ def _sync_columns(target_engine: Any) -> None:
                     log.info("数据库改列：%s.%s → %s", table, name, ddl)
     except Exception as exc:  # 补列失败不阻断启动，但要在日志里暴露
         log.warning("数据库补列跳过：%s", exc)
+
+
+def _bootstrap_super_admin(target_engine: Any) -> None:
+    """保证库里至少有一个超管，否则后台没人能调整成员角色。
+
+    全新库的第一次注册会直接把首个账号建成超管（见 auth.register），
+    这里服务的是**已经跑起来的老实例**：升级后 is_super 全是默认 0，
+    于是把「最早注册的管理员」提成超管——这正是当初的首个账号。
+    没有任何管理员时退而取 id 最小的账号，避免彻底锁死。
+    """
+    log = logging.getLogger("uvicorn.error")
+    try:
+        with target_engine.begin() as tx:
+            # 有人直接在库里把 is_super 打开时，顺手把 role 补齐，避免两边打架
+            tx.execute(text("UPDATE users SET role = 1 WHERE is_super = 1 AND role <> 1"))
+            if tx.exec_driver_sql("SELECT COUNT(*) FROM users WHERE is_super = 1").scalar():
+                return
+            row = tx.exec_driver_sql(
+                "SELECT id FROM users WHERE role = 1 ORDER BY id ASC LIMIT 1"
+            ).first()
+            if row is None:
+                row = tx.exec_driver_sql("SELECT id FROM users ORDER BY id ASC LIMIT 1").first()
+            if row is None:
+                return
+            tx.execute(
+                text("UPDATE users SET is_super = 1, role = 1 WHERE id = :uid"),
+                {"uid": int(row[0])},
+            )
+            log.info("已把首个账号（id=%s）设为超级管理员", row[0])
+    except Exception as exc:  # 只读库 / 老库没补上列时不阻断启动
+        log.warning("超管引导跳过：%s", exc)
