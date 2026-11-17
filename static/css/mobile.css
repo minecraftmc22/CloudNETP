@@ -532,6 +532,22 @@
   .accent-solid {
     justify-content: flex-start;
   }
+  /* 手机上一行放不下两个取色按钮，让它占满一整行、按钮均分 */
+  .accent-editor__acts {
+    margin-left: 0;
+    width: 100%;
+  }
+  .accent-editor__acts .btn {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+  .accent-hex {
+    width: 100%;
+    max-width: 160px;
+  }
+  .accent-hex--stop {
+    width: 76px;
+  }
   .grad-presets {
     margin-left: 0;
   }

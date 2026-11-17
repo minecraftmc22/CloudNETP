@@ -25,6 +25,7 @@ from ..db import get_db
 from ..deps import get_current_user, require_admin
 from ..models import User
 from ..schemas import (
+    AiAccentIn,
     AiChatIn,
     AiConfigIn,
     AiHistoryIn,
@@ -332,3 +333,51 @@ def generate_memories(
     )
     db.commit()
     return {"memories": memories, "added": added}
+
+
+# --------------------------------------------------------------------------- #
+# AI 取色：看背景壁纸挑主题色（单色 / 渐变）
+# --------------------------------------------------------------------------- #
+@router.post("/accent")
+def pick_accent(
+    payload: AiAccentIn, request: Request, db: DbSession, user: CurrentUser
+) -> dict:
+    """让模型看着用户的背景图挑主题色。
+
+    前端会先自查一遍（有没有背景图、AI 是否可用），这里再校验一次 ——
+    接口是公开的，不能只靠前端拦。
+    """
+    check_origin(request)
+    if not ai_defaults.ai_enabled():
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "管理员已关闭 AI 功能")
+    cfg, source = ai.effective_config(db, user.id)
+    if source == "none" or not (cfg["baseUrl"] and cfg["key"] and cfg["model"]):
+        raise HTTPException(status.HTTP_409_CONFLICT, "还没填写 AI 配置，暂不可用哦~")
+    if not payload.image.strip():
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "没有背景图，取不了色")
+    try:
+        image = ai.normalize_accent_image(payload.image)
+    except ai.AiError as exc:
+        # 图本身有问题算用户的输入错误，别报成「上游挂了」
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, exc.message) from None
+    try:
+        result = ai.suggest_accent(
+            user,
+            cfg,
+            mode=payload.mode,
+            image=image,
+            candidates=payload.candidates,
+            lang=payload.lang,
+        )
+    except ai.AiError as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, exc.message) from None
+    # 走管理员默认接口时账单不归用户，这一笔也记下来
+    log_action(
+        db,
+        "ai_accent_pick",
+        user.id,
+        {"mode": result["mode"], "colors": len(result["colors"]), "from": source},
+        request,
+    )
+    db.commit()
+    return result

@@ -411,3 +411,32 @@ export function dominantColors(source, limit = 3) {
 export function dominantColor(source) {
   return dominantColors(source, 1)[0] || null;
 }
+
+/**
+ * 把图片压成一张小 JPEG 的 data URL（给 AI 看图用，省 token）。
+ * 长边不超过 maxSide；透明区域铺白，否则模型会把透明当成纯黑。
+ * source: ImageBitmap / HTMLImageElement / HTMLCanvasElement
+ */
+export function snapshotDataUrl(source, maxSide = 768, quality = 0.82) {
+  const width = source.width || source.naturalWidth || 0;
+  const height = source.height || source.naturalHeight || 0;
+  if (!width || !height) return "";
+  const k = Math.min(1, maxSide / Math.max(width, height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(width * k));
+  canvas.height = Math.max(1, Math.round(height * k));
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return "";
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  try {
+    ctx.drawImage(source, 0, 0, canvas.width, canvas.height);
+  } catch {
+    return ""; // 跨域图不能画
+  }
+  try {
+    return canvas.toDataURL("image/jpeg", quality);
+  } catch {
+    return "";
+  }
+}

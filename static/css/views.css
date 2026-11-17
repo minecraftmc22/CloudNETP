@@ -766,9 +766,24 @@ a.setting-row--link:hover .setting-row__chevron {
   flex-wrap: wrap;
   justify-content: space-between;
 }
+.accent-editor__acts {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
 .accent-editor__pick {
   gap: 5px;
   white-space: nowrap;
+}
+/* AI 取色：图标点一点主题色，和「从背景取色」区分开 */
+.accent-editor__pick--ai .icon {
+  color: var(--accent);
+}
+.accent-editor__pick.is-busy {
+  cursor: progress;
+  opacity: 0.7;
 }
 .accent-editor__pick:disabled {
   opacity: 0.45;
@@ -799,7 +814,31 @@ a.setting-row--link:hover .setting-row__chevron {
 }
 .accent-solid {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+/* 手输色值：和取色器并排，方便直接粘贴 #rrggbb */
+.accent-hex {
+  width: 92px;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: var(--radius-s);
+  border: 1px solid var(--stroke-hair);
+  background: var(--fill-subtle);
+  color: var(--text-1);
+  font: inherit;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.accent-hex:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--stroke-hair));
+  background: var(--dialog-surface);
+}
+.accent-hex.is-bad {
+  border-color: var(--danger);
 }
 .accent-gradient {
   display: flex;
@@ -808,24 +847,32 @@ a.setting-row--link:hover .setting-row__chevron {
 }
 .accent-stops {
   display: flex;
-  gap: 10px;
+  gap: 8px;
   flex-wrap: wrap;
   align-items: center;
+  justify-content: flex-start;
 }
+/* 每一档：色块（点开取色器）+ 手输色值 + 删除 */
 .accent-stop {
-  position: relative;
-  width: 34px;
-  height: 34px;
-}
-.accent-stop::before {
-  content: "";
-  position: absolute;
-  inset: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px;
   border-radius: var(--radius-s);
-  background: var(--stop, var(--accent));
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35), var(--shadow-1);
+  border: 1px solid var(--stroke-hair);
+  background: var(--fill-subtle);
 }
-.accent-stop input[type="color"] {
+.accent-stop__chip {
+  position: relative;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-xs);
+  overflow: hidden;
+  background: var(--stop, var(--accent));
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35);
+}
+.accent-stop__chip input[type="color"] {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -835,12 +882,16 @@ a.setting-row--link:hover .setting-row__chevron {
   opacity: 0;
   cursor: pointer;
 }
+.accent-hex--stop {
+  width: 82px;
+  height: 24px;
+  padding: 0 6px;
+  background: var(--dialog-surface);
+}
 .accent-stop__del {
-  position: absolute;
-  top: -6px;
-  right: -6px;
-  width: 16px;
-  height: 16px;
+  flex: none;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
   display: grid;
   place-items: center;

@@ -204,6 +204,18 @@ class AiMemoriesIn(CamelModel):
     memories: list[AiMemoryItemIn] = Field(default_factory=list, max_length=40)
 
 
+class AiAccentIn(CamelModel):
+    """AI 取色：把背景图（前端压过尺寸的 data URL）交给模型挑主题色。
+
+    candidates 是前端本地先提取的几个候选色：模型不支持看图时，靠它也能给出结果。
+    """
+
+    mode: Literal["solid", "gradient"] = "solid"
+    image: str = Field(default="", max_length=6 * 1024 * 1024)
+    candidates: list[str] = Field(default_factory=list, max_length=12)
+    lang: Literal["zh-CN", "en-US"] | None = None
+
+
 # --------------------------------------------------------------------------- #
 # 文件与目录
 # --------------------------------------------------------------------------- #

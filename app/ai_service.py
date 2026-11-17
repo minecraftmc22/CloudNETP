@@ -2061,3 +2061,152 @@ def _stream_anthropic(
                 }
             )
         convo.append({"role": "user", "content": results})
+
+
+# ---------------------------------------------------------------------------
+# AI 取色：看用户的背景壁纸，挑一个主色或一组渐变色
+# ---------------------------------------------------------------------------
+
+ACCENT_MAX_SIDE = 768
+ACCENT_MAX_INPUT_BYTES = 6 * 1024 * 1024
+_HEX_RE = re.compile(r"#[0-9a-fA-F]{6}")
+
+
+def normalize_accent_image(data_url: str) -> str:
+    """把前端递来的背景图压成小图：省 token，也顺手挡掉非位图 / 超大图。
+
+    返回可直接放进 messages.images 的 data URL；不合法就抛 AiError（文案给人看）。
+    """
+    url = (data_url or "").strip()
+    if not url:
+        return ""
+    if len(url) > ACCENT_MAX_INPUT_BYTES:
+        raise AiError("背景图太大了，换一张小一点的试试")
+    parts = _data_url_parts(url)
+    if not parts:
+        raise AiError("背景图格式不认识，换一张 PNG / JPG 试试")
+    _, raw = parts
+    try:
+        blob = base64.b64decode(raw, validate=False)
+        with Image.open(io.BytesIO(blob)) as picture:
+            picture = ImageOps.exif_transpose(picture)
+            if picture.mode not in ("RGB", "L"):
+                # 透明 PNG 铺白底，否则转 RGB 会得到黑块
+                canvas = Image.new("RGB", picture.size, (255, 255, 255))
+                canvas.paste(picture, mask=picture.split()[-1] if picture.mode in ("RGBA", "LA") else None)
+                picture = canvas
+            else:
+                picture = picture.convert("RGB")
+            picture.thumbnail((ACCENT_MAX_SIDE, ACCENT_MAX_SIDE), Image.LANCZOS)
+            buffer = io.BytesIO()
+            picture.save(buffer, "JPEG", quality=82, optimize=True, progressive=True)
+            data = buffer.getvalue()
+    except (OSError, ValueError, Image.DecompressionBombError) as exc:
+        raise AiError("这张背景图读不出来，换一张试试") from None
+    return "data:image/jpeg;base64," + base64.b64encode(data).decode("ascii")
+
+
+def _clean_candidates(candidates: Any) -> list[str]:
+    out: list[str] = []
+    for item in candidates or []:
+        hex_color = str(item or "").strip().lower()
+        if re.fullmatch(r"#[0-9a-f]{6}", hex_color) and hex_color not in out:
+            out.append(hex_color)
+    return out[:8]
+
+
+def _accent_prompt(mode: str, candidates: list[str], has_image: bool, lang: str) -> str:
+    zh = not str(lang or "").lower().startswith("en")
+    gradient = mode == "gradient"
+    if zh:
+        lines = ["你是配色助手，要给一个云盘管理界面挑主题色，这些颜色会用在按钮、开关、选中态和卡片底色上。"]
+        if has_image:
+            lines.append("下面这张就是用户自己设的背景壁纸，请顺着它的整体色调来挑。")
+        if gradient:
+            lines.append("请挑 2–4 个颜色，能顺着一个方向排成渐变：相邻颜色差别别太跳，整体是一个色系的过渡。")
+        else:
+            lines.append("请挑 1 个最有代表性的主色。")
+        lines.append("必须是 #rrggbb 形式的 6 位十六进制；中等偏高饱和度，别接近纯黑或纯白，也别用纯灰。")
+        if candidates:
+            lines.append("这张图里已经被提取出来的候选色有：" + "、".join(candidates) + "，可以从中挑，也可以自己微调。")
+        lines.append('只输出一个 JSON，形如 {"colors": ["#aabbcc", "#ddeeff"]}，不要任何解释。')
+    else:
+        lines = ["You are a color assistant picking an accent palette for a cloud-drive UI (buttons, toggles, selection, card tints)."]
+        if has_image:
+            lines.append("The image below is the user's own wallpaper; follow its overall tones.")
+        if gradient:
+            lines.append("Pick 2–4 colors that read as one smooth gradient — neighbouring shades should not jump.")
+        else:
+            lines.append("Pick the single most representative accent color.")
+        lines.append("Use 6-digit hex like #rrggbb; medium-to-high saturation, not near black/white, no pure grey.")
+        if candidates:
+            lines.append("Colors already sampled from the image: " + ", ".join(candidates) + ". Pick from them or fine-tune.")
+        lines.append('Answer with JSON only, e.g. {"colors": ["#aabbcc", "#ddeeff"]}. No prose.')
+    return "\n".join(f"- {line}" if index else line for index, line in enumerate(lines))
+
+
+def _run_text(cfg: dict, user: Any, messages: list[dict]) -> str:
+    """跑一轮不带工具的对话，把正文拼起来。出错抛 AiError。"""
+    chunks: list[str] = []
+    for event, payload in stream_chat(user, cfg, messages, "", False):
+        if event == "delta":
+            chunks.append(payload.get("text") or "")
+        elif event == "error":
+            raise AiError(payload.get("message") or "调用模型失败")
+        elif event == "done":
+            break
+    return "".join(chunks)
+
+
+def suggest_accent(
+    user: Any,
+    cfg: dict,
+    *,
+    mode: str = "solid",
+    image: str = "",
+    candidates: Any = None,
+    lang: str | None = None,
+) -> dict:
+    """让模型看图挑主题色。返回 ``{"mode": ..., "colors": [...]}``。
+
+    模型不认图片时（有些兼容接口就是这么报错）自动退回「只给候选色」再问一次，
+    不至于让整个功能在非视觉模型上完全用不了。
+    """
+    mode = "gradient" if mode == "gradient" else "solid"
+    picks = _clean_candidates(candidates)
+    run_cfg = dict(cfg)
+    run_cfg.update(tools=False, thinking=False, maxRounds=1, maxOutput=400)
+
+    def ask(with_image: bool) -> list[str]:
+        local = dict(run_cfg)
+        local["vision"] = bool(with_image and cfg.get("vision"))
+        prompt = _accent_prompt(mode, picks, with_image, lang or "")
+        messages = [
+            {
+                "role": "user",
+                "content": prompt,
+                "images": [image] if (with_image and local["vision"]) else [],
+            }
+        ]
+        text = _run_text(local, user, messages)
+        colors: list[str] = []
+        for match in _HEX_RE.findall(text):
+            hex_color = match.lower()
+            if hex_color not in colors:
+                colors.append(hex_color)
+        return colors[:5]
+
+    colors: list[str] = []
+    if image:
+        try:
+            colors = ask(True)
+        except AiError:
+            colors = []
+    if not colors:
+        colors = ask(False)
+    if not colors:
+        raise AiError("模型没挑出能用的颜色，换个模型再试试")
+    if mode == "gradient" and len(colors) < 2:
+        # 只回了一个色也不报错：前端会按同色系补一个相邻色
+        mode = "solid"
+    return {"mode": mode, "colors": colors}

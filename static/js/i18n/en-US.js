@@ -1337,4 +1337,18 @@ export default {
   "正在加载歌词…": "Loading lyrics…",
   "正在切换歌词…": "Switching lyrics…",
   "慢点，歌词还在加载中": "Easy there — lyrics are still loading",
+
+  "AI 取色": "AI pick",
+  "AI 正在挑颜色…": "AI is picking colors…",
+  "还没设置背景图，AI 取色用不了": "Set a wallpaper first — AI picking needs one",
+  "还没填写 AI 配置，暂不可用哦~": "No AI configuration yet — this isn't available",
+  "管理员已关闭 AI 功能": "The administrator has turned AI off",
+  "AI 没挑出可用的颜色，换个模型再试试": "AI didn't return usable colors — try another model",
+  "AI 挑了 {n} 个颜色，不满意可以自己改": "AI picked {n} colors — tweak them if you like",
+  "AI 挑了 {color}，不满意可以自己改": "AI picked {color} — tweak it if you like",
+  "AI 取色失败了，稍后再试": "AI picking failed — try again later",
+  "色值要写成 #rrggbb 这样": "Colors must look like #rrggbb",
+  "自定义颜色，填 #rrggbb": "Custom color, e.g. #rrggbb",
+
+  "背景图读取失败，请重新上传": "Couldn't read the wallpaper — please upload it again",
 };

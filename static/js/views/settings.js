@@ -18,6 +18,7 @@ import {
   dominantColors,
   patchSettingsLocal,
   rememberBackgroundLuma,
+  snapshotDataUrl,
 } from "../theme.js";
 import { getMascotScale, isMascotWheelZoom, setMascotScale, setMascotWheelZoom } from "../ui/live2d.js";
 import { isMascotLocked, setMascotLocked } from "../ui/mascot-actions.js";
@@ -219,10 +220,16 @@ export function renderSettings(root) {
                     <button class="accent-mode__btn ${accentStyle.mode === "gradient" ? "is-active" : ""}"
                             type="button" data-accent-mode-btn="gradient">${t("渐变")}</button>
                   </div>
-                  <button class="btn btn--subtle btn--sm accent-editor__pick" type="button"
-                          data-act="pick-bg" ${s.backgroundImage ? "" : "disabled"}>
-                    <svg class="icon icon--s"><use href="#i-image"/></svg>${t("从背景取色")}
-                  </button>
+                  <div class="accent-editor__acts">
+                    <button class="btn btn--subtle btn--sm accent-editor__pick" type="button"
+                            data-act="pick-bg" ${s.backgroundImage ? "" : "disabled"}>
+                      <svg class="icon icon--s"><use href="#i-image"/></svg>${t("从背景取色")}
+                    </button>
+                    <button class="btn btn--subtle btn--sm accent-editor__pick accent-editor__pick--ai"
+                            type="button" data-act="pick-ai">
+                      <svg class="icon icon--s"><use href="#i-spark"/></svg><span data-ai-pick-label>${t("AI 取色")}</span>
+                    </button>
+                  </div>
                 </div>
                 <div class="accent-solid" data-accent-solid ${accentStyle.mode === "gradient" ? "hidden" : ""}>
                   <div class="swatch-row" data-swatches>
@@ -238,14 +245,21 @@ export function renderSettings(root) {
                       <input type="color" value="${escapeHtml(accent)}" data-color-pick aria-label="${t("自定义主题色")}">
                     </label>
                   </div>
+                  <input class="accent-hex" data-accent-hex maxlength="7" spellcheck="false"
+                         value="${escapeHtml(accent)}" placeholder="#c084fc"
+                         aria-label="${t("自定义颜色，填 #rrggbb")}">
                 </div>
                 <div class="accent-gradient" data-accent-gradient ${accentStyle.mode === "solid" ? "hidden" : ""}>
                   <div class="accent-stops" data-accent-stops>
                     ${gradColors
                       .map(
                         (c, i) => H`<span class="accent-stop" style="--stop:${c}">
-                          <input type="color" value="${c}" data-accent-stop="${i}"
-                                 aria-label="${t("渐变颜色 {n}", { n: i + 1 })}">
+                          <span class="accent-stop__chip">
+                            <input type="color" value="${c}" data-accent-stop="${i}"
+                                   aria-label="${t("渐变颜色 {n}", { n: i + 1 })}">
+                          </span>
+                          <input class="accent-hex accent-hex--stop" value="${c}" data-accent-stop-hex="${i}"
+                                 maxlength="7" spellcheck="false" aria-label="${t("渐变颜色 {n}", { n: i + 1 })}">
                           <button class="accent-stop__del" type="button" data-accent-stop-del="${i}"
                                   title="${t("移除这个颜色")}" aria-label="${t("移除这个颜色")}"
                                   ${gradColors.length <= 2 ? "disabled" : ""}>
@@ -731,10 +745,28 @@ export function renderSettings(root) {
   const pickInput = root.querySelector("[data-color-pick]");
   const pickSwatch = root.querySelector("[data-swatch-pick]");
   const pickFromBg = root.querySelector('[data-act="pick-bg"]');
+  const aiPick = root.querySelector('[data-act="pick-ai"]');
+  const aiPickLabel = root.querySelector("[data-ai-pick-label]");
+  const hexInput = root.querySelector("[data-accent-hex]");
 
   let editColors = [...gradColors];
 
   const currentAccent = () => (store.get().user?.settings?.accentColor || accent).toLowerCase();
+
+  /** 手输色值：容忍少写 #、大小写、以及 #abc 三位缩写；认不出来返回空串 */
+  function normalizeHex(raw) {
+    let hex = String(raw || "").trim().toLowerCase().replace(/\s+/g, "");
+    if (!hex) return "";
+    if (!hex.startsWith("#")) hex = `#${hex}`;
+    if (/^#[0-9a-f]{3}$/.test(hex)) {
+      hex = `#${hex
+        .slice(1)
+        .split("")
+        .map((c) => c + c)
+        .join("")}`;
+    }
+    return /^#[0-9a-f]{6}$/.test(hex) ? hex : "";
+  }
 
   function cleanColors(list) {
     return [
@@ -766,6 +798,7 @@ export function renderSettings(root) {
       pickSwatch.style.background = preset ? "" : hex;
     }
     if (pickInput) pickInput.value = hex;
+    if (hexInput) hexInput.value = hex;
   }
 
   function paintStops() {
@@ -773,8 +806,12 @@ export function renderSettings(root) {
     stopsBox.innerHTML = editColors
       .map(
         (color, index) => H`<span class="accent-stop" style="--stop:${color}">
-          <input type="color" value="${color}" data-accent-stop="${index}"
-                 aria-label="${t("渐变颜色 {n}", { n: index + 1 })}">
+          <span class="accent-stop__chip">
+            <input type="color" value="${color}" data-accent-stop="${index}"
+                   aria-label="${t("渐变颜色 {n}", { n: index + 1 })}">
+          </span>
+          <input class="accent-hex accent-hex--stop" value="${color}" data-accent-stop-hex="${index}"
+                 maxlength="7" spellcheck="false" aria-label="${t("渐变颜色 {n}", { n: index + 1 })}">
           <button class="accent-stop__del" type="button" data-accent-stop-del="${index}"
                   title="${t("移除这个颜色")}" aria-label="${t("移除这个颜色")}"
                   ${editColors.length <= 2 ? "disabled" : ""}>
@@ -842,6 +879,34 @@ export function renderSettings(root) {
   });
   pickInput?.addEventListener("change", () => applyAccent(pickInput.value));
 
+  /* 手输色值（单色）：输入时先预览，回车或失焦才落库 */
+  let hexTimer = 0;
+  hexInput?.addEventListener("input", () => {
+    const hex = normalizeHex(hexInput.value);
+    if (!hex) return;
+    window.clearTimeout(hexTimer);
+    hexTimer = window.setTimeout(() => {
+      markAccent(hex);
+      editColors = [hex];
+      previewSolid(hex);
+    }, 160);
+  });
+  hexInput?.addEventListener("change", () => {
+    const hex = normalizeHex(hexInput.value);
+    window.clearTimeout(hexTimer);
+    if (!hex) {
+      Toast.warn(t("色值要写成 #rrggbb 这样"));
+      hexInput.value = currentAccent();
+      return;
+    }
+    applyAccent(hex);
+  });
+  hexInput?.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    hexInput.blur();
+  });
+
   /* 渐变：颜色块用事件委托，重绘 DOM 也不会丢监听 */
   stopsBox?.addEventListener("input", (event) => {
     const input = event.target.closest("[data-accent-stop]");
@@ -849,7 +914,10 @@ export function renderSettings(root) {
     const index = Number(input.dataset.accentStop);
     if (!Number.isInteger(index) || index < 0 || index >= editColors.length) return;
     editColors[index] = input.value.toLowerCase();
-    input.closest(".accent-stop")?.style.setProperty("--stop", editColors[index]);
+    const stop = input.closest(".accent-stop");
+    stop?.style.setProperty("--stop", editColors[index]);
+    const hexField = stop?.querySelector("[data-accent-stop-hex]");
+    if (hexField) hexField.value = editColors[index];
     patchSettingsLocal({
       accentColor: editColors[0],
       accentStyle: { mode: "gradient", colors: [...editColors] },
@@ -858,6 +926,44 @@ export function renderSettings(root) {
   stopsBox?.addEventListener("change", (event) => {
     if (!event.target.closest("[data-accent-stop]")) return;
     saveAccent("gradient", editColors);
+  });
+
+  /* 手输色值（渐变里的每一档） */
+  stopsBox?.addEventListener("input", (event) => {
+    const field = event.target.closest("[data-accent-stop-hex]");
+    if (!field) return;
+    const index = Number(field.dataset.accentStopHex);
+    const hex = normalizeHex(field.value);
+    if (!Number.isInteger(index) || index < 0 || index >= editColors.length || !hex) return;
+    editColors[index] = hex;
+    const stop = field.closest(".accent-stop");
+    stop?.style.setProperty("--stop", hex);
+    const chip = stop?.querySelector("[data-accent-stop]");
+    if (chip) chip.value = hex;
+    patchSettingsLocal({
+      accentColor: editColors[0],
+      accentStyle: { mode: "gradient", colors: [...editColors] },
+    });
+  });
+  stopsBox?.addEventListener("change", (event) => {
+    const field = event.target.closest("[data-accent-stop-hex]");
+    if (!field) return;
+    const index = Number(field.dataset.accentStopHex);
+    const hex = normalizeHex(field.value);
+    if (!hex) {
+      Toast.warn(t("色值要写成 #rrggbb 这样"));
+      field.value = editColors[index] || "";
+      return;
+    }
+    editColors[index] = hex;
+    field.value = hex;
+    paintStops();
+    saveAccent("gradient", editColors);
+  });
+  stopsBox?.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" || !event.target.closest("[data-accent-stop-hex]")) return;
+    event.preventDefault();
+    event.target.blur();
   });
   stopsBox?.addEventListener("click", (event) => {
     const del = event.target.closest("[data-accent-stop-del]");
@@ -902,6 +1008,68 @@ export function renderSettings(root) {
       pickFromBg.disabled = false;
     }
   });
+
+  /* --- AI 取色：把背景图交给看板娘用的模型，让它挑单色 / 渐变 --- */
+  const accentModeNow = () => (gradPane && !gradPane.hidden ? "gradient" : "solid");
+
+  async function pickAccentByAi() {
+    if (!aiPick || aiPick.disabled) return;
+    const url = store.get().user?.settings?.backgroundImage;
+    if (!url) {
+      // 没图就没得看，先提示，别白跑一次接口
+      Toast.warn(t("还没设置背景图，AI 取色用不了"));
+      return;
+    }
+    aiPick.disabled = true;
+    if (aiPickLabel) aiPickLabel.textContent = t("AI 正在挑颜色…");
+    try {
+      let cfg = null;
+      try {
+        cfg = await api.get("/api/ai/config");
+      } catch {
+        cfg = null;
+      }
+      if (cfg && cfg.aiEnabled === false) {
+        Toast.warn(t("管理员已关闭 AI 功能"));
+        return;
+      }
+      if (!cfg?.ready) {
+        Toast.warn(t("还没填写 AI 配置，暂不可用哦~"));
+        return;
+      }
+      const img = await loadImageUrl(url);
+      const candidates = dominantColors(img, 8);
+      const image = snapshotDataUrl(img, 768, 0.82);
+      if (!image) {
+        Toast.error(t("背景图读取失败，请重新上传"));
+        return;
+      }
+      const result = await api.post("/api/ai/accent", {
+        mode: accentModeNow(),
+        image,
+        candidates,
+        lang: getLang(),
+      });
+      const colors = Array.isArray(result?.colors) ? result.colors : [];
+      if (!colors.length) {
+        Toast.error(t("AI 没挑出可用的颜色，换个模型再试试"));
+        return;
+      }
+      if (result.mode === "gradient" && colors.length >= 2) applyGradient(colors);
+      else applyAccent(colors[0]);
+      Toast.success(
+        colors.length > 1
+          ? t("AI 挑了 {n} 个颜色，不满意可以自己改", { n: colors.length })
+          : t("AI 挑了 {color}，不满意可以自己改", { color: colors[0] })
+      );
+    } catch (err) {
+      Toast.error(err?.message || t("AI 取色失败了，稍后再试"));
+    } finally {
+      aiPick.disabled = false;
+      if (aiPickLabel) aiPickLabel.textContent = t("AI 取色");
+    }
+  }
+  aiPick?.addEventListener("click", pickAccentByAi);
 
   /* --- 壁纸：预设 / 自定义图片 --- */
   const wpButtons = [...root.querySelectorAll("[data-wallpaper]")];
