@@ -482,6 +482,9 @@ if sample_dir and Path(sample_dir).is_dir():
     for path in sorted(Path(sample_dir).iterdir()):
         if path.suffix.lower() not in _EXT_HINTS:
             continue
+        if not media_tags.sniff(path):
+            print(f"  --  {path.name} 文件头不是媒体，跳过（可能是伪装/下载失败的文件）")
+            continue
         try:
             info = media_tags.parse(path)
             check(f"{path.name} 容器", bool(info.container), info.container)

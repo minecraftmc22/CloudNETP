@@ -1037,10 +1037,11 @@ def _parse_mkv(f, info: MediaInfo, file_size: int) -> None:
         raise MediaTagError("没找到 Segment 块")
     seg_end = file_size if seg_unknown else min(pos + seg_at + seg_size, file_size)
 
-    # 顺次扫一级子元素：只整段读 Info / Tracks / Tags，Cluster 直接 seek 跳过
+    # 顺次扫一级子元素：只整段读 Info / Tracks / Tags，Cluster 直接 seek 跳过。
+    # 上限给到 4096 是因为一部长片的 Cluster 动辄上千个，Tags 又常在文件尾部。
     cursor = pos + seg_at
     guard = 0
-    while cursor < seg_end and guard < 512:
+    while cursor < seg_end and guard < 4096:
         guard += 1
         raw = _read_at(f, cursor, 32)
         try:
@@ -1143,8 +1144,8 @@ _EXT_HINTS = {
 }
 
 
-def _sniff_kind(path: Path, head: bytes) -> str:
-    """按文件头判断容器；文件头没特征时退回扩展名。"""
+def _magic_kind(head: bytes) -> str:
+    """只看文件头：扩展名可以随便改，内容不会骗人。"""
     if head[:3] == b"ID3" or (len(head) > 1 and head[0] == 0xFF and (head[1] & 0xE0) == 0xE0):
         return "mp3"
     if head[:4] == b"fLaC":
@@ -1157,7 +1158,22 @@ def _sniff_kind(path: Path, head: bytes) -> str:
         return "mp4"
     if head[:4] == b"\x1a\x45\xdf\xa3":
         return "mkv"
-    return _EXT_HINTS.get(path.suffix.lower(), "")
+    return ""
+
+
+def _sniff_kind(path: Path, head: bytes) -> str:
+    """按文件头判断容器；文件头没特征时退回扩展名。"""
+    return _magic_kind(head) or _EXT_HINTS.get(path.suffix.lower(), "")
+
+
+def sniff(path: Path) -> str:
+    """只按文件头判断，返回容器类型（不认识则为空串）。
+
+    给调用方做「这个文件到底是不是音视频」的初筛用——被改成 .mp3 的网页、
+    下载了一半的错误页，都不该被当成媒体去解析。
+    """
+    with path.open("rb") as f:
+        return _magic_kind(f.read(16))
 
 
 def _parse_own(f, info: MediaInfo, file_size: int, kind: str) -> None:
