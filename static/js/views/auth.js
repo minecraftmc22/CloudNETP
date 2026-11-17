@@ -341,7 +341,7 @@ export function renderAuth(root, { meta = {}, onSuccess, onBanned }) {
     if (regBtn) {
       regBtn.disabled = true;
       regBtn.style.opacity = "0.4";
-      regBtn.title = "站点已关闭注册";
+      regBtn.title = t("站点已关闭注册");
     }
   }
 
@@ -675,7 +675,7 @@ export function renderAuth(root, { meta = {}, onSuccess, onBanned }) {
       // 这里按当前步骤重新写一遍文案，否则会退回「验证并继续」甚至「下一步」
       const labelEl = forgotSubmit.querySelector("span");
       if (labelEl) {
-        labelEl.textContent = ["下一步", "验证并继续", "重置密码"][forgotStep - 1];
+        labelEl.textContent = t(["下一步", "验证并继续", "重置密码"][forgotStep - 1]);
       }
       forgotSubmit.disabled = false;
       forgotSubmit.dataset.busy = "0";

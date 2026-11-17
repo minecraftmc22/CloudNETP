@@ -948,8 +948,8 @@ export function openViewer(item, { onDownload } = {}) {
       const b = document.createElement("button");
       b.type = "button";
       b.className = "lyr__swatch";
-      b.title = sw.label;
-      b.setAttribute("aria-label", `高亮色：${sw.label}`);
+      b.title = t(sw.label);
+      b.setAttribute("aria-label", t("高亮色：{name}", { name: t(sw.label) }));
       if (sw.value) b.style.background = sw.value;
       else b.classList.add("lyr__swatch--auto");
       b.addEventListener("click", () => {
@@ -1063,7 +1063,7 @@ export function openViewer(item, { onDownload } = {}) {
                 ? H`<span class="lyr__result-tag">${t("歌词库")}</span>`
                 : "";
           btn.innerHTML =
-            H`<span class="lyr__result-top"><span class="lyr__result-title">${escapeHtml(it.title || "未知标题")}</span>${tag}</span>` +
+            H`<span class="lyr__result-top"><span class="lyr__result-title">${escapeHtml(it.title || t("未知标题"))}</span>${tag}</span>` +
             `<span class="lyr__result-artist">${escapeHtml([it.artist, it.album].filter(Boolean).join(" · "))}</span>`;
           btn.addEventListener("click", () =>
             applyPref({

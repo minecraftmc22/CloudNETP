@@ -442,6 +442,16 @@ function route() {
   }
   const { user } = store.get();
   if (!user) return;
+  // 从申诉页手动把地址改回应用内路由时，外壳还是隐藏状态，这里恢复回来
+  if (el("shell").hidden) {
+    el("shell").hidden = false;
+    el("auth-root").hidden = true;
+    el("auth-root").innerHTML = "";
+    el("mascot").classList.toggle("is-hidden", user.settings?.showMascot === false);
+    stopPetals();
+    startPetals();
+    startBanWatch();
+  }
   const name = currentRoute();
   store.set({ route: name });
 

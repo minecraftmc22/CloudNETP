@@ -36,7 +36,7 @@ export async function runTask({
   panel.innerHTML = H`
     <div class="task-panel__head">
       <svg class="icon icon--s"><use href="#${icon}"/></svg>
-      <span class="task-panel__title" data-title>${escapeHtml(title)}…</span>
+      <span class="task-panel__title" data-title>${escapeHtml(t(title))}…</span>
       <button class="task-panel__act" type="button" data-cancel>取消</button>
     </div>
     <div class="task-panel__list">
@@ -75,11 +75,11 @@ export async function runTask({
     bar?.classList.toggle("is-indeterminate", state === "active");
 
     const text = {
-      pending: "排队中",
-      active: `${verb}中`,
-      done: "已完成",
-      error: "失败",
-      canceled: "已取消",
+      pending: t("排队中"),
+      active: t("{verb}中", { verb: t(verb) }),
+      done: t("已完成"),
+      error: t("失败"),
+      canceled: t("已取消"),
     }[state];
     if (stateEl) stateEl.textContent = state === "error" && row.error ? row.error : text;
     if (stateEl) stateEl.title = row.error || text;
@@ -92,12 +92,12 @@ export async function runTask({
     const settled = rows.filter((row) => row.state !== "pending" && row.state !== "active").length;
     if (settled >= rows.length) {
       titleEl.textContent = failed
-        ? `${verb}完成，${failed} 项失败`
-        : `${verb}完成 · 共 ${done} 项`;
+        ? t("{verb}完成，{n} 项失败", { verb: t(verb), n: failed })
+        : t("{verb}完成 · 共 {n} 项", { verb: t(verb), n: done });
     } else if (rows.length > 1) {
-      titleEl.textContent = `${title} ${Math.min(settled + 1, rows.length)} / ${rows.length}`;
+      titleEl.textContent = `${t(title)} ${Math.min(settled + 1, rows.length)} / ${rows.length}`;
     } else {
-      titleEl.textContent = `${title}…`;
+      titleEl.textContent = `${t(title)}…`;
     }
   }
 
@@ -120,7 +120,7 @@ export async function runTask({
       await run(row.item, row.index);
       paint(row, "done");
     } catch (err) {
-      row.error = err?.message || "操作失败";
+      row.error = err?.message || t("操作失败");
       paint(row, "error");
     }
     paintHeader();
@@ -133,10 +133,10 @@ export async function runTask({
 
   if (titleEl) {
     titleEl.textContent = failed
-      ? `${verb}完成：成功 ${done} 项，失败 ${failed} 项`
+      ? t("{verb}完成：成功 {ok} 项，失败 {bad} 项", { verb: t(verb), ok: done, bad: failed })
       : skipped
-        ? `已停止，完成 ${done} 项`
-        : `${verb}完成 · 共 ${done} 项`;
+        ? t("已停止，完成 {n} 项", { n: done })
+        : t("{verb}完成 · 共 {n} 项", { verb: t(verb), n: done });
   }
 
   const elapsed = performance.now() - started;

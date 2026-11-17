@@ -29,6 +29,23 @@ VENV_PY = ROOT / ".venv" / "Scripts" / "python.exe"
 OUT = Path(tempfile.gettempdir()) / "cloudnetp_shots"
 OUT.mkdir(exist_ok=True)
 CJK = re.compile(r"[\u4e00-\u9fa5]")
+# 这些是「故意的中文」，不算残留：
+# - 看板娘的名字固定叫 CDP娘，英文界面里也不改名
+# - 语言切换里列的是各语言的自称（中 / 简体中文）
+NAME = "CDP娘"
+LANG_NAMES = {"中", "中文", "简体中文", "繁體中文", "English"}
+
+
+def residual(items: list[str]) -> list[str]:
+    """筛掉名字与语言自称之后，还剩多少中文。"""
+    out = []
+    for item in items:
+        cleaned = item.replace(NAME, "")
+        if cleaned in LANG_NAMES:
+            continue
+        if CJK.search(cleaned):
+            out.append(item)
+    return out
 
 
 def free_port() -> int:
@@ -142,6 +159,7 @@ def main() -> None:
                 ("shares", "#/shares", ".view-head"),
                 ("about", "#/about", ".view-head"),
                 ("trash", "#/trash", ".view-head"),
+                ("quick", "#/quick", ".view-head"),
                 ("feedback", "#/feedback", ".view-head"),
                 ("admin", "#/admin", ".admin-tabs"),
             ]:
@@ -156,7 +174,8 @@ def main() -> None:
                         const pick = ['#nav', '.view-head', '.settings', '.empty', '.toolbar', '.titlebar',
                                       '.admin-tabs', '.settings-card', '.admin-facts', '.stat-card',
                                       '.admin-toolbar', '.admin-hint', '.admin-pager',
-                                      '.about', '.share-page'];
+                                      '.about', '.share-page', '.quick-tabs', '.quick-gate',
+                                      '.quick-card', '.quick-list', '.quick-warn'];
                         document.querySelectorAll(pick.join(',')).forEach((root) => {
                             const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
                             let n;
@@ -176,7 +195,7 @@ def main() -> None:
                         return [...new Set(out)];
                     }"""
                 )
-                leftover = [t for t in texts if CJK.search(t)]
+                leftover = residual(texts)
                 report[name] = leftover
 
             # 管理后台的「系统设置」页最长（一整页卡片 + 数据库卡），单独进去截一张
@@ -200,12 +219,13 @@ def main() -> None:
                     return [...new Set(out)];
                 }"""
             )
-            report["admin-settings"] = [t for t in admin_texts if CJK.search(t)]
+            report["admin-settings"] = residual(admin_texts)
 
             # 其余四个页签（用户 / 举报 / 反馈 / 审计）只收文案，不截图
             for tab, label in [
                 ("users", "admin-users"),
                 ("reports", "admin-reports"),
+                ("appeals", "admin-appeals"),
                 ("feedback", "admin-feedback"),
                 ("logs", "admin-logs"),
             ]:
@@ -225,7 +245,39 @@ def main() -> None:
                         return [...new Set(out)];
                     }"""
                 )
-                report[label] = [t for t in texts if CJK.search(t)]
+                report[label] = residual(texts)
+
+            # 申诉页：独立上下文（它会把应用外壳隐藏掉，不能和别的页面共用）
+            actx = browser.new_context(viewport={"width": 1280, "height": 900}, device_scale_factor=2)
+            apage = actx.new_page()
+            apage.on("pageerror", lambda exc: errors.append(str(exc)))
+            apage.add_init_script(f"try {{ localStorage.setItem('cloudnetp.lang', '{lang}'); }} catch (e) {{}}")
+            apage.goto(f"{base}/#/appeal", wait_until="domcontentloaded")
+            apage.wait_for_selector(".appeal-card", timeout=15000)
+            apage.wait_for_timeout(500)
+            apage.screenshot(path=str(OUT / "i18n_appeal.png"))
+            appeal_texts = apage.evaluate(
+                """() => {
+                    const out = [];
+                    const root = document.querySelector('.appeal-card');
+                    if (!root) return out;
+                    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+                    let n;
+                    while ((n = walker.nextNode())) {
+                        const t = (n.textContent || '').trim();
+                        if (t) out.push(t);
+                    }
+                    root.querySelectorAll('[title],[placeholder],[aria-label]').forEach((el) => {
+                        for (const a of ['title', 'placeholder', 'aria-label']) {
+                            const v = el.getAttribute(a);
+                            if (v && v.trim()) out.push(v.trim());
+                        }
+                    });
+                    return [...new Set(out)];
+                }"""
+            )
+            report["appeal"] = residual(appeal_texts)
+            actx.close()
 
             # 登录页（无 Cookie）
             guest = browser.new_context(viewport={"width": 1440, "height": 1000}, device_scale_factor=2)
@@ -255,7 +307,7 @@ def main() -> None:
                     return [...new Set(out)];
                 }"""
             )
-            report["auth"] = [t for t in gtexts if CJK.search(t)]
+            report["auth"] = residual(gtexts)
             guest.close()
 
             # 语言切换的闭环：中文 -> 英文 -> 刷新仍然英文 -> 账号里存住 -> 切回中文

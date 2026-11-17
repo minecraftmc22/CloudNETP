@@ -192,7 +192,7 @@ function dbCardMarkup(db) {
 
     <div class="setting-row">
       <div class="setting-row__main">
-        <div class="setting-row__label">保存主库 / 次库${roles.source === "admin" ? H`<span class="chip">已保存</span>` : ""}</div>
+        <div class="setting-row__label">${t("保存主库 / 次库")}${roles.source === "admin" ? H`<span class="chip">${t("已保存")}</span>` : ""}</div>
         <div class="setting-row__desc">${
           roles.mysqlConfigured
             ? t("换主库时会把当前库的数据整体复制到新库，旧库原样保留；目标库连不上会直接报错并保持现状")
@@ -1964,13 +1964,13 @@ export function renderAdmin(root) {
       <div class="admin-toolbar">
         <span class="selectbox">
           <select data-action>
-            <option value="">全部操作</option>
+            <option value="">${t("全部操作")}</option>
             ${actions
               .map(
                 (item) =>
                   H`<option value="${escapeHtml(item.action)}" ${
                     state.logs.action === item.action ? "selected" : ""
-                  }>${escapeHtml(actionText(item.label))}（${item.count}）</option>`
+                  }>${escapeHtml(t("{name}（{n}）", { name: actionText(item.label), n: item.count }))}</option>`
               )
               .join("")}
           </select>
@@ -1979,7 +1979,7 @@ export function renderAdmin(root) {
         <span class="searchbox">
           <span class="textbox">
             <svg class="icon icon--s"><use href="#i-search"/></svg>
-            <input type="search" data-search placeholder="搜索用户 / 详情 / 操作名" value="${escapeHtml(state.logs.query)}">
+            <input type="search" data-search placeholder="${t("搜索用户 / 详情 / 操作名")}" value="${escapeHtml(state.logs.query)}">
           </span>
         </span>
         <span class="admin-filter-note" data-note ${state.logs.userId ? "" : "hidden"}>
@@ -1987,7 +1987,7 @@ export function renderAdmin(root) {
             id: state.logs.userId ?? "",
             name: escapeHtml(state.logs.username || ""),
           })}
-          <button type="button" data-clear-note title="清除用户筛选">
+          <button type="button" data-clear-note title="${t("清除用户筛选")}">
             <svg class="icon"><use href="#i-close"/></svg>
           </button>
         </span>
@@ -2281,9 +2281,17 @@ export function renderAdmin(root) {
           </label>
         </div>
         <div class="admin-hint">
-          取件码里每个文件可以单独设有效期与次数，超过上面的上限会按上限算。快传上传的文件不计入用户配额，
-          ${quickInfo ? `当前有 <b>${quickInfo.codes}</b> 个取件码（${quickInfo.alive} 个有效）、<b>${quickInfo.files}</b> 个快传文件占 <b>${formatBytes(quickInfo.bytes)}</b>；` : ""}
-          过期或撤销后超过保留天数由清理任务回收（只删快传文件，不动用户网盘里的文件）。
+          ${t("取件码里每个文件可以单独设有效期与次数，超过上面的上限会按上限算。快传上传的文件不计入用户配额，过期或撤销后超过保留天数由清理任务回收（只删快传文件，不动用户网盘里的文件）。")}
+          ${
+            quickInfo
+              ? t("当前有 {codes} 个取件码（{alive} 个有效）、{files} 个快传文件占 {size}。", {
+                  codes: `<b>${quickInfo.codes}</b>`,
+                  alive: `<b>${quickInfo.alive}</b>`,
+                  files: `<b>${quickInfo.files}</b>`,
+                  size: `<b>${formatBytes(quickInfo.bytes)}</b>`,
+                })
+              : ""
+          }
         </div>
         <div class="setting-row">
           <div class="setting-row__main">

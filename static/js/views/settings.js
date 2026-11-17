@@ -392,10 +392,10 @@ export function renderSettings(root) {
             </div>
             <div class="setting-row">
               <div class="setting-row__main">
-                <div class="setting-row__label">重置看板娘位置</div>
-                <div class="setting-row__desc">把她放回右下角的默认位置；大小、模型和显示开关都不变</div>
+                <div class="setting-row__label">${t("重置看板娘位置")}</div>
+                <div class="setting-row__desc">${t("把她放回右下角的默认位置；大小、模型和显示开关都不变")}</div>
               </div>
-              <button class="btn btn--sm" type="button" data-mascot-reset>重置位置</button>
+              <button class="btn btn--sm" type="button" data-mascot-reset>${t("重置位置")}</button>
             </div>
             <div class="setting-row">
               <div class="setting-row__main">

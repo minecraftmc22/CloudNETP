@@ -127,7 +127,7 @@ export function renderFeedback(root) {
     try {
       const data = await api.get("/api/feedback");
       const items = data.items || [];
-      totalEl.textContent = items.length ? H`最近 ${items.length} 条` : "";
+      totalEl.textContent = items.length ? t("最近 {n} 条", { n: items.length }) : "";
       if (!items.length) {
         listEl.innerHTML = H`<div class="feedback-empty">
           <svg class="icon"><use href="#i-mail"/></svg>

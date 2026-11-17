@@ -89,7 +89,7 @@ function ensurePanel() {
   const panel = document.createElement("section");
   panel.className = "mchat";
   panel.id = "mascot-chat";
-  panel.setAttribute("aria-label", "和 CDP娘 对话");
+  panel.setAttribute("aria-label", t("和 CDP娘 对话"));
   panel.innerHTML = H`
     <header class="mchat__head">
       <span class="mchat__avatar"><img src="/assets/brand-avatar.png" alt=""></span>
@@ -1041,10 +1041,10 @@ function toolEntry(container, data) {
   if (data.write) node.classList.add("is-write");
   if (data.status === "running") {
     node.classList.add("is-running");
-    label.textContent = `正在${data.label || "处理"}…`;
+    label.textContent = t("正在{label}…", { label: t(data.label || "处理") });
   } else {
     node.classList.remove("is-running");
-    label.textContent = `已${data.label || "完成"}`;
+    label.textContent = t("已{label}", { label: t(data.label || "完成") });
     if (data.result) pre.textContent = data.result;
   }
   if (group) {
@@ -1442,7 +1442,7 @@ function setBusy(busy) {
   state.busy = busy;
   if (!state.sendBtn) return;
   state.sendBtn.classList.toggle("is-stop", busy);
-  state.sendBtn.querySelector("span").textContent = busy ? "停止" : "发送";
+  state.sendBtn.querySelector("span").textContent = t(busy ? "停止" : "发送");
   state.sendBtn.querySelector("use").setAttribute("href", busy ? "#i-close" : "#i-send");
 }
 

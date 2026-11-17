@@ -27,7 +27,7 @@ features:
   - title: 看板娘 AI
     details: CDP娘 可拖动可对话，SSE 流式输出、工具调用，读写权限分开授权
   - title: 多用户与配额
-    details: 独立空间与配额、角色与封禁、审计日志、孤儿文件清理
+    details: 独立空间与配额、超管与管理员分级、封禁原因与申诉审核、审计日志、孤儿文件清理
   - title: 数据库容灾
     details: 主库断连自动降级本地 SQLite，恢复后自动回迁，后台可手动切换
   - title: Docker 部署
@@ -60,5 +60,6 @@ ES Module 前端，界面按 WinUI 3 / Fluent Design 的风格做，右下角常
 | 和看板娘聊天、让它帮忙找文件 | [看板娘与 AI 对话](/guide/mascot.md) |
 | 换主题、壁纸、界面语言 | [外观与个性化](/guide/appearance.md) |
 | 管理用户、看审计日志 | [管理后台](/guide/admin.md) |
+| 看版本、开源致谢与贡献者 | [关于页与致谢](/guide/about.md) |
 | 换成 MySQL、做主备容灾 | [数据库容灾](/guide/database.md) |
 | 绑域名、开 HTTPS、跑在服务器上 | [部署与运维](/guide/deploy.md) |

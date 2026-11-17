@@ -77,7 +77,7 @@ export function pickFolder({ title = "移动到", excludeId = null, confirmText 
           load();
         });
       });
-      targetEl.textContent = `目标：${trail.map((t) => t.name).join(" / ")}`;
+      targetEl.textContent = t("目标：{path}", { path: trail.map((t) => t.name).join(" / ") });
     }
 
     async function load() {

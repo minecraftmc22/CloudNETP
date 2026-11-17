@@ -51,6 +51,13 @@ TARGETS = [
     "ui/tasks.js",
     "ui/share.js",
     "ui/update.js",
+    "ui/ban.js",
+    "ui/ai-config.js",
+    "ui/announce.js",
+    "ui/upload-queue.js",
+    "ui/live2d.js",
+    "views/appeal.js",
+    "views/quick.js",
 ]
 
 

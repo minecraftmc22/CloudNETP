@@ -54,7 +54,7 @@ PIP_INDEX_URL=https://pypi.org/simple docker compose build
 
 ### 3. 打开
 
-`http://<主机 IP>:<PORT>`，本机就是 <http://localhost:8000>。**第一个注册的账号自动成为管理员**。
+`http://<主机 IP>:<PORT>`，本机就是 <http://localhost:8000>。**第一个注册的账号自动成为超级管理员**。
 容器自带 healthcheck，`docker compose ps` 里状态显示 `healthy` 就表示接口已经能应答。
 
 ::: warning Linux 上先给 ./data 改属主
@@ -208,9 +208,11 @@ WebDAV            http://localhost:8000/dav
 
 <img src="/images/login.jpg" alt="登录页" width="860">
 
-::: tip 第一个账号自动是管理员
-第一个注册成功的账号 `role = 1`，登录后侧栏会出现「管理后台」入口，可以进后台改站点名、
-配额、开关注册与回收站等。
+::: tip 第一个账号自动是超级管理员
+第一个注册成功的账号会同时拿到 `role = 1`（管理员）与 `is_super = 1`（超级管理员），
+登录后侧栏出现「管理后台」入口，可以改站点名、配额、开关注册与回收站，也可以把别人设为
+管理员 / 超管。之后注册的都是普通用户，配额取后台设置的「新用户默认配额」。
+普通管理员能看到用户与日志，但**不能增减管理员**，也动不了超管，详见[角色与权限](/guide/admin.md#角色与权限)。
 :::
 
 ## 数据放在哪
