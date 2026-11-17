@@ -166,6 +166,8 @@ def main() -> int:
 
             def open_settings():
                 page.goto(f"{base}/#/settings", wait_until="domcontentloaded")
+                page.wait_for_selector("[data-settings-tabs] .segmented__btn", timeout=20000)
+                page.click('[data-settings-tab="mascot"]')
                 page.wait_for_selector("[data-ai-rounds]", state="attached", timeout=20000)
 
             print("\n[A] 「无限制」快捷项")
@@ -212,6 +214,8 @@ def main() -> int:
             mctx.add_cookies([{"name": "cloudnetp_session", "value": cookie, "url": base}])
             mpage = mctx.new_page()
             mpage.goto(f"{base}/#/settings", wait_until="domcontentloaded")
+            mpage.wait_for_selector("[data-settings-tabs] .segmented__btn", timeout=20000)
+            mpage.click('[data-settings-tab="mascot"]')
             mpage.wait_for_selector("[data-ai-rounds]", state="attached", timeout=20000)
             overflow = mpage.evaluate("document.documentElement.scrollWidth - document.documentElement.clientWidth")
             check("375px 设置页无横向溢出", overflow <= 1, str(overflow))

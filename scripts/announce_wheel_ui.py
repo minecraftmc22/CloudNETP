@@ -394,6 +394,8 @@ def main() -> None:
 
             print("\n[I] 设置里可以关掉")
             page.goto(f"{base}/#/settings", wait_until="domcontentloaded")
+            page.wait_for_selector("[data-settings-tabs] .segmented__btn", timeout=20000)
+            page.click('[data-settings-tab="mascot"]')
             page.wait_for_selector("[data-mascot-wheel]", state="attached", timeout=20000)
             check("设置里有滚轮缩放开关", page.locator("[data-mascot-wheel]").is_checked())
             page.evaluate(

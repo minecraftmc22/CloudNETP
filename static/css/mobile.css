@@ -482,6 +482,12 @@
   .settings {
     gap: 12px;
   }
+  .settings-tabs {
+    margin: -6px 0 -6px;
+  }
+  .settings-pane {
+    gap: 12px;
+  }
   .settings-card__head {
     padding: 12px 14px 8px;
   }
@@ -827,6 +833,20 @@
    ------------------------------------------------------------ */
 @media (max-width: 640px) {
   .settings {
+    gap: 18px;
+  }
+  .settings-tabs {
+    margin: -4px 0 -8px;
+  }
+  /* 手机上四个页签挤一行：去掉图标、压紧内边距，别让「账号」露半个字 */
+  .settings-tabs .segmented__btn {
+    padding: 0 10px;
+    gap: 0;
+  }
+  .settings-tabs .segmented__btn .icon {
+    display: none;
+  }
+  .settings-pane {
     gap: 18px;
   }
   .settings .settings-card__head {

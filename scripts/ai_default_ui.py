@@ -177,6 +177,8 @@ def main() -> None:
             print("\n[A] 普通用户：默认接口状态 + 表单收起")
             ctx, page, errors = make_page(plain_cookie)
             page.goto(f"{base}/#/settings", wait_until="domcontentloaded")
+            page.wait_for_selector("[data-settings-tabs] .segmented__btn", timeout=20000)
+            page.click('[data-settings-tab="mascot"]')
             page.wait_for_selector("[data-ai-default]", state="attached", timeout=20000)
             card = page.locator("[data-ai-card]")
             text = card.inner_text()
@@ -198,6 +200,8 @@ def main() -> None:
             mctx.add_cookies([{"name": "cloudnetp_session", "value": plain_cookie, "url": base}])
             mpage = mctx.new_page()
             mpage.goto(f"{base}/#/settings", wait_until="domcontentloaded")
+            mpage.wait_for_selector("[data-settings-tabs] .segmented__btn", timeout=20000)
+            mpage.click('[data-settings-tab="mascot"]')
             mpage.wait_for_selector("[data-ai-default]", state="attached", timeout=20000)
             mpage.wait_for_timeout(600)
             overflow = mpage.evaluate("document.documentElement.scrollWidth - window.innerWidth")
@@ -208,7 +212,9 @@ def main() -> None:
             print("\n[B] 重置看板娘位置")
             page.evaluate(
                 """() => {
-                    localStorage.setItem("mascot-pos", JSON.stringify({ dx: 120, dy: -80 }));
+                    // 0.3.96 起 clampOffset 的上界是 0（往右下会把身子推出屏幕），
+                    // 所以这里用「往左上推」的负偏移，正偏移加载时会被夹回 0
+                    localStorage.setItem("mascot-pos", JSON.stringify({ dx: -120, dy: -80 }));
                     localStorage.setItem("mascot-size", "140");
                 }"""
             )
@@ -218,7 +224,7 @@ def main() -> None:
             dx = page.evaluate(
                 "getComputedStyle(document.documentElement).getPropertyValue('--mascot-dx').trim()"
             )
-            check("重置前偏移已生效", dx == "120px", dx)
+            check("重置前偏移已生效", dx == "-120px", dx)
             page.locator("[data-mascot-reset]").scroll_into_view_if_needed()
             page.click("[data-mascot-reset]")
             page.wait_for_timeout(500)
@@ -284,6 +290,8 @@ def main() -> None:
                 ),
             )
             page2.goto(f"{base}/#/settings", wait_until="domcontentloaded")
+            page2.wait_for_selector("[data-settings-tabs] .segmented__btn", timeout=20000)
+            page2.click('[data-settings-tab="mascot"]')
             page2.wait_for_selector("[data-ai-card]", timeout=20000)
             page2.wait_for_timeout(700)
             text = page2.locator("[data-ai-card]").inner_text()

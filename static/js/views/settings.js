@@ -187,6 +187,26 @@ export function renderSettings(root) {
     <div class="view-body">
       <div class="settings">
 
+        <div class="settings-tabs">
+          <div class="segmented" data-settings-tabs>
+            <div class="segmented__thumb" data-tab-thumb></div>
+            <button class="segmented__btn is-active" type="button" data-settings-tab="appearance">
+              <svg class="icon icon--s"><use href="#i-palette"/></svg>外观
+            </button>
+            <button class="segmented__btn" type="button" data-settings-tab="mascot">
+              <svg class="icon icon--s"><use href="#i-star"/></svg>看板娘
+            </button>
+            <button class="segmented__btn" type="button" data-settings-tab="files">
+              <svg class="icon icon--s"><use href="#i-share"/></svg>文件与分享
+            </button>
+            <button class="segmented__btn" type="button" data-settings-tab="account">
+              <svg class="icon icon--s"><use href="#i-user"/></svg>账号
+            </button>
+          </div>
+        </div>
+
+        <div class="settings-pane" data-settings-pane="appearance">
+
         <section class="settings-card">
           <div class="settings-card__head"><svg class="icon icon--s"><use href="#i-palette"/></svg>外观</div>
           <div class="settings-card__body">
@@ -350,6 +370,10 @@ export function renderSettings(root) {
           </div>
         </section>
 
+        </div>
+
+        <div class="settings-pane" data-settings-pane="mascot">
+
         <section class="settings-card">
           <div class="settings-card__head"><svg class="icon icon--s"><use href="#i-star"/></svg>装饰</div>
           <div class="settings-card__body">
@@ -429,6 +453,10 @@ export function renderSettings(root) {
             <div class="settings-card__note settings-loading"><span class="spinner"></span> 正在读取配置…</div>
           </div>
         </section>
+
+        </div>
+
+        <div class="settings-pane" data-settings-pane="files">
 
         <section class="settings-card">
           <div class="settings-card__head"><svg class="icon icon--s"><use href="#i-trash"/></svg>文件</div>
@@ -511,6 +539,10 @@ export function renderSettings(root) {
             </div>
           </div>
         </section>
+
+        </div>
+
+        <div class="settings-pane" data-settings-pane="account">
 
         <section class="settings-card">
           <div class="settings-card__head"><svg class="icon icon--s"><use href="#i-user"/></svg>账号</div>
@@ -600,6 +632,8 @@ export function renderSettings(root) {
             </div>
           </div>
         </section>
+
+        </div>
 
       </div>
     </div>
@@ -1623,5 +1657,66 @@ export function renderSettings(root) {
     }
   });
 
-  window.requestAnimationFrame(layoutThumb);
+  /* --- 标签页：只切 class / hidden，不重建 DOM ---
+     放在最后：showPane 里要补排主题模式的滑块，得等 layoutThumb 那套 const 初始化完 */
+  const tabBtns = [...root.querySelectorAll("[data-settings-tab]")];
+  const tabThumb = root.querySelector("[data-tab-thumb]");
+  const panes = [...root.querySelectorAll("[data-settings-pane]")];
+
+  function layoutTabs() {
+    const active = tabBtns.find((b) => b.classList.contains("is-active"));
+    if (!active || !tabThumb) return;
+    tabThumb.style.width = `${active.offsetWidth}px`;
+    tabThumb.style.transform = `translateX(${active.offsetLeft - 3}px)`;
+  }
+
+  function showPane(id, { remember = true } = {}) {
+    if (!tabBtns.some((b) => b.dataset.settingsTab === id)) id = "appearance";
+    tabBtns.forEach((b) => b.classList.toggle("is-active", b.dataset.settingsTab === id));
+    panes.forEach((p) => {
+      p.hidden = p.dataset.settingsPane !== id;
+    });
+    layoutTabs();
+    // 主题模式分段控件的滑块靠 offsetWidth 定位：外观页藏着时量出来是 0，
+    // 切回来必须补排一次，否则滑块缩成一团
+    if (id === "appearance") layoutThumb();
+    if (remember) {
+      try {
+        localStorage.setItem("settings-tab", id);
+      } catch {
+        /* 隐私模式写不进去就算了 */
+      }
+    }
+  }
+
+  tabBtns.forEach((btn) => {
+    btn.addEventListener("click", () => showPane(btn.dataset.settingsTab));
+  });
+
+  // 记住上次的页签（localStorage，按设备记）；i18n 切语言整页重绘后也回到同一页
+  let initialTab = "appearance";
+  try {
+    initialTab = localStorage.getItem("settings-tab") || "appearance";
+  } catch {
+    /* 读不到就停在第一页 */
+  }
+  showPane(initialTab, { remember: false });
+
+  // 窗口变化时 app.js 只会重排页面里第一个分段控件（现在是页签条），
+  // 主题模式的滑块得自己补
+  window.addEventListener(
+    "resize",
+    () => {
+      if (view.signal.aborted) return;
+      layoutTabs();
+      const appearancePane = panes.find((p) => p.dataset.settingsPane === "appearance");
+      if (appearancePane && !appearancePane.hidden) layoutThumb();
+    },
+    keep
+  );
+
+  window.requestAnimationFrame(() => {
+    layoutTabs();
+    layoutThumb();
+  });
 }

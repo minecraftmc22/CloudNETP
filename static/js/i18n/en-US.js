@@ -199,6 +199,7 @@ export default {
   "自定义": "Custom",
   "留空使用默认提示词": "Leave empty to use the default prompt",
   "文件": "Files",
+  "文件与分享": "Files & sharing",
   "开启中：删除的文件先进入回收站，30 天后自动清理": "On: deleted files go to the trash and are purged after 30 days",
   "挂载地址": "Mount address",
   "资源管理器「映射网络驱动器」、Finder「连接服务器」都填这个地址": "Use this address in Explorer's “Map network drive” or Finder's “Connect to Server”",

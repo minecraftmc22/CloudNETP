@@ -3359,6 +3359,49 @@ html[data-ai="off"] .mascot__act[data-mascot-act="chat"] {
 }
 
 /* ------------------------------------------------------------
+   设置页：标签页（分组视图）
+   页签条贴着 .settings 的卡间距往上收一点，别占一大截
+   ------------------------------------------------------------ */
+.settings-tabs {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  margin: -8px 0 -10px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+}
+.settings-tabs::-webkit-scrollbar {
+  display: none;
+}
+.settings-tabs .segmented {
+  width: auto;
+  flex: none;
+}
+.settings-tabs .segmented__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 14px;
+  white-space: nowrap;
+}
+.settings-tabs .segmented__btn .icon {
+  width: 14px;
+  height: 14px;
+}
+
+/* 每个页签一层：内部还是原来的卡外标题 + 卡身，间距与整页一致 */
+.settings-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+/* 显式 display 会盖掉 [hidden] 的 display:none，必须重申 */
+.settings-pane[hidden] {
+  display: none;
+}
+
+/* ------------------------------------------------------------
    设置页：看板娘 AI 对话配置
    ------------------------------------------------------------ */
 .setting-row--stack {

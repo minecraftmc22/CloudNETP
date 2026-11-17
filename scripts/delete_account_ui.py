@@ -160,6 +160,8 @@ def main() -> int:
             page.wait_for_selector("#shell:not([hidden])", timeout=20000)
 
             page.goto(f"{base}/#/settings", wait_until="domcontentloaded")
+            page.wait_for_selector("[data-settings-tabs] .segmented__btn", timeout=20000)
+            page.click('[data-settings-tab="account"]')
             page.wait_for_selector('[data-card="danger"]', timeout=20000)
             card = page.locator('[data-card="danger"]')
             check("设置页有危险区域", card.count() == 1)

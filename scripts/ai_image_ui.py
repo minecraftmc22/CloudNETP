@@ -168,6 +168,8 @@ def main() -> None:
 
             print("\n[A] 设置 → 看板娘 · 对话设置")
             page.goto(f"{base}/#/settings", wait_until="domcontentloaded")
+            page.wait_for_selector("[data-settings-tabs] .segmented__btn", timeout=20000)
+            page.click('[data-settings-tab="mascot"]')
             page.wait_for_selector('[data-ai-flag="readContent"]', state="attached", timeout=20000)
             card = page.locator("[data-ai-card]")
             text = card.inner_text()
