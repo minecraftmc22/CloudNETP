@@ -14,6 +14,11 @@
   height: 100dvh;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
+  /* 这一行要占满视口：只写 align-content:start 的话行高=内容高，
+     容器里没有「多余空间」，.auth-stage 的 auto 外边距就吸不到东西，内容永远贴顶。
+     用 1fr：空间富余时行被撑满 → auto 外边距把内容居中；
+     内容真的比视口高时 1fr 的 auto 下限仍是内容高 → 照样从顶部开始滚 */
+  grid-template-rows: minmax(min-content, 1fr);
   justify-items: center;
   align-content: start;
   padding: var(--sp-6);
@@ -3704,6 +3709,8 @@ html[data-ai="off"] .mascot__act[data-mascot-act="chat"] {
 /* ------------------------------------------------------------------ */
 .appeal-stage {
   width: min(540px, 100%);
+  /* 和登录卡一样：空间富余时垂直居中，卡片比视口高时贴着顶部开始滚 */
+  margin-block: auto;
   animation: content-in var(--dur-slow) var(--ease-fluent);
 }
 .appeal-card {
