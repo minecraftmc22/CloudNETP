@@ -14,6 +14,8 @@ import { renderAnnounce } from "../ui/announce.js";
 // 注意是函数：模块加载时语言还没初始化，模板必须在渲染时现算
 // 勾选状态放在模块作用域：登录页切语言会整块重绘，勾过的不该被清掉
 let agreeChecked = false;
+/** 上一次渲染挂在 window 上的监听收尾器（#auth-root 常驻，innerHTML 清空不会撤监听） */
+let authViewAbort = null;
 
 const template = () => H`
   <div class="auth-stage">
@@ -228,6 +230,11 @@ const template = () => H`
 `;
 
 export function renderAuth(root, { meta = {}, onSuccess, onBanned }) {
+  // #auth-root 是常驻节点，window 上的监听要随这次渲染一起收尾，别越叠越多
+  authViewAbort?.abort();
+  authViewAbort = new AbortController();
+  const authSignal = authViewAbort.signal;
+
   root.innerHTML = template();
 
   const el = (sel) => root.querySelector(sel);
@@ -773,7 +780,7 @@ export function renderAuth(root, { meta = {}, onSuccess, onBanned }) {
   // 分享页右上角的「注册」会带 ?mode=register 过来，直接落在注册页签
   const startMode = new URLSearchParams(location.search).get("mode") === "register" ? "register" : "login";
   setMode(startMode);
-  window.addEventListener("resize", layoutThumb, { passive: true });
+  window.addEventListener("resize", layoutThumb, { passive: true, signal: authSignal });
   window.requestAnimationFrame(() => {
     layoutThumb();
     accountInput.focus();

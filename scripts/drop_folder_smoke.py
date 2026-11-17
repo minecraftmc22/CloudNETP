@@ -319,6 +319,40 @@ def main():
         check("普通文件落到当前目录", bool(flat), [i["name"] for i in flat or []])
         shot("drop_folder_inside.png")
 
+        print("== 切页往返后再拖入（不应重复建目录 / 重复上传） ==")
+        for _ in range(2):
+            js("location.hash = '#/settings'")
+            time.sleep(0.5)
+            js("location.hash = '#/files'")
+            time.sleep(0.6)
+        assert wait_for("!!document.querySelector('[data-drop]')", 20), "回到文件页失败"
+        node = send("Runtime.evaluate", expression="document.querySelector('.view-root')")
+        listeners = send(
+            "DOMDebugger.getEventListeners",
+            objectId=node["result"]["objectId"],
+            depth=1,
+            pierce=False,
+        )
+        drops = [item for item in listeners.get("listeners", []) if item.get("type") == "drop"]
+        check("view-root 上只有一套 drop 监听", len(drops) == 1, f"{len(drops)} 套")
+
+        once_name = ROOT_NAME + "_单次"
+        js(f"window.__makeDrop({json.dumps(once_name)}, null)")
+        once_root = wait_api(
+            lambda: next((i for i in list_dir(cookie) if i["name"] == once_name), None), 45
+        )
+        check("往返后拖入正常建目录", bool(once_root), once_root and once_root["name"])
+        time.sleep(4.0)
+        tops = [
+            i["name"]
+            for i in list_dir(cookie)
+            if i["type"] == "folder" and i["name"].startswith(once_name)
+        ]
+        check("同名目录只建一份", len(tops) == 1, tops)
+        if once_root:
+            once_names = [i["name"] for i in list_dir(cookie, once_root["id"])]
+            check("目录内文件不重复", once_names.count("a.txt") == 1, once_names)
+
         print("最终错误:", js("window.__errs"))
         ws.close()
     finally:

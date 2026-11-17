@@ -16,7 +16,19 @@ import { enqueue as enqueueUploadsQueue, onChange as onUploadChange } from "../u
 const SORT_LABELS = { name: "名称", size: "大小", updated: "修改时间", created: "创建时间" };
 const UPLOAD_CONCURRENCY = 2;
 
+/**
+ * #view-root 是常驻元素（每次路由只换 innerHTML），所以挂在它上面的拖拽与 keydown
+ * 监听必须自己收尾：否则切一次页面就多叠一套 handler，拖一次文件夹会重复建目录、
+ * 重复上传文件（「拖进来出现好几份同名文件夹」就是这么来的）。
+ */
+let viewAbort = null;
+
 export function renderFiles(root) {
+  viewAbort?.abort();
+  const view = new AbortController();
+  viewAbort = view;
+  const on = { signal: view.signal };
+
   const state = {
     parentId: null,
     breadcrumb: [{ id: null, name: "我的文件" }],
@@ -168,11 +180,13 @@ export function renderFiles(root) {
 
   // 上传队列是全局的，切页回来要能看到期间传完的文件
   let refreshTimer = 0;
+  const unsubscribe = () => onUploadChange(null);
+  view.signal.addEventListener("abort", unsubscribe, { once: true });
   onUploadChange(() => {
-    if (!root.isConnected) return;
+    if (view.signal.aborted || !root.isConnected) return;
     window.clearTimeout(refreshTimer);
     refreshTimer = window.setTimeout(() => {
-      if (!root.isConnected) return;
+      if (view.signal.aborted || !root.isConnected) return;
       load({ keepScroll: true });
       refreshUser();
     }, 600);
@@ -669,6 +683,9 @@ export function renderFiles(root) {
       .filter(Boolean);
     const files = [];
     const dirs = [];
+    /** 同一文件只收一次：某些实现里 readEntries 会重复吐出同一批，别把文件传 N 遍 */
+    const seenFiles = new Set();
+    const seenDirs = new Set();
 
     if (!roots.length) {
       return {
@@ -682,8 +699,13 @@ export function renderFiles(root) {
 
     const pushFile = async (entry, prefix) => {
       if (DROP_IGNORED.test(entry.name)) return;
+      const relPath = prefix + entry.name;
       try {
-        files.push({ file: await entryFile(entry), relPath: prefix + entry.name });
+        const file = await entryFile(entry);
+        const key = `${relPath}\u0000${file.size}\u0000${file.lastModified}`;
+        if (seenFiles.has(key)) return;
+        seenFiles.add(key);
+        files.push({ file, relPath });
       } catch {
         /* 单个文件读不出来就跳过，不影响其它文件 */
       }
@@ -694,7 +716,10 @@ export function renderFiles(root) {
         truncated = true;
         return;
       }
-      dirs.push(prefix.replace(/\/$/, ""));
+      const key = prefix.replace(/\/$/, "");
+      if (seenDirs.has(key)) return;
+      seenDirs.add(key);
+      dirs.push(key);
       const reader = dir.createReader();
       for (;;) {
         let batch = [];
@@ -725,6 +750,7 @@ export function renderFiles(root) {
   /** 按相对路径逐级建目录；同名文件夹直接复用，拖第二次不会出现「项目 (1)」 */
   async function ensureDropTree(dirPaths, rootParent) {
     const dirIds = new Map(); // "a/b" -> folderId
+    const inFlight = new Map(); // "a/b" -> Promise<folderId>（同一路径并发只建一次）
     const childCache = new Map(); // parentId -> Map(name -> id)
 
     if (!state.searchMode) {
@@ -745,12 +771,12 @@ export function renderFiles(root) {
       return childCache.get(parentId);
     }
 
-    async function ensure(path) {
+    async function resolve(path) {
       if (dirIds.has(path)) return dirIds.get(path);
       let parentId = rootParent;
       let prefix = "";
       for (const part of path.split("/").filter(Boolean)) {
-        prefix = prefix ? H`${prefix}/${part}` : part;
+        prefix = prefix ? `${prefix}/${part}` : part;
         if (dirIds.has(prefix)) {
           parentId = dirIds.get(prefix);
           continue;
@@ -768,6 +794,15 @@ export function renderFiles(root) {
       return parentId;
     }
 
+    function ensure(path) {
+      if (dirIds.has(path)) return Promise.resolve(dirIds.get(path));
+      if (!inFlight.has(path)) {
+        const task = resolve(path).finally(() => inFlight.delete(path));
+        inFlight.set(path, task);
+      }
+      return inFlight.get(path);
+    }
+
     const ordered = [...new Set(dirPaths.filter(Boolean))].sort(
       (a, b) => a.split("/").length - b.split("/").length
     );
@@ -776,7 +811,22 @@ export function renderFiles(root) {
   }
 
   /** 拖拽入口：平铺文件直接传，带目录的先建结构再按目标目录上传 */
+  let dropBusy = false;
   async function uploadDropped(dataTransfer) {
+    // 同一次拖拽被处理两遍（重复事件 / 手抖拖两次）会把目录和文件各建一份，这里闸住
+    if (dropBusy) {
+      Toast.info("上一批还在整理，稍等一下再拖进来");
+      return;
+    }
+    dropBusy = true;
+    try {
+      await handleDropped(dataTransfer);
+    } finally {
+      dropBusy = false;
+    }
+  }
+
+  async function handleDropped(dataTransfer) {
     let collected;
     try {
       collected = await collectDropped(dataTransfer);
@@ -937,36 +987,49 @@ export function renderFiles(root) {
   // 拖拽上传
   let dragDepth = 0;
   const hasFiles = (event) => [...(event.dataTransfer?.types || [])].includes("Files");
-  root.addEventListener("dragenter", (event) => {
-    if (!hasFiles(event)) return;
-    event.preventDefault();
-    dragDepth += 1;
-    dropMask.classList.add("is-on");
-  });
-  root.addEventListener("dragover", (event) => {
-    if (!hasFiles(event)) return;
-    event.preventDefault();
-    event.dataTransfer.dropEffect = "copy";
-  });
-  root.addEventListener("dragleave", (event) => {
-    if (!hasFiles(event)) return;
-    dragDepth = Math.max(0, dragDepth - 1);
-    if (dragDepth === 0) dropMask.classList.remove("is-on");
-  });
-  root.addEventListener("drop", (event) => {
-    if (!hasFiles(event)) return;
-    event.preventDefault();
-    dragDepth = 0;
-    dropMask.classList.remove("is-on");
-    uploadDropped(event.dataTransfer);
-  });
+  root.addEventListener(
+    "dragenter",
+    (event) => {
+      if (!hasFiles(event)) return;
+      event.preventDefault();
+      dragDepth += 1;
+      dropMask.classList.add("is-on");
+    },
+    on
+  );
+  root.addEventListener(
+    "dragover",
+    (event) => {
+      if (!hasFiles(event)) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "copy";
+    },
+    on
+  );
+  root.addEventListener(
+    "dragleave",
+    (event) => {
+      if (!hasFiles(event)) return;
+      dragDepth = Math.max(0, dragDepth - 1);
+      if (dragDepth === 0) dropMask.classList.remove("is-on");
+    },
+    on
+  );
+  root.addEventListener(
+    "drop",
+    (event) => {
+      if (!hasFiles(event)) return;
+      event.preventDefault();
+      dragDepth = 0;
+      dropMask.classList.remove("is-on");
+      uploadDropped(event.dataTransfer);
+    },
+    on
+  );
 
   // 键盘
   const onKey = (event) => {
-    if (!document.body.contains(root)) {
-      document.removeEventListener("keydown", onKey);
-      return;
-    }
+    if (view.signal.aborted || !document.body.contains(root)) return;
     const tag = document.activeElement?.tagName;
     if (tag === "INPUT" || tag === "TEXTAREA") return;
 
@@ -997,7 +1060,7 @@ export function renderFiles(root) {
       updateSelectionStyles();
     }
   };
-  document.addEventListener("keydown", onKey);
+  document.addEventListener("keydown", onKey, on);
 
   load();
 }

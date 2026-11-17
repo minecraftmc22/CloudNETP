@@ -112,6 +112,9 @@ async function squareBlob(file, side = 256) {
 const BG_MAX_SIDE = 2560;
 const BG_INLINE_LIMIT = 4 * 1024 * 1024;
 
+/** 上一次渲染挂出去的事件监听收尾器（#view-root 与 window 都是常驻的） */
+let settingsViewAbort = null;
+
 function loadImageUrl(url) {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -141,6 +144,12 @@ async function prepareBackground(file) {
 }
 
 export function renderSettings(root) {
+  // #view-root 是常驻节点，挂它/window 上的监听要自己收尾，否则每次进设置页都会叠一套
+  settingsViewAbort?.abort();
+  const view = new AbortController();
+  settingsViewAbort = view;
+  const keep = { signal: view.signal };
+
   const { user } = store.get();
   const s = user?.settings || {};
   const mode = s.themeMode ?? 2;
@@ -1265,16 +1274,13 @@ export function renderSettings(root) {
 
   // 滚轮改了大小，这里滑块与百分比要跟着动
   const onMascotResize = (event) => {
-    if (!root.isConnected) {
-      window.removeEventListener("mascot:resize", onMascotResize);
-      return;
-    }
+    if (view.signal.aborted) return;
     const percent = Number(event.detail?.percent);
     if (!mascotSize || !Number.isFinite(percent)) return;
     mascotSize.value = String(percent);
     paintMascotSize();
   };
-  window.addEventListener("mascot:resize", onMascotResize);
+  window.addEventListener("mascot:resize", onMascotResize, keep);
 
   /* --- 重置看板娘位置：清掉本机记住的偏移，交给 live2d 模块套用 --- */
   root.querySelector("[data-mascot-reset]")?.addEventListener("click", () => {
@@ -1286,13 +1292,10 @@ export function renderSettings(root) {
   const lockSwitch = root.querySelector("[data-mascot-lock]");
   lockSwitch?.addEventListener("change", () => setMascotLocked(lockSwitch.checked));
   const onMascotLock = (event) => {
-    if (!root.isConnected) {
-      window.removeEventListener("mascot:lock", onMascotLock);
-      return;
-    }
+    if (view.signal.aborted) return;
     if (lockSwitch) lockSwitch.checked = Boolean(event.detail?.locked);
   };
-  window.addEventListener("mascot:lock", onMascotLock);
+  window.addEventListener("mascot:lock", onMascotLock, keep);
 
   /* --- 看板娘 · 对话设置（异步读配置） --- */
   const aiCard = root.querySelector("[data-ai-card]");
