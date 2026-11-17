@@ -6,7 +6,7 @@
   A 单色手输 #rrggbb → 落库、取色器与色板跟着变；乱填会提示并回滚
   B 渐变的每一档也能手输色值 → 落库、色块跟着变
   C 没有背景图时点 AI 取色 → 提示「还没设置背景图」，且不发请求
-  D 背景图有了但 AI 没配置 → 提示「还没填写 AI 配置」
+  D 背景图有了但 AI 没配置 → 提示去「设置 → 看板娘 · 对话设置」填接口
   E 配置可用 → 显示「AI 正在挑颜色…」，拿到颜色后按渐变落库
   F 375px 无横向溢出
 
@@ -333,7 +333,7 @@ def main() -> int:
             page.locator("[data-act='pick-ai']").click()
             page.wait_for_timeout(800)
             toast = " ".join(page.locator(".toast").all_inner_texts())
-            check("提示没填 AI 配置", "AI 配置" in toast, toast[:80])
+            check("提示去对话设置填接口", "对话设置" in toast, toast[:80])
             check("同样没发取色请求", not ai_calls, str(len(ai_calls)))
 
             print("\n[E] AI 取色成功")

@@ -242,6 +242,24 @@ def main() -> int:
         check("路由返回颜色", result["colors"][:2] == ["#7c3aed", "#ec4899"], str(result))
         check("路由回 gradient", result["mode"] == "gradient", str(result))
 
+        print("[9b] 取色用的是「看板娘 · 对话设置」里那套接口")
+        from sqlalchemy import select
+
+        from app.models import AuditLog
+
+        eff, source = ai.effective_config(db, USER_ID)
+        check("来源是用户自己的配置", source == "user", source)
+        check("地址跟着对话设置", eff["baseUrl"] == BASE, eff["baseUrl"])
+        check("模型跟着对话设置", eff["model"] == "test-model", eff["model"])
+        last = db.scalars(
+            select(AuditLog)
+            .where(AuditLog.action == "ai_accent_pick")
+            .order_by(AuditLog.id.desc())
+            .limit(1)
+        ).first()
+        detail = json.loads(last.detail) if last and last.detail else {}
+        check("审计里注明用的哪套接口", detail.get("from") == "user", str(detail))
+
         print("[10] 路由：坏图算输入错误")
         try:
             ai_router.pick_accent(

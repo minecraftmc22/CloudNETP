@@ -226,7 +226,8 @@ export function renderSettings(root) {
                       <svg class="icon icon--s"><use href="#i-image"/></svg>${t("从背景取色")}
                     </button>
                     <button class="btn btn--subtle btn--sm accent-editor__pick accent-editor__pick--ai"
-                            type="button" data-act="pick-ai">
+                            type="button" data-act="pick-ai"
+                            title="${t("用「看板娘 · 对话设置」里的 AI 接口取色")}">
                       <svg class="icon icon--s"><use href="#i-spark"/></svg><span data-ai-pick-label>${t("AI 取色")}</span>
                     </button>
                   </div>
@@ -1020,7 +1021,7 @@ export function renderSettings(root) {
     const url = store.get().user?.settings?.backgroundImage;
     if (!url) {
       // 没图就没得看，先提示，别白跑一次接口
-      Toast.warn(t("还没设置背景图，AI 取色用不了"));
+      Toast.warn(t("还没设置背景图，AI 取色用不了（去「设置 → 外观」换一张自定义背景图）"));
       return;
     }
     aiPick.disabled = true;
@@ -1037,7 +1038,8 @@ export function renderSettings(root) {
         return;
       }
       if (!cfg?.ready) {
-        Toast.warn(t("还没填写 AI 配置，暂不可用哦~"));
+        // 取色用的是看板娘对话那套接口，提示直接指向配置入口，别让人到处找
+        Toast.warn(t("还没填 AI 接口，去「设置 → 看板娘 · 对话设置」填好就能取色啦~"));
         return;
       }
       const img = await loadImageUrl(url);
