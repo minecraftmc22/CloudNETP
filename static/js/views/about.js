@@ -58,6 +58,55 @@ const STACK = [
   ["Pillow", "头像与图标处理"],
 ];
 
+/**
+ * 用到的开源项目：截图里的依赖以 requirements.txt 与 static/vendor 为准。
+ * license 只写主许可证，具体条款以各项目仓库为准。
+ */
+const OSS = [
+  { name: "FastAPI", role: "后端 Web 框架", license: "MIT", url: "https://github.com/fastapi/fastapi" },
+  { name: "Uvicorn", role: "ASGI 服务器", license: "BSD-3-Clause", url: "https://github.com/encode/uvicorn" },
+  { name: "SQLAlchemy", role: "ORM / 数据库工具", license: "MIT", url: "https://github.com/sqlalchemy/sqlalchemy" },
+  { name: "PyMySQL", role: "MySQL 驱动", license: "MIT", url: "https://github.com/PyMySQL/PyMySQL" },
+  { name: "cryptography", role: "加密与证书处理", license: "Apache-2.0 / BSD", url: "https://github.com/pyca/cryptography" },
+  { name: "Pillow", role: "图片处理", license: "HPND", url: "https://github.com/python-pillow/Pillow" },
+  { name: "mutagen", role: "音视频标签读取", license: "GPL-2.0+", url: "https://github.com/quodlibet/mutagen" },
+  { name: "qrcode (Python)", role: "服务端二维码", license: "BSD", url: "https://github.com/lincolnloop/python-qrcode" },
+  { name: "ArtPlayer", role: "网页播放器", license: "MIT", url: "https://github.com/zhw2590582/ArtPlayer" },
+  { name: "hls.js", role: "HLS 播放", license: "Apache-2.0", url: "https://github.com/video-dev/hls.js" },
+  { name: "dash.js", role: "DASH 播放", license: "BSD-3-Clause", url: "https://github.com/Dash-Industry-Forum/dash.js" },
+  { name: "JSZip", role: "ZIP 读写（Office 预览）", license: "MIT / GPL-3.0", url: "https://github.com/Stuk/jszip" },
+  { name: "docx-preview", role: "Word 文档预览", license: "Apache-2.0", url: "https://github.com/VolodymyrBaydalka/docxjs" },
+  { name: "SheetJS (xlsx)", role: "表格预览", license: "Apache-2.0", url: "https://github.com/SheetJS/sheetjs" },
+  { name: "PixiJS", role: "看板娘渲染", license: "MIT", url: "https://github.com/pixi-js/pixi" },
+  { name: "qrcode-generator", role: "前端二维码", license: "MIT", url: "https://github.com/kazuhikoarase/qrcode-generator" },
+  {
+    name: "Live2D Cubism SDK",
+    role: "看板娘模型运行时",
+    license: "Live2D 专有许可",
+    url: "https://www.live2d.com/sdk/",
+    note: true,
+  },
+];
+
+// GitHub API 拉不到时用这份快照（2026-11 取自 /repos/minecraftmc22/CloudNETP/contributors）
+const CONTRIBUTORS = [{ login: "minecraftmc22", contributions: 90 }];
+const REPO_API = "https://api.github.com/repos/minecraftmc22/CloudNETP";
+const CONTRIB_CACHE = "cn:contributors";
+const CONTRIB_TTL = 24 * 60 * 60 * 1000;
+
+function contributorRows(items) {
+  return items
+    .map(
+      (who) => H`
+      <a class="about-contrib__item" href="https://github.com/${encodeURIComponent(who.login)}" target="_blank" rel="noopener">
+        <span class="about-contrib__mark">${escapeHtml((who.login || "?").slice(0, 1).toUpperCase())}</span>
+        <span class="about-contrib__name">${escapeHtml(who.login)}</span>
+        <span class="about-contrib__count">${t("{n} 次提交", { n: who.contributions ?? 0 })}</span>
+      </a>`
+    )
+    .join("");
+}
+
 const AUTHOR = {
   name: "Minecraftmc22",
   initial: "M",
@@ -67,6 +116,16 @@ const AUTHOR = {
 };
 
 const CHANGELOG = [
+  {
+    version: "0.3.94",
+    title: "关于页和 README 补上开源致谢",
+    items: [
+      "关于页新增「感谢」卡片：列出实际用到的开源项目与用途、许可证、仓库地址，按后端 / 前端分组展示",
+      "贡献者名单从 GitHub 拉取并缓存 24 小时；离线或被墙时回落到内置快照，不打扰使用，另附完整贡献者页面入口",
+      "README 新增「致谢」章节（后端依赖表 + 前端内置库表 + 贡献者），并修正依赖数量：现在是 8 个包（补上 mutagen、qrcode）",
+      "说明 Live2D Cubism SDK 不是开源软件，按 Live2D 的 SDK 许可使用；其它项目按各自许可证使用",
+    ],
+  },
   {
     version: "0.3.93",
     title: "封禁带原因与时长，可申诉、可审核",
@@ -1086,6 +1145,41 @@ export function renderAbout(root) {
 
         <section class="about-card">
           <div class="about-card__head">
+            <svg class="icon icon--s"><use href="#i-spark"/></svg>${t("感谢")}
+          </div>
+          <p class="about-card__note about-thanks__lead">${t(
+            "这个项目站在这些开源项目的肩膀上：它们解决了上传、预览、播放、渲染里最费劲的部分，这里只把它们拼成一只云盘。"
+          )}</p>
+          <div class="about-oss">
+            ${OSS.map(
+              (item) => H`
+              <a class="about-oss__item ${item.note ? "is-note" : ""}" href="${item.url}" target="_blank" rel="noopener">
+                <span class="about-oss__name">${escapeHtml(item.name)}</span>
+                <span class="about-oss__role">${t(item.role)}</span>
+                <span class="about-oss__license">${escapeHtml(t(item.license))}</span>
+              </a>`
+            ).join("")}
+          </div>
+          <p class="about-card__note">${t(
+            "以上项目均按其各自许可证使用；Live2D Cubism SDK 不是开源软件，按 Live2D 的 SDK 许可使用。完整条款见各项目仓库。"
+          )}</p>
+          <div class="about-contrib">
+            <div class="about-contrib__head">
+              <span class="about-contrib__title">${t("贡献者")}</span>
+              <span class="about-card__count" data-contrib-count>${t("{n} 人", {
+                n: CONTRIBUTORS.length,
+              })}</span>
+            </div>
+            <div class="about-contrib__list" data-contrib>${contributorRows(CONTRIBUTORS)}</div>
+            <a class="about-contrib__all" href="${AUTHOR.repo}/graphs/contributors" target="_blank" rel="noopener">
+              ${t("在 GitHub 查看贡献者与提交记录")}
+              <svg class="icon icon--s"><use href="#i-arrow-up-right"/></svg>
+            </a>
+          </div>
+        </section>
+
+        <section class="about-card">
+          <div class="about-card__head">
             <svg class="icon icon--s"><use href="#i-clock"/></svg>更新记录
             <span class="about-card__count">${t("{n} 个版本", { n: CHANGELOG.length })}</span>
           </div>
@@ -1161,4 +1255,61 @@ export function renderAbout(root) {
     moreText.textContent = open ? t("收起") : t("展开全部 {n} 个版本", { n: CHANGELOG.length });
     if (!open) more.scrollIntoView({ block: "nearest", behavior: "smooth" });
   });
+
+  void hydrateContributors(root);
+}
+
+/**
+ * 贡献者列表：先用内置快照渲染，再向 GitHub 拉最新的补充/替换。
+ *
+ * - 结果缓存 24 小时，避免每开一次关于页就打一次 GitHub（匿名限流 60 次/小时）；
+ * - 6 秒超时、任何失败都静默保留快照，离线部署也能正常显示；
+ * - 只认 User，过滤掉 dependabot 这类 Bot。
+ */
+async function hydrateContributors(root) {
+  const listEl = root.querySelector("[data-contrib]");
+  const countEl = root.querySelector("[data-contrib-count]");
+  if (!listEl) return;
+
+  const paint = (items) => {
+    if (!root.isConnected || !items.length) return;
+    listEl.innerHTML = contributorRows(items);
+    if (countEl) countEl.textContent = t("{n} 人", { n: items.length });
+  };
+
+  let cached = null;
+  try {
+    cached = JSON.parse(localStorage.getItem(CONTRIB_CACHE) || "null");
+  } catch {
+    cached = null;
+  }
+  if (cached && Date.now() - Number(cached.at || 0) < CONTRIB_TTL && Array.isArray(cached.items)) {
+    paint(cached.items);
+    return;
+  }
+
+  const ctrl = typeof AbortController === "function" ? new AbortController() : null;
+  const timer = window.setTimeout(() => ctrl?.abort(), 6000);
+  try {
+    const res = await fetch(`${REPO_API}/contributors?per_page=100`, {
+      headers: { Accept: "application/vnd.github+json" },
+      signal: ctrl?.signal,
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    const items = (Array.isArray(data) ? data : [])
+      .filter((who) => who && who.login && who.type !== "Bot")
+      .map((who) => ({ login: who.login, contributions: who.contributions || 0 }));
+    if (!items.length) return;
+    paint(items);
+    try {
+      localStorage.setItem(CONTRIB_CACHE, JSON.stringify({ at: Date.now(), items }));
+    } catch {
+      /* 隐私模式写不了缓存，下次再拉 */
+    }
+  } catch {
+    /* 离线 / 被墙 / 限流：保留快照，不打扰用户 */
+  } finally {
+    window.clearTimeout(timer);
+  }
 }

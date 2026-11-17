@@ -304,9 +304,10 @@ sql/schema.sql       MySQL 建表参考
 
 ## 依赖说明
 
-只依赖 6 个包（fastapi、uvicorn、sqlalchemy、pymysql、cryptography、pillow）。
+只依赖 8 个包（fastapi、uvicorn、sqlalchemy、pymysql、cryptography、pillow、mutagen、qrcode）。
 上传走裸流与分片协议，未使用 `python-multipart`；密码哈希用标准库 `hashlib.scrypt`，
-会话令牌自行 HMAC 签名，因此不引入 passlib / itsdangerous / PyJWT。
+会话令牌自行 HMAC 签名，因此不引入 passlib / itsdangerous / PyJWT；前端不打包、不引 CDN，
+第三方脚本都放在 `static/vendor/` 里随仓库分发。
 
 ## 环境变量
 
@@ -467,3 +468,47 @@ LYRICS_API_COOKIE=session=xxxxx
 - [x] M5 分享链接与回收站增强：提取码 / 次数限制 / 回收站开关
 - [x] M7 后台管理：概览、用户、审计日志、系统设置
 - [x] M6 WebDAV：Basic 认证、PROPFIND / PUT / MOVE / COPY / LOCK、配额与审计接入
+
+## 致谢
+
+这个项目站在一群开源项目的肩膀上：上传、预览、播放、音视频标签、看板娘渲染里最费劲的部分，
+都是它们解决的。下面是运行时真正用到的依赖，与 `requirements.txt`、`static/vendor/` 一一对应。
+
+### 后端
+
+| 项目 | 用途 | 许可证 |
+| --- | --- | --- |
+| [FastAPI](https://github.com/fastapi/fastapi) | Web 框架 / 自动校验 | MIT |
+| [Uvicorn](https://github.com/encode/uvicorn) | ASGI 服务器 | BSD-3-Clause |
+| [SQLAlchemy](https://github.com/sqlalchemy/sqlalchemy) | ORM 与数据库工具 | MIT |
+| [PyMySQL](https://github.com/PyMySQL/PyMySQL) | MySQL 驱动 | MIT |
+| [cryptography](https://github.com/pyca/cryptography) | 密钥加密、证书处理 | Apache-2.0 / BSD |
+| [Pillow](https://github.com/python-pillow/Pillow) | 头像、图标与缩略图 | HPND |
+| [mutagen](https://github.com/quodlibet/mutagen) | 音视频元数据标签 | GPL-2.0-or-later |
+| [qrcode](https://github.com/lincolnloop/python-qrcode) | 网易云扫码登录的二维码 | BSD |
+
+### 前端（随仓库内置，不走 CDN）
+
+| 项目 | 用途 | 许可证 |
+| --- | --- | --- |
+| [ArtPlayer](https://github.com/zhw2590582/ArtPlayer) | 视频 / 音频播放器 | MIT |
+| [hls.js](https://github.com/video-dev/hls.js) | HLS 播放 | Apache-2.0 |
+| [dash.js](https://github.com/Dash-Industry-Forum/dash.js) | DASH 播放 | BSD-3-Clause |
+| [JSZip](https://github.com/Stuk/jszip) | ZIP 读写（Office 预览） | MIT / GPL-3.0 |
+| [docx-preview](https://github.com/VolodymyrBaydalka/docxjs) | Word 文档预览 | Apache-2.0 |
+| [SheetJS](https://github.com/SheetJS/sheetjs) | Excel 预览 | Apache-2.0 |
+| [PixiJS](https://github.com/pixi-js/pixi) | 看板娘渲染 | MIT |
+| [qrcode-generator](https://github.com/kazuhikoarase/qrcode-generator) | 前端二维码 | MIT |
+| [Live2D Cubism SDK](https://www.live2d.com/sdk/) | 看板娘模型运行时 | Live2D 专有许可（非开源） |
+
+以上项目均按其各自许可证使用，完整条款见各项目仓库；Live2D Cubism SDK 不是开源软件，
+使用时请遵守 Live2D 的 SDK 许可。若这份列表漏掉了你正在使用的项目，欢迎提 Issue / PR 补上。
+
+### 贡献者
+
+感谢每一位提交代码、反馈问题、改进文档的人：
+
+- [@minecraftmc22](https://github.com/minecraftmc22) — 作者与维护者
+
+完整名单与提交记录见 GitHub 的[贡献者页面](https://github.com/minecraftmc22/CloudNETP/graphs/contributors)。
+「关于」页也会从 GitHub 拉取最新贡献者（缓存 24 小时，离线时回落到内置快照）。
