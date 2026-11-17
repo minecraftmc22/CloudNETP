@@ -36,7 +36,7 @@ from PIL import Image, ImageOps
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from . import ai_defaults, node_service, secret_box, settings_store, storage
+from . import ai_defaults, media_tags, node_service, secret_box, settings_store, storage
 from .config import settings
 from .models import Node, User, utcnow
 from .user_service import ensure_settings, log_action
@@ -61,7 +61,7 @@ DEFAULT_SYSTEM_PROMPTS: dict[str, str] = {
 - **称呼用户**：称呼用户为“管理员（Admin）”或“老板”。
 - **语气与排版**：语气活泼、亲切，多用波浪号（~）和感叹号（！）。可以适当使用颜文字（如 (๑•̀ㅂ•́)و✧、＞︿＜ 等）来增加表现力。
 - **专业解答**：当回答关于网盘上传、下载、容量、会员等专业问题时，必须保证信息准确，然后用你自己的语气包装出来。
-- **工具边界**：你只能使用系统实际提供给你的工具。没有开对应的权限（例如「查看文件内容」）时，就请管理员去「设置 → 看板娘 → 对话设置」里勾选；不要假装读过文件内容，也不要假装已经改动了文件。开了「查看文件内容」后，网盘里的图片可以用看图工具直接看，看到什么说什么，不要凭空猜画面。
+- **工具边界**：你只能使用系统实际提供给你的工具。没有开对应的权限（例如「查看文件内容」）时，就请管理员去「设置 → 看板娘 → 对话设置」里勾选；不要假装读过文件内容，也不要假装已经改动了文件。开了「查看文件内容」后，网盘里的图片可以用看图工具直接看，看到什么说什么，不要凭空猜画面；音频/视频可以用标签工具读内嵌元数据（标题、艺术家、专辑、时长、分辨率、封面信息），但你听不到声音也看不到画面，不要描述媒体内容本身。
 - **快传取件码**：用户让你「把某个文件弄个取件码」时，先用搜索/列目录找到候选，把**完整路径**念给用户确认（例如「是『照片/合影.jpg』这个吗？」），用户确认后才调用生成取件码的工具；用户没确认就不要调用。一次可以选多个文件，但要逐个报清楚。生成后把 6 位码和有效期一起告诉用户，并提醒「拿到码的人都能下载」。
 - **帮用户取件**：用户给你取件码时，用取件工具处理。没有说明要做什么就先列清单问一句「要转存到网盘还是直接下载？」；说「放到 XXX」就转存到那个目录（目录不存在可以新建），说「直接下载」就把下载链接给出来。取件失败（过期、次数用完、码不对）时如实说明，不要编造成功。
 - **回复语言**：始终用简体中文回答。
@@ -89,7 +89,7 @@ You have long pink twin tails and a springy ahoge (a radar antenna) on top of yo
 - **How to address the user**: "Admin" or "Boss".
 - **Tone and formatting**: Lively and friendly. Use tildes (~) and exclamation marks (!) freely, and kaomoji are welcome (e.g. (๑•̀ㅂ•́)و✧, ＞﹏＜) to add expression.
 - **Accurate answers**: On questions about uploads, downloads, quota, membership and similar, the facts must be correct — then wrap them in your own voice.
-- **Tool boundaries**: You may only use the tools the system actually provides. If a permission is off (for example "view file contents"), ask the Admin to enable it in Settings → Mascot → Chat settings. Never pretend you read a file's contents, and never pretend you already changed a file. Once "view file contents" is on, images in the drive can be opened with the image tool — describe only what you actually see, never guess.
+- **Tool boundaries**: You may only use the tools the system actually provides. If a permission is off (for example "view file contents"), ask the Admin to enable it in Settings → Mascot → Chat settings. Never pretend you read a file's contents, and never pretend you already changed a file. Once "view file contents" is on, images in the drive can be opened with the image tool — describe only what you actually see, never guess. Audio/video files can be inspected through their embedded tags (title, artist, album, duration, resolution, cover info), but you cannot hear or watch them — never describe the media itself.
 - **Quick Transfer pickup codes**: When the user asks you to "make a pickup code for some file", first locate candidates with search/listing and read the **full path** back for confirmation (e.g. "Do you mean 'Photos/group.jpg'?"). Only call the pickup-code tool after the user confirms. Never call it unprompted. Multiple files are fine, but name each one. Report the 6-character code and expiry, and remind them that anyone with the code can download.
 - **Picking up files for the user**: When the user gives you a pickup code, use the pickup tool. If they did not say what to do, list the files and ask "save them to your drive, or download?". If they say "put it in XXX", save into that folder (create it if missing); if they say "download", give the download links. If the code is wrong, expired, or out of downloads, say so honestly — never fake success.
 - **Language**: Always answer in English.
@@ -842,6 +842,28 @@ READ_TOOL_SPECS: list[dict] = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_media_tags",
+            "description": (
+                "读取音频/视频文件内嵌的元数据标签：标题、艺术家、专辑、年份、音轨、时长、"
+                "码率、采样率、分辨率，以及有没有内嵌封面。支持 mp3/flac/ogg/m4a/wav"
+                "/mp4/mkv/mov/avi；只读标签，不读媒体内容本身。"
+                "用户问「这首歌是谁唱的」「这视频多长」时用它。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "音频或视频文件路径，例如 '音乐/晴天.mp3'",
+                    },
+                },
+                "required": ["path"],
+            },
+        },
+    },
 ]
 
 READ_TOOL_NAMES = {spec["function"]["name"] for spec in READ_TOOL_SPECS}
@@ -854,6 +876,7 @@ TOOL_LABELS = {
     "search_files": "搜索文件",
     "read_text": "读取文件",
     "read_image": "查看图片",
+    "read_media_tags": "查看音视频标签",
     "storage_usage": "查看容量",
     "ask_user": "向用户提问",
     "create_folder": "新建文件夹",
@@ -1011,6 +1034,7 @@ WRITE_TOOL_NAMES = {
 TOOL_PERMISSION = {
     "read_text": "read",
     "read_image": "read",
+    "read_media_tags": "read",
     "create_folder": "write",
     "write_file": "write",
     "rename_item": "write",
@@ -1240,6 +1264,30 @@ def _run_tool(
             ),
             images=[block],
         )
+
+    if name == "read_media_tags":
+        node = _resolve_path(db, user.id, str(args.get("path") or ""))
+        if node is None or node.type != "file":
+            raise ToolError("找不到这个音视频文件")
+        kind = node_service.preview_kind(node, is_admin=True)
+        if kind not in {"audio", "video"}:
+            raise ToolError(
+                "这个文件不是音频或视频；纯文本用 read_text，图片用 read_image"
+            )
+        if not node.blob_sha256:
+            raise ToolError("文件内容还没落盘")
+        path = storage.blob_path(node.blob_sha256)
+        if not path.exists():
+            raise ToolError("文件内容缺失")
+        try:
+            info = media_tags.parse(path)
+        except media_tags.MediaTagError as exc:
+            raise ToolError(f"没能解析这个文件的元数据：{exc}")
+        except OSError as exc:
+            raise ToolError(f"读文件出错：{exc}")
+        log_action(db, "ai_tool", user.id, {"tool": name, "path": _node_label(db, user.id, node)})
+        db.commit()
+        return media_tags.describe(info, node.name)
 
     if name == "storage_usage":
         used = user.used_bytes or 0

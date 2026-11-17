@@ -33,11 +33,12 @@ OUT = Path(tempfile.gettempdir()) / "cloudnetp_shots"
 OUT.mkdir(exist_ok=True)
 
 TEXT_ZH = (
-    "读取 txt / md / 代码等纯文本（最多 4000 字），以及 png / jpg / webp / gif 图片"
-    "（需同时开启「图片输入」）；不勾选时只能看文件名、大小和修改时间"
+    "读取 txt / md / 代码等纯文本（最多 4000 字），查看 png / jpg / webp / gif 图片"
+    "（需同时开启「图片输入」），以及 mp3 / mp4 等音视频的元数据标签"
+    "（标题、艺术家、时长、分辨率，不读内容本身）；不勾选时只能看文件名、大小和修改时间"
 )
 TEXT_EN = (
-    "Reads text files (txt / md / code, up to 4000 characters) and images "
+    "Reads text files (txt / md / code, up to 4000 characters), images "
     "(png / jpg / webp / gif, requires Image input)"
 )
 
