@@ -80,6 +80,13 @@ class PasswordOnlyIn(CamelModel):
     password: str = Field(min_length=1, max_length=128)
 
 
+class AccountDeleteIn(CamelModel):
+    """注销账号：密码必填；绑定过邮箱的还要再填一次那个邮箱。"""
+
+    password: str = Field(min_length=1, max_length=128)
+    email: str = Field(default="", max_length=254)
+
+
 class SettingsIn(CamelModel):
     theme_mode: Literal[0, 1, 2] | None = None
     accent_color: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")

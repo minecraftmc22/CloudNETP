@@ -11,6 +11,8 @@ from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
+from .. import account_service
+from .. import admin_service
 from .. import ban_service
 from .. import captcha as cap
 from .. import email_code
@@ -22,6 +24,7 @@ from ..db import get_db
 from ..deps import get_current_user
 from ..models import User, utcnow
 from ..schemas import (
+    AccountDeleteIn,
     EmailBindIn,
     EmailCodeIn,
     EmailVerifyIn,
@@ -476,6 +479,50 @@ def logout(
     db.commit()
     response.delete_cookie(settings.COOKIE_NAME, path="/")
     return {"ok": True}
+
+
+@router.post("/me/delete")
+def delete_me(
+    payload: AccountDeleteIn,
+    request: Request,
+    response: Response,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """注销当前账号：验证通过后删除全部数据，并清掉登录态。
+
+    验证方式是「密码 + 绑定邮箱」——邮箱是自己填过的额外凭据，能证明操作者不是
+    拿着一个已登录会话的旁人；没绑邮箱就只验密码。
+    """
+    check_origin(request)
+
+    if not verify_password(payload.password, user.password_hash):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "密码不正确")
+    if user.email:
+        given = (payload.email or "").strip().lower()
+        if not given:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "请填写绑定的邮箱")
+        if given != (user.email or "").strip().lower():
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "邮箱与当前账号绑定的不一致")
+
+    # 管理员账号不能把站点删成「没人管」的状态
+    if user.role == 1 and admin_service.admin_count(db) <= 1:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "至少需要保留一名管理员，请先转移管理员身份")
+    if user.is_super and admin_service.super_count(db, exclude_id=user.id) <= 0:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "这是最后一个超级管理员，请先把超级管理员交给别人"
+        )
+
+    name = user.username
+    uid = user.id
+    result = account_service.purge_account(db, user)
+    # 人已经删了，日志不再挂在 user_id 上（外连接取不到用户名），目标写进 detail
+    log_action(db, "account_delete", None, {"id": uid, "target": name, **result}, request)
+    db.commit()
+
+    response.delete_cookie(settings.COOKIE_NAME, path="/")
+    response.delete_cookie(ban_service.BAN_COOKIE, path="/")
+    return {"deleted": True, "username": name, **result}
 
 
 @router.post("/me/dav/activate")

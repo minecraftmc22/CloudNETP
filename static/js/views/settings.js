@@ -577,6 +577,21 @@ export function renderSettings(root) {
           </div>
         </section>
 
+        <section class="settings-card settings-card--danger" data-card="danger">
+          <div class="settings-card__head"><svg class="icon icon--s"><use href="#i-alert"/></svg>${t("危险区域")}</div>
+          <div class="settings-card__body">
+            <div class="setting-row">
+              <div class="setting-row__main">
+                <div class="setting-row__label">${t("注销账号")}</div>
+                <div class="setting-row__desc">${t(
+                  "永久删除这个账号和里面的全部文件、分享、快传、对话记录；操作不可撤销，也没法帮你找回。"
+                )}</div>
+              </div>
+              <button class="btn btn--danger" type="button" data-act="delete-account">${t("注销账号")}</button>
+            </div>
+          </div>
+        </section>
+
       </div>
     </div>
   `;
@@ -1489,6 +1504,80 @@ export function renderSettings(root) {
 
   root.querySelector('[data-field="displayName"]')?.addEventListener("keydown", (event) => {
     if (event.key === "Enter") root.querySelector('[data-act="profile-save"]')?.click();
+  });
+
+  /* --- 注销账号：先说清后果，再验一次身份 --- */
+  root.querySelector('[data-act="delete-account"]')?.addEventListener("click", async () => {
+    const boundEmail = (user?.email || "").trim();
+
+    const res = await Dialog.confirm({
+      title: t("注销账号"),
+      message: H`
+        <p>${t("这一步会把 {name} 这个账号永久删除，无法撤销：", {
+          name: `<b>${escapeHtml(user?.username || "")}</b>`,
+        })}</p>
+        <ul class="danger-list">
+          <li>${t("登录名会释放，之后任何人都可能注册它，你的旧链接与分享也会失效")}</li>
+          <li>${t("网盘里的全部文件、相册、分享链接、快传送出的文件与取件码一起删除")}</li>
+          <li>${t("看板娘的历史对话与长期记忆、意见反馈、封禁申诉一并清除")}</li>
+          <li>${t("如果同一份文件别人也在用，别人那份不受影响（磁盘上只存一份）")}</li>
+        </ul>
+        <p>${t("确认要继续的话，下一步需要再验证一次身份。")}</p>`,
+      confirmText: t("我了解，继续"),
+      cancelText: t("再想想"),
+      danger: true,
+    });
+    if (!res) return;
+
+    const values = await Dialog.form({
+      title: t("注销账号"),
+      message: boundEmail
+        ? t("请输入登录密码，并填写绑定的邮箱 {email}，用来确认是本人操作。", {
+            email: `<b>${escapeHtml(boundEmail)}</b>`,
+          })
+        : t("这个账号没有绑定邮箱，输入登录密码即可确认是本人操作。"),
+      confirmText: t("永久删除"),
+      cancelText: t("取消"),
+      danger: true,
+      fields: [
+        {
+          name: "password",
+          label: t("登录密码"),
+          type: "password",
+          placeholder: t("当前登录密码"),
+          validate: (v) => (String(v || "") ? null : t("请输入密码")),
+        },
+        ...(boundEmail
+          ? [
+              {
+                name: "email",
+                label: t("绑定的邮箱"),
+                placeholder: boundEmail,
+                validate: (v) =>
+                  String(v || "").trim().toLowerCase() === boundEmail.toLowerCase()
+                    ? null
+                    : t("邮箱与绑定的不一致"),
+              },
+            ]
+          : []),
+      ],
+    });
+    if (!values) return;
+
+    const btn = root.querySelector('[data-act="delete-account"]');
+    if (btn) btn.disabled = true;
+    try {
+      await api.post("/api/me/delete", {
+        password: values.password,
+        email: values.email || "",
+      });
+      Toast.success(t("账号已注销，正在退出…"));
+      // 服务端已经清了 cookie，这里整页重载回到登录页，顺便丢掉内存里的用户态
+      window.setTimeout(() => window.location.assign("/"), 700);
+    } catch (err) {
+      if (btn) btn.disabled = false;
+      Toast.error(err.message || t("注销失败，请稍后再试"));
+    }
   });
 
   /* --- 修改密码 --- */

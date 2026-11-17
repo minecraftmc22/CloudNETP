@@ -27,6 +27,7 @@ ACTIONS: dict[str, dict[str, str]] = {
     "login_banned": {"label": "封禁账号尝试登录", "tone": "warn", "group": "账号"},
     "ban_expired": {"label": "封禁到期自动解封", "tone": "success", "group": "账号"},
     "ban_appeal_submit": {"label": "提交封禁申诉", "tone": "warn", "group": "账号"},
+    "account_delete": {"label": "注销账号", "tone": "danger", "group": "账号"},
     # ---- 文件 ----
     "folder_create": {"label": "新建文件夹", "tone": "info", "group": "文件"},
     "node_rename": {"label": "重命名", "tone": "info", "group": "文件"},

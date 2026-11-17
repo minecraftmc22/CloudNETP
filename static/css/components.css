@@ -156,6 +156,40 @@
   color: var(--text-3);
 }
 
+/* 密码框右侧的显示 / 隐藏按钮 */
+.pwd-eye {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  margin-right: -4px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  transition: color var(--dur-fast) var(--ease-standard),
+    background var(--dur-fast) var(--ease-standard);
+}
+.pwd-eye:hover {
+  color: var(--text-1);
+  background: var(--fill-hover);
+}
+.pwd-eye.is-on {
+  color: var(--accent);
+}
+.pwd-eye .icon {
+  width: 16px;
+  height: 16px;
+}
+/* 两次输入不一致：框本身也标红，不用只盯下面那行小字 */
+.textbox.is-bad {
+  border-color: color-mix(in srgb, var(--danger) 60%, var(--stroke-strong));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 12%, transparent);
+}
+
 /* 下拉选择（有效期等）：与文本框同款外观 */
 .selectbox {
   position: relative;

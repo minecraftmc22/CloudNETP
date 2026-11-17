@@ -8,10 +8,18 @@
 .auth-root {
   position: relative;
   z-index: 3;
+  /* 视口矮的时候（例如笔记本 125% 缩放）注册表单比屏幕还高：
+     自己当滚动容器，再用 auto 外边距在空间富余时垂直居中 */
   height: 100vh;
+  height: 100dvh;
   display: grid;
-  place-items: center;
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: center;
+  align-content: start;
   padding: var(--sp-6);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* 设置页的语言切换：没配 .segmented__thumb，自己给选中项上底色 */
@@ -62,6 +70,8 @@
   align-items: center;
   gap: 56px;
   width: min(940px, 100%);
+  /* 内容比视口矮时上下自动居中；比视口高时贴顶，滚轮能从最上面看起 */
+  margin-block: auto;
   animation: content-in var(--dur-slow) var(--ease-fluent);
 }
 
@@ -512,6 +522,39 @@
   background: var(--fill-hover);
 }
 
+/* 125% 缩放 / 小笔记本：竖着只有 600 出头，收紧间距与插画尺寸 */
+@media (max-height: 720px) {
+  .auth-root {
+    padding: 14px 20px 18px;
+  }
+  .auth-stage {
+    gap: var(--sp-4);
+    align-items: start;
+  }
+  .auth-art__figure {
+    width: 88px;
+    height: 88px;
+    border-radius: 26px;
+  }
+  .auth-art__title {
+    font-size: clamp(22px, 2.6vw, 30px);
+  }
+  .auth-art {
+    gap: var(--sp-3);
+  }
+  .auth-card {
+    padding-top: 20px;
+    padding-bottom: 16px;
+  }
+  .auth-form {
+    gap: 9px;
+    margin-top: var(--sp-3);
+  }
+  .auth-form__msg {
+    min-height: 14px;
+  }
+}
+
 @media (max-width: 900px) {
   .auth-stage {
     grid-template-columns: minmax(0, 1fr);
@@ -588,6 +631,25 @@
 }
 .settings-card__head .icon {
   color: var(--accent);
+}
+/* 危险区域：边框与图标偏红，跟普通设置卡区分开 */
+.settings-card--danger {
+  border-color: color-mix(in srgb, var(--danger) 26%, var(--stroke-hair));
+}
+.settings-card--danger .settings-card__head .icon {
+  color: var(--danger);
+}
+.danger-list {
+  margin: 8px 0 10px;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--text-2);
+}
+.danger-list li::marker {
+  color: var(--danger);
 }
 .settings-card__note {
   padding: 0 18px 12px;

@@ -353,6 +353,8 @@ export function initLive2DMascot({ stage, host, bubble, pick, pickLabel, onPoke,
 
   function show() {
     host?.classList.remove("is-hidden");
+    // 每次露面都按当前视口再夹一次：换设备、改缩放后旧偏移可能已经把她推出屏幕
+    applyOffset();
   }
 
   function setActive(active) {
@@ -416,15 +418,18 @@ export function initLive2DMascot({ stage, host, bubble, pick, pickLabel, onPoke,
     if (!host) return { dx: 0, dy: 0 };
     const w = host.offsetWidth || 232;
     const h = host.offsetHeight || 320;
-    const visible = 48; // 至少留 48px 在屏幕里，免得拖丢了找不回来
-    // 基准位置是 right:14px / bottom:6px
+    const visible = 48; // 往左上推时，至少留 48px 在屏幕里，免得拖丢了找不回来
+    // 基准位置是 right:14px / bottom:6px：
+    // - 往右下走会让身体跑出屏幕（125% 缩放后尤其明显，只剩边角抠不住），所以上界就是 0；
+    // - 往左上走则允许，但必须留一截在视口里。
     const minDx = visible + 14 - window.innerWidth;
-    const maxDx = w - 34;
+    const maxDx = 0;
     const minDy = visible + 6 - window.innerHeight;
-    const maxDy = h - 42;
+    const maxDy = 0;
     if (maxDx <= minDx || maxDy <= minDy) return { dx: 0, dy: 0 };
     return {
       dx: Math.max(minDx, Math.min(maxDx, dx)),
+      // 宽高变化（滚轮放大、换模型）后可能超出上下边，这里一并收回视口
       dy: Math.max(minDy, Math.min(maxDy, dy)),
     };
   }
@@ -526,7 +531,8 @@ export function initLive2DMascot({ stage, host, bubble, pick, pickLabel, onPoke,
   const onHostUp = (event) => endDrag(event, false);
   const onHostCancel = (event) => endDrag(event, true);
 
-  applyOffset();
+  // 落盘一次：旧版本留下的偏移可能已经越界，夹回来的值顺手写回去，别每次加载都重算
+  applyOffset(true);
 
   /* ---------------- 悬停滚轮改大小 ---------------- */
 

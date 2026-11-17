@@ -9,6 +9,10 @@ body {
 
 body {
   margin: 0;
+  /* theme.css 给应用外壳设了 overflow: hidden（滚动交给内部面板），
+     协议页是整页滚动，这里必须显式放开，否则滚轮完全没反应 */
+  overflow-y: auto;
+  overflow-x: hidden;
   font-family: "Segoe UI Variable Text", "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
   color: var(--text-1);
   background: radial-gradient(

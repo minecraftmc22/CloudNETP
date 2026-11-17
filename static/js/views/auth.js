@@ -83,6 +83,9 @@ const template = () => H`
           <span class="textbox">
             <svg class="icon"><use href="#i-shield"/></svg>
             <input name="password" type="password" autocomplete="current-password" maxlength="${PASSWORD_MAX}" placeholder="至少 8 位，含数字与小写字母">
+            <button class="pwd-eye" type="button" data-eye aria-label="显示密码" title="显示密码" aria-pressed="false">
+              <svg class="icon"><use href="#i-eye"/></svg>
+            </button>
           </span>
         </label>
 
@@ -107,7 +110,11 @@ const template = () => H`
           <span class="textbox">
             <svg class="icon"><use href="#i-check"/></svg>
             <input name="confirm" type="password" autocomplete="new-password" placeholder="再输入一次">
+            <button class="pwd-eye" type="button" data-eye aria-label="显示密码" title="显示密码" aria-pressed="false">
+              <svg class="icon"><use href="#i-eye"/></svg>
+            </button>
           </span>
+          <span class="field__error" data-confirm-err hidden></span>
         </label>
 
         <div class="field" data-f-captcha hidden>
@@ -168,6 +175,9 @@ const template = () => H`
           <span class="textbox">
             <svg class="icon"><use href="#i-shield"/></svg>
             <input name="fnew" type="password" autocomplete="new-password" maxlength="${PASSWORD_MAX}" placeholder="至少 8 位，含数字与小写字母">
+            <button class="pwd-eye" type="button" data-eye aria-label="显示密码" title="显示密码" aria-pressed="false">
+              <svg class="icon"><use href="#i-eye"/></svg>
+            </button>
           </span>
         </label>
 
@@ -192,7 +202,11 @@ const template = () => H`
           <span class="textbox">
             <svg class="icon"><use href="#i-check"/></svg>
             <input name="fconfirm" type="password" autocomplete="new-password" maxlength="${PASSWORD_MAX}" placeholder="再输入一次">
+            <button class="pwd-eye" type="button" data-eye aria-label="显示密码" title="显示密码" aria-pressed="false">
+              <svg class="icon"><use href="#i-eye"/></svg>
+            </button>
           </span>
+          <span class="field__error" data-fconfirm-err hidden></span>
         </label>
 
         <div class="auth-form__msg" data-fmsg></div>
@@ -328,6 +342,10 @@ export function renderAuth(root, { meta = {}, onSuccess, onBanned }) {
       hideCaptcha();
     }
     accountHint.hidden = true;
+    if (confirmErr) {
+      confirmErr.hidden = true;
+      confirmInput?.closest(".textbox")?.classList.remove("is-bad");
+    }
     msg.textContent = "";
     msg.classList.remove("is-ok");
     layoutThumb();
@@ -385,6 +403,60 @@ export function renderAuth(root, { meta = {}, onSuccess, onBanned }) {
     if (mode === "register") updateStrength();
   });
 
+  /* ---------- 密码显隐 ---------- */
+  // 眼睛按钮就在输入框右侧：按住看明文，再点一次回到掩码
+  root.querySelectorAll("[data-eye]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const box = btn.closest(".textbox");
+      const input = box?.querySelector("input");
+      if (!input) return;
+      const show = input.type === "password";
+      input.type = show ? "text" : "password";
+      btn.classList.toggle("is-on", show);
+      btn.setAttribute("aria-pressed", show ? "true" : "false");
+      const label = t(show ? "隐藏密码" : "显示密码");
+      btn.title = label;
+      btn.setAttribute("aria-label", label);
+      btn.querySelector("use")?.setAttribute("href", show ? "#i-eye-off" : "#i-eye");
+      // 换类型会把光标丢到开头，放回末尾再继续输入
+      input.focus({ preventScroll: true });
+      const end = input.value.length;
+      try {
+        input.setSelectionRange(end, end);
+      } catch {
+        /* 某些输入类型不支持选区，忽略 */
+      }
+    });
+  });
+
+  /* ---------- 确认密码：边输边比对 ---------- */
+  const confirmInput = form.querySelector('[name="confirm"]');
+  const confirmErr = el("[data-confirm-err]");
+
+  function hintConfirm(input, errEl, first) {
+    if (!input || !errEl) return true;
+    const box = input.closest(".textbox");
+    const again = input.value;
+    const mismatch = Boolean(again) && again !== first.value;
+    errEl.hidden = !mismatch;
+    errEl.textContent = mismatch ? t("两次输入的密码不一致") : "";
+    box?.classList.toggle("is-bad", mismatch);
+    return !mismatch;
+  }
+
+  confirmInput?.addEventListener("input", () => {
+    if (mode !== "register") return;
+    hintConfirm(confirmInput, confirmErr, passwordInput);
+    msg.textContent = "";
+    msg.classList.remove("is-ok");
+  });
+
+  // 先填确认再回去改密码：主密码一改也要立刻重判，别等提交才发现
+  passwordInput.addEventListener("input", () => {
+    if (mode !== "register" || !confirmInput?.value) return;
+    hintConfirm(confirmInput, confirmErr, passwordInput);
+  });
+
   // 重置密码第 3 步：输入新密码时实时给强度与规则勾选，并清掉上一次的报错
   function clearForgotMsg() {
     if (!fmsg.textContent) return;
@@ -398,8 +470,20 @@ export function renderAuth(root, { meta = {}, onSuccess, onBanned }) {
     clearForgotMsg();
   });
 
-  forgotForm.querySelector('[name="fconfirm"]').addEventListener("input", () => {
-    if (forgotStep === 3) clearForgotMsg();
+  const fNewInput = forgotForm.querySelector('[name="fnew"]');
+  const fConfirmInput = forgotForm.querySelector('[name="fconfirm"]');
+  const fConfirmErr = el("[data-fconfirm-err]");
+
+  fConfirmInput.addEventListener("input", () => {
+    if (forgotStep !== 3) return;
+    clearForgotMsg();
+    hintConfirm(fConfirmInput, fConfirmErr, fNewInput);
+  });
+
+  // 改了新密码也要重判确认框
+  fNewInput.addEventListener("input", () => {
+    if (forgotStep !== 3 || !fConfirmInput.value) return;
+    hintConfirm(fConfirmInput, fConfirmErr, fNewInput);
   });
 
   /* ---------- 用户名可用性 ---------- */
@@ -456,7 +540,11 @@ export function renderAuth(root, { meta = {}, onSuccess, onBanned }) {
       }
       const pwdIssue = passwordProblem(password);
       if (pwdIssue) return showError(pwdIssue);
-      if (password !== confirm) return showError("两次输入的密码不一致");
+      if (password !== confirm) {
+        hintConfirm(confirmInput, confirmErr, passwordInput);
+        confirmInput?.focus();
+        return showError("两次输入的密码不一致");
+      }
       if (!captcha) return showError("请输入图形验证码");
     }
 
