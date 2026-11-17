@@ -295,6 +295,26 @@ def main() -> int:
             page.wait_for_timeout(500)
             check("删回两档", page.locator("[data-accent-stop]").count() == 2, str(page.locator("[data-accent-stop]").count()))
 
+            print("\n[B2] 切回单色：色板与色值框跟着第一档")
+            # 删的是第 1 档，所以现存的「第一档」要从库里读，别写死
+            style, _ = saved_accent()
+            first_left = (style.get("colors") or [""])[0]
+            page.locator("[data-accent-mode-btn='solid']").click()
+            page.wait_for_timeout(600)
+            check(
+                "色值框同步成现存第一档",
+                page.locator("[data-accent-hex]").input_value().lower() == first_left,
+                f"{page.locator('[data-accent-hex]').input_value()} vs {first_left}",
+            )
+            check("落库也改成这个颜色", saved_accent()[1] == first_left, str(saved_accent()[1]))
+            check(
+                "取色板入口有「取色板」提示",
+                "取色板" in (page.locator("[data-swatch-pick]").get_attribute("title") or ""),
+                page.locator("[data-swatch-pick]").get_attribute("title") or "",
+            )
+            page.locator("[data-accent-mode-btn='gradient']").click()
+            page.wait_for_timeout(400)
+
             print("\n[C] 没有背景图时点 AI 取色")
             set_background(None)
             ai_calls.clear()

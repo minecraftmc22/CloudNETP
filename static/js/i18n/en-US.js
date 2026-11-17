@@ -1351,4 +1351,6 @@ export default {
   "自定义颜色，填 #rrggbb": "Custom color, e.g. #rrggbb",
 
   "背景图读取失败，请重新上传": "Couldn't read the wallpaper — please upload it again",
+
+  "打开取色板挑颜色": "Open the color picker",
 };

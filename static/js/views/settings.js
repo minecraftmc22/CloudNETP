@@ -240,7 +240,7 @@ export function renderSettings(root) {
                            style="background:${c.value}"></button>`
                     ).join("")}
                     <label class="swatch swatch--pick ${isPreset ? "" : "is-active"}"
-                           data-swatch-pick title="${t("自定义颜色")}"
+                           data-swatch-pick title="${t("打开取色板挑颜色")}"
                            style="${isPreset ? "" : H`background:${escapeHtml(accent)}`}">
                       <input type="color" value="${escapeHtml(accent)}" data-color-pick aria-label="${t("自定义主题色")}">
                     </label>
@@ -254,7 +254,7 @@ export function renderSettings(root) {
                     ${gradColors
                       .map(
                         (c, i) => H`<span class="accent-stop" style="--stop:${c}">
-                          <span class="accent-stop__chip">
+                          <span class="accent-stop__chip" title="${t("打开取色板挑颜色")}">
                             <input type="color" value="${c}" data-accent-stop="${i}"
                                    aria-label="${t("渐变颜色 {n}", { n: i + 1 })}">
                           </span>
@@ -806,7 +806,7 @@ export function renderSettings(root) {
     stopsBox.innerHTML = editColors
       .map(
         (color, index) => H`<span class="accent-stop" style="--stop:${color}">
-          <span class="accent-stop__chip">
+          <span class="accent-stop__chip" title="${t("打开取色板挑颜色")}">
             <input type="color" value="${color}" data-accent-stop="${index}"
                    aria-label="${t("渐变颜色 {n}", { n: index + 1 })}">
           </span>
@@ -852,7 +852,10 @@ export function renderSettings(root) {
       const mode = btn.dataset.accentModeBtn;
       if (mode === "gradient") ensureGradientColors();
       paintMode(mode);
-      saveAccent(mode, mode === "solid" ? [editColors[0] || currentAccent()] : editColors);
+      const main = editColors[0] || currentAccent();
+      // 切回单色时把色板高亮和色值框同步到当前主色，别留着上一个颜色
+      if (mode === "solid") markAccent(main);
+      saveAccent(mode, mode === "solid" ? [main] : editColors);
     });
   });
 
