@@ -135,6 +135,18 @@ def main() -> int:
         db.commit()
     cookie = create_token(user_id, token_version)
 
+    # [E] 段要真读服务端配置（不 mock /api/ai/config），这里先把接口填进库副本：
+    # 之前 mock 回扁平对象，把「配置藏在 config 里层、读错层级」的 bug 掩盖了
+    from app import ai_service as ai
+
+    with SessionLocal() as db:
+        ai.save_config(
+            db,
+            user_id,
+            {"baseUrl": "http://127.0.0.1:9/v1", "key": "sk-test", "model": "test-model"},
+        )
+        db.commit()
+
     def saved_accent():
         conn = sqlite3.connect(str(db_copy))
         try:
@@ -199,12 +211,16 @@ def main() -> int:
                 page.route("**/api/background/e2e-bg.png", lambda route: route.fulfill(
                     status=200, content_type="image/png", body=png
                 ))
+                # 照后端真实结构回：配置在 config 里层（外层还有 isAdmin / systemPrompt），
+                # 直接回扁平对象会把「读错层级」的 bug 掩盖掉
                 page.route(
                     "**/api/ai/config",
                     lambda route: route.fulfill(
                         status=200,
                         content_type="application/json",
-                        body=json.dumps(ai_config),
+                        body=json.dumps(
+                            {"config": ai_config, "isAdmin": False, "systemPrompt": ""}
+                        ),
                     ),
                 )
 
@@ -336,10 +352,17 @@ def main() -> int:
             check("提示去对话设置填接口", "对话设置" in toast, toast[:80])
             check("同样没发取色请求", not ai_calls, str(len(ai_calls)))
 
-            print("\n[E] AI 取色成功")
+            print("\n[E] AI 取色成功（真读服务端配置）")
             ai_config = {"ready": True, "aiEnabled": True, "source": "user"}
             ai_calls.clear()
+            # 撤掉 /api/ai/config 的假响应，改由服务端按库里的真实配置作答
+            page.unroute("**/api/ai/config")
             open_settings()
+            real_ready = page.evaluate(
+                "fetch('/api/ai/config', {credentials:'same-origin'})"
+                ".then(r => r.json()).then(d => d?.config?.ready === true)"
+            )
+            check("服务端配置确实可用（ready=true）", real_ready is True, str(real_ready))
             button = page.locator("[data-act='pick-ai']")
             held.clear()
             button.click()

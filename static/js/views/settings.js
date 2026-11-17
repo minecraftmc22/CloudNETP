@@ -1029,7 +1029,9 @@ export function renderSettings(root) {
     try {
       let cfg = null;
       try {
-        cfg = await api.get("/api/ai/config");
+        const res = await api.get("/api/ai/config");
+        // 接口回的是 { config, isAdmin, systemPrompt }，配置在里层；别直接拿外层当配置
+        cfg = res?.config ?? res;
       } catch {
         cfg = null;
       }
@@ -1037,7 +1039,8 @@ export function renderSettings(root) {
         Toast.warn(t("管理员已关闭 AI 功能"));
         return;
       }
-      if (!cfg?.ready) {
+      // 只有「明确读到配置且不可用」才拦；读配置失败就往下走，让服务端给出准确原因
+      if (cfg && cfg.ready === false) {
         // 取色用的是看板娘对话那套接口，提示直接指向配置入口，别让人到处找
         Toast.warn(t("还没填 AI 接口，去「设置 → 看板娘 · 对话设置」填好就能取色啦~"));
         return;
