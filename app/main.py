@@ -216,6 +216,7 @@ app.mount("/live2d", StaticFiles(directory=settings.LIVE2D_DIR), name="live2d")
 from .routers import admin as admin_router  # noqa: E402
 from .routers import ai as ai_router  # noqa: E402
 from .routers import auth as auth_router  # noqa: E402
+from .routers import ban as ban_router  # noqa: E402
 from .routers import dav as dav_router  # noqa: E402
 from .routers import feedback as feedback_router  # noqa: E402
 from .routers import live2d as live2d_router  # noqa: E402
@@ -226,6 +227,7 @@ from .routers import update as update_router  # noqa: E402
 from .routers import uploads as uploads_router  # noqa: E402
 
 app.include_router(auth_router.router)
+app.include_router(ban_router.router)
 app.include_router(nodes_router.router)
 app.include_router(shares_router.router)
 app.include_router(quick_router.router)
@@ -264,7 +266,7 @@ def drop_page(token: str) -> FileResponse:
 # 这里把已知视图名 302 到 /#/<视图>；Location 自带 fragment，
 # 浏览器不会继承原来的 #/admin，所以最终就是干净的 /#/admin。
 VIEW_ROUTES = frozenset(
-    {"files", "shares", "quick", "trash", "settings", "about", "feedback", "admin"}
+    {"files", "shares", "quick", "trash", "settings", "about", "feedback", "admin", "appeal"}
 )
 
 

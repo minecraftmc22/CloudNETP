@@ -45,6 +45,10 @@ async function request(path, { method = "GET", body, headers = {}, raw = false }
     if (res.status === 401 && !path.startsWith("/api/auth/")) {
       window.dispatchEvent(new CustomEvent("session:expired"));
     }
+    // 封禁是「有身份但不能用」，跟普通 403 不是一回事：广播出去让外壳弹提示
+    if (res.status === 403 && data?.detail?.code === "banned") {
+      window.dispatchEvent(new CustomEvent("session:banned", { detail: data.detail }));
+    }
     throw new ApiError(errorText(data, res.status), res.status, data?.code, data);
   }
   return data;
@@ -60,7 +64,11 @@ function errorText(data, status) {
       .filter(Boolean);
     if (parts.length) return t("参数有误：{parts}", { parts: parts.join(t("；")) });
   }
-  if (detail && typeof detail === "object") return JSON.stringify(detail);
+  if (detail && typeof detail === "object") {
+    // 结构化 detail（例如封禁信息）里带 message，优先用它，别把 JSON 甩给用户
+    if (typeof detail.message === "string" && detail.message) return detail.message;
+    return JSON.stringify(detail);
+  }
   return t("请求失败（{status}）", { status });
 }
 

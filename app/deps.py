@@ -8,7 +8,8 @@ from sqlalchemy.orm import Session
 from .config import settings
 from .db import get_db
 from .models import User
-from .security import decode_token
+from .security import decode_token, sign_ban_ticket
+from .user_service import log_action
 
 
 def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
@@ -21,10 +22,26 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
     user = db.get(User, int(payload.get("u", 0)))
     if not user:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "账号不存在")
-    if user.banned:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "该账号已被封禁")
     if int(payload.get("v", 0)) != user.token_version:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "登录状态已失效，请重新登录")
+    if user.banned:
+        from . import ban_service
+
+        # 临时封禁到期了就顺手放行，不用等管理员手动解封
+        if ban_service.lift_expired(db, user):
+            log_action(db, "ban_expired", user.id, {"reason": "到期自动解封"}, request)
+            db.commit()
+        else:
+            # 403 + 结构化 detail：前端据此弹「你已被管理员封禁」而不是当普通错误
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                detail={
+                    "code": "banned",
+                    "message": "你已被管理员封禁",
+                    "ban": ban_service.info(user),
+                    "ticket": sign_ban_ticket(user.id, ban_service.stamp_of(user)),
+                },
+            )
     return user
 
 

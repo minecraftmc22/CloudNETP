@@ -25,12 +25,36 @@ CREATE TABLE IF NOT EXISTS users (
   quota_bytes   BIGINT       NOT NULL DEFAULT 10737418240 COMMENT '默认 10 GiB',
   used_bytes    BIGINT       NOT NULL DEFAULT 0 COMMENT '冗余累加，配额判断 O(1)',
   banned        TINYINT(1)   NOT NULL DEFAULT 0,
+  ban_reason    VARCHAR(200) NULL COMMENT '封禁原因，展示给用户',
+  banned_at     DATETIME     NULL COMMENT '本次封禁开始时间',
+  ban_until     DATETIME     NULL COMMENT '到期自动解封；NULL = 永久',
+  banned_by     BIGINT       NULL COMMENT '操作的管理员 id',
   token_version INT          NOT NULL DEFAULT 1 COMMENT '改密/踢下线时自增',
   created_at    DATETIME     NOT NULL,
   last_login_at DATETIME     NULL,
   PRIMARY KEY (id),
   UNIQUE KEY uk_users_username (username),
   CONSTRAINT ck_users_role CHECK (role IN (0, 1))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- ------------------------------------------------------------
+-- 封禁申诉（用户提交，管理员审核）
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS ban_appeals (
+  id          BIGINT       NOT NULL AUTO_INCREMENT,
+  user_id     BIGINT       NOT NULL,
+  message     VARCHAR(1000) NOT NULL,
+  status      VARCHAR(16)  NOT NULL DEFAULT 'pending' COMMENT 'pending / approved / rejected',
+  ban_reason  VARCHAR(200) NULL COMMENT '申诉时的封禁原因快照',
+  ban_until   DATETIME     NULL COMMENT '申诉时的解封时间快照',
+  reply       VARCHAR(200) NULL COMMENT '管理员给用户的说明',
+  handled_by  BIGINT       NULL,
+  handled_at  DATETIME     NULL,
+  created_at  DATETIME     NOT NULL,
+  PRIMARY KEY (id),
+  KEY idx_appeal_user (user_id, created_at),
+  KEY idx_appeal_status (status, created_at),
+  CONSTRAINT fk_appeal_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- ------------------------------------------------------------

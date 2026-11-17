@@ -258,6 +258,9 @@ def list_users(
                 "trashCount": stat.get("trashCount", 0),
                 "shareCount": shares.get(user.id, 0),
                 "banned": bool(user.banned),
+                "banReason": user.ban_reason or "",
+                "banUntil": iso(user.ban_until),
+                "bannedAt": iso(user.banned_at),
                 "createdAt": iso(user.created_at),
                 "lastLoginAt": iso(user.last_login_at),
             }
@@ -309,6 +312,9 @@ def user_row(db: Session, user: User) -> dict:
         "trashCount": trash,
         "shareCount": shares,
         "banned": bool(user.banned),
+        "banReason": user.ban_reason or "",
+        "banUntil": iso(user.ban_until),
+        "bannedAt": iso(user.banned_at),
         "createdAt": iso(user.created_at),
         "lastLoginAt": iso(user.last_login_at),
     }

@@ -362,6 +362,9 @@ class AdminUserPatchIn(CamelModel):
     role: Literal[0, 1] | None = None
     # 超管标记：只有超级管理员能改；设为 true 时同时升为管理员
     is_super: bool | None = None
+    # 封禁原因（最多 200 字）与时长：0 / 不传 = 永久
+    ban_reason: str | None = Field(default=None, max_length=200)
+    ban_days: int | None = Field(default=None, ge=0, le=3650)
 
 
 class AdminSettingsIn(CamelModel):
@@ -390,6 +393,17 @@ class AdminSettingsIn(CamelModel):
 class AdminQuickCleanupIn(CamelModel):
     # 留空 = 用后台设置里的保留天数
     days: int | None = Field(default=None, ge=0, le=365)
+
+
+class BanAppealIn(CamelModel):
+    message: str = Field(min_length=1, max_length=1000)
+    # 登录被拒时拿到的短期票据；有会话 cookie 时可以不带
+    ticket: str = Field(default="", max_length=512)
+
+
+class AdminAppealReviewIn(CamelModel):
+    approve: bool
+    reply: str = Field(default="", max_length=200)
 
 
 class AdminLogPurgeIn(CamelModel):

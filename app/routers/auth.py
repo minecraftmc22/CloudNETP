@@ -11,6 +11,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
+from .. import ban_service
 from .. import captcha as cap
 from .. import email_code
 from .. import profile_service as ps
@@ -43,6 +44,7 @@ from ..security import (
     hash_password,
     normalize_email,
     password_problem,
+    sign_ban_ticket,
     sign_reset,
     username_problem,
     verify_password,
@@ -92,6 +94,34 @@ def _auth_error(message: str, need_captcha: bool, failures: int = 0) -> JSONResp
         status_code=status.HTTP_401_UNAUTHORIZED,
         content={"detail": message, "needCaptcha": need_captcha, "failures": failures},
     )
+
+
+def _banned_response(user: User) -> JSONResponse:
+    """封禁账号的登录结果：403 + 结构化 detail，并下发短期申诉票据。"""
+    ticket = sign_ban_ticket(user.id, ban_service.stamp_of(user))
+    res = JSONResponse(
+        status_code=status.HTTP_403_FORBIDDEN,
+        content={
+            "detail": {
+                "code": "banned",
+                "message": "你已被管理员封禁",
+                "username": user.username,
+                "ban": ban_service.info(user),
+                "ticket": ticket,
+            }
+        },
+    )
+    # 票据同时写 cookie：刷新申诉页、或换标签页打开都能继续用
+    res.set_cookie(
+        ban_service.BAN_COOKIE,
+        ticket,
+        max_age=3600,
+        httponly=True,
+        samesite="lax",
+        secure=settings.cookie_secure,
+        path="/",
+    )
+    return res
 
 
 def _set_session(response: Response, user: User) -> None:
@@ -260,7 +290,14 @@ def login(
         return _auth_error(_FAIL_MESSAGE, count >= CAPTCHA_AFTER_FAILURES, count)
 
     if user.banned:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "该账号已被封禁")
+        # 到期自动解封，直接放行；没到期就把封禁详情 + 申诉票据交给前端
+        if ban_service.lift_expired(db, user):
+            log_action(db, "ban_expired", user.id, {"reason": "到期自动解封"}, request)
+            db.commit()
+        else:
+            log_action(db, "login_banned", user.id, {"account": account}, request)
+            db.commit()
+            return _banned_response(user)
 
     _failures.pop(key, None)
     if not user.dav_ha1:

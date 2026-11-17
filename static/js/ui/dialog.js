@@ -56,7 +56,17 @@ function buildMarkup({ title, message, tone, fields, confirmText, cancelText, sh
       ${body ? `<div class="dialog__body">${body}</div>` : ""}
       ${fields
         .map((f) =>
-          f.type === "select"
+          f.type === "textarea"
+            ? `
+        <label class="field" data-field="${f.name}">
+          ${f.label ? `<span class="field__label">${t(f.label)}</span>` : ""}
+          <span class="textarea">
+            <textarea name="${f.name}" rows="${f.rows || 4}" maxlength="${f.maxlength || 1000}"
+                      placeholder="${esc(t(f.placeholder || ""))}">${esc(f.value || "")}</textarea>
+          </span>
+          <span class="field__error" data-error hidden></span>
+        </label>`
+            : f.type === "select"
             ? `
         <label class="field" data-field="${f.name}">
           ${f.label ? `<span class="field__label">${t(f.label)}</span>` : ""}
@@ -105,7 +115,7 @@ function open(options) {
     // 必须在写入新内容之后作废上一个关闭动画的清空定时器
     closeToken += 1;
 
-    const inputs = [...el.querySelectorAll("input, select")];
+    const inputs = [...el.querySelectorAll("input, select, textarea")];
     const restoreFocus = document.activeElement;
 
     const submit = () => {
@@ -140,7 +150,8 @@ function open(options) {
 
     inputs.forEach((input) => {
       input.addEventListener("keydown", (e) => {
-        if (e.key === "Enter") {
+        // textarea 里回车是换行，不能当提交
+        if (e.key === "Enter" && input.tagName !== "TEXTAREA") {
           e.preventDefault();
           submit();
         }
@@ -190,11 +201,18 @@ export const Dialog = {
   },
 
   /** 多字段表单 → Promise<Record<string, string> | null> */
-  async form({ title = "", message = "", fields = [], confirmText = "保存", cancelText = "取消" } = {}) {
+  async form({
+    title = "",
+    message = "",
+    fields = [],
+    confirmText = "保存",
+    cancelText = "取消",
+    danger = false,
+  } = {}) {
     const result = await open({
       title,
       message,
-      tone: "info",
+      tone: danger ? "danger" : "info",
       confirmText,
       cancelText,
       showCancel: true,

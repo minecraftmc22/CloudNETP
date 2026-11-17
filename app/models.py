@@ -54,6 +54,11 @@ class User(Base):
     quota_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False, default=10 * 1024**3)
     used_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     banned: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # 封禁详情：原因 / 何时封的 / 到期时间（NULL = 永久）/ 谁封的
+    ban_reason: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    banned_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    ban_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    banned_by: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     token_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -374,9 +379,31 @@ class Feedback(Base):
     __table_args__ = (Index("idx_feedback_status", "status", "created_at"),)
 
 
+class BanAppeal(Base):
+    """封禁申诉：被ban的用户提交，管理员在后台通过/驳回。"""
+
+    __tablename__ = "ban_appeals"
+
+    id: Mapped[int] = mapped_column(AutoPK, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    message: Mapped[str] = mapped_column(String(1000), nullable=False)
+    # pending / approved / rejected
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending", index=True)
+    # 申诉当时的封禁快照：解封后原因会被清空，这里留个底
+    ban_reason: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    ban_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    reply: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    handled_by: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    handled_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
+
+    __table_args__ = (Index("idx_appeal_user", "user_id", "created_at"),)
+
+
 class AuditLog(Base):
     __tablename__ = "audit_logs"
-
     id: Mapped[int] = mapped_column(AutoPK, primary_key=True, autoincrement=True)
     user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     action: Mapped[str] = mapped_column(String(32), nullable=False)

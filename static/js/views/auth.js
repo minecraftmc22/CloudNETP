@@ -213,7 +213,7 @@ const template = () => H`
   </div>
 `;
 
-export function renderAuth(root, { meta = {}, onSuccess }) {
+export function renderAuth(root, { meta = {}, onSuccess, onBanned }) {
   root.innerHTML = template();
 
   const el = (sel) => root.querySelector(sel);
@@ -510,6 +510,11 @@ export function renderAuth(root, { meta = {}, onSuccess }) {
     } catch (err) {
       restore();
       const apiErr = err instanceof ApiError ? err : null;
+      // 账号被封：不当作普通登录失败，直接带去申诉页（服务端已下发票据）
+      if (mode === "login" && apiErr?.status === 403 && apiErr.payload?.detail?.code === "banned") {
+        onBanned?.(apiErr.payload.detail);
+        return;
+      }
       const captchaVisible = !captchaField.hidden;
       if (mode === "register" || apiErr?.payload?.needCaptcha || captchaVisible) {
         showCaptcha();

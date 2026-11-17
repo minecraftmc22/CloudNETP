@@ -25,6 +25,8 @@ import { initLive2DMascot } from "./ui/live2d.js";
 import { applyMascotLock, bindMascotActions } from "./ui/mascot-actions.js";
 import { primeChatConfig, toggleMascotChat } from "./ui/mascot-chat.js";
 import { checkForUpdates } from "./ui/update.js";
+import { renderAppeal, rememberBanTicket, storedBanTicket } from "./views/appeal.js";
+import { banNoticeOpen, hideBanNotice, showBanNotice } from "./ui/ban.js";
 import { renderAuth } from "./views/auth.js";
 import { renderAdmin } from "./views/admin.js";
 import { renderAbout } from "./views/about.js";
@@ -56,6 +58,7 @@ const TITLES = {
   feedback: "意见反馈",
   about: "关于",
   admin: "管理后台",
+  appeal: "账号申诉",
 };
 
 const MASCOT_LINES = [
@@ -111,6 +114,13 @@ async function boot() {
     /* 元信息失败不阻塞登录 */
   }
 
+  // 申诉页不依赖登录态：带上登录被拒时存下的票据就能看封禁详情
+  if (location.hash.startsWith("#/appeal")) {
+    showAppeal(null, storedBanTicket());
+    el("boot").hidden = true;
+    return;
+  }
+
   try {
     const data = await api.get("/api/me");
     enterApp(data.user);
@@ -118,7 +128,10 @@ async function boot() {
     const next = takeNextPath();
     if (next) location.replace(next);
   } catch (err) {
-    if (err instanceof ApiError && err.status === 401) {
+    if (err instanceof ApiError && err.status === 403 && err.payload?.detail?.code === "banned") {
+      // 带着封禁会话刷新页面：直接进申诉页，别再弹一次登录
+      showAppeal(err.payload.detail, err.payload.detail?.ticket);
+    } else if (err instanceof ApiError && err.status === 401) {
       showAuth();
     } else {
       Toast.error(t("无法连接后端服务，请确认 uvicorn 已启动"));
@@ -130,7 +143,13 @@ async function boot() {
 }
 
 function showAuth() {
+  stopBanWatch();
+  hideBanNotice();
   store.set({ user: null });
+  if (location.hash.startsWith("#/appeal")) {
+    // 离开申诉页时把 hash 抹掉，否则刷新又跳回去
+    history.replaceState(null, "", location.pathname + location.search);
+  }
   el("shell").hidden = true;
   el("mascot").classList.add("is-hidden");
   const root = el("auth-root");
@@ -139,6 +158,10 @@ function showAuth() {
   startPetals();
   renderAuth(root, {
     meta: store.get().meta || {},
+    onBanned: (detail) => {
+      rememberBanTicket(detail?.ticket || "");
+      showAppeal(detail, detail?.ticket || "");
+    },
     onSuccess: (user, firstAdmin) => {
       root.hidden = true;
       root.innerHTML = "";
@@ -163,7 +186,76 @@ function showAuth() {
   });
 }
 
+/**
+ * 封禁申诉页：和登录页共用 auth-root，不显示应用外壳。
+ * 身份来自票据（登录被拒）或封禁会话（在线弹窗点「去申诉」）。
+ */
+function showAppeal(detail, ticket) {
+  stopBanWatch();
+  hideBanNotice();
+  store.set({ user: null });
+  el("shell").hidden = true;
+  el("mascot").classList.add("is-hidden");
+  const root = el("auth-root");
+  root.hidden = false;
+  stopPetals();
+  startPetals();
+  if (location.hash !== "#/appeal") history.replaceState(null, "", "#/appeal");
+  document.title = `${t("账号申诉")} · ${store.get().meta?.appName || "CloudNETP"}`;
+  renderAppeal(root, {
+    detail,
+    ticket,
+    onExit: () => {
+      root.innerHTML = "";
+      showAuth();
+    },
+  });
+}
+
+/** 被ban状态下的退出：正常登出接口会 403，这里走后端专门的清理接口 */
+async function bannedLogout() {
+  try {
+    await api.post("/api/ban/logout");
+  } catch {
+    /* 清不掉也照常回登录页 */
+  }
+  stopPetals();
+  dropCachedBackground();
+  resetUploads();
+  showAuth();
+}
+
+/* 封禁轮询：用户停在某个页面不动时，也要能收到「你已被封禁」 */
+let banWatchTimer = null;
+
+function stopBanWatch() {
+  if (banWatchTimer) {
+    window.clearInterval(banWatchTimer);
+    banWatchTimer = null;
+  }
+}
+
+async function banTick() {
+  if (!store.get().user || document.visibilityState !== "visible") return;
+  try {
+    await api.get("/api/me");
+  } catch {
+    // 401 由 session:expired 处理；403 封禁由 api.js 广播 session:banned
+  }
+}
+
+function startBanWatch() {
+  stopBanWatch();
+  banWatchTimer = window.setInterval(banTick, 25_000);
+}
+
+// 从后台切回来立刻查一次，别让人等满一个轮询周期
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && banWatchTimer) void banTick();
+});
+
 function enterApp(user) {
+  hideBanNotice();
   store.set({ user, navCollapsed: !!user.settings?.navCollapsed });
   // 账号里存的语言优先于本机设置（换设备也能跟上）
   if (user.settings?.language) {
@@ -194,6 +286,7 @@ function enterApp(user) {
 
   setupMascot(user);
   updateThemeIcon();
+  startBanWatch();
   void autoCheckUpdates(user);
 }
 
@@ -343,6 +436,10 @@ function currentRoute() {
 }
 
 function route() {
+  if (location.hash.startsWith("#/appeal")) {
+    showAppeal(null, storedBanTicket());
+    return;
+  }
   const { user } = store.get();
   if (!user) return;
   const name = currentRoute();
@@ -585,6 +682,18 @@ watchI18n(() => {
   if (user) route();
 });
 
+window.addEventListener("session:banned", (event) => {
+  const detail = event.detail;
+  // 还没登录（登录页被拒）时由 auth.js 直接带去申诉页，这里只处理在线用户
+  if (!store.get().user) return;
+  stopBanWatch();
+  if (banNoticeOpen()) return;
+  showBanNotice(detail, {
+    onAppeal: () => showAppeal(detail, detail?.ticket || ""),
+    onLogout: () => void bannedLogout(),
+  });
+});
+
 window.addEventListener("session:expired", () => {
   if (store.get().user) {
     Toast.warn(t("登录状态已失效，请重新登录"));
@@ -602,7 +711,13 @@ window.addEventListener("user:refresh", (event) => {
   renderNav();
 });
 
-window.addEventListener("hashchange", route);
+window.addEventListener("hashchange", () => {
+  if (location.hash.startsWith("#/appeal")) {
+    showAppeal(null, storedBanTicket());
+    return;
+  }
+  route();
+});
 window.addEventListener("resize", () => {
   const seg = document.querySelector(".segmented__thumb");
   if (seg) {

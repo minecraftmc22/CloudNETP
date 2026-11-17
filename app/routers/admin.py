@@ -8,6 +8,7 @@ from __future__ import annotations
 import logging
 import secrets
 import time
+from datetime import timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
@@ -15,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from .. import admin_service as admin
 from .. import ai_defaults
+from .. import ban_service
 from .. import dav_auth as da
 from .. import db_failover
 from .. import lyrics_config
@@ -26,7 +28,7 @@ from .. import quick_service as qs
 from .. import storage
 from ..db import get_db
 from ..deps import require_admin
-from ..models import User
+from ..models import User, utcnow
 from ..schemas import (
     AdminAiDefaultIn,
     AdminDbReconnectIn,
@@ -124,7 +126,13 @@ def patch_user(
         )
         changed.append("quota")
 
-    if payload.banned is not None and bool(target.banned) != payload.banned:
+    # 已经是封禁状态时，再提交原因/时长视为「改判」，允许刷新封禁详情
+    reban = bool(
+        payload.banned
+        and target.banned
+        and (payload.ban_reason is not None or payload.ban_days is not None)
+    )
+    if payload.banned is not None and (bool(target.banned) != payload.banned or reban):
         if target.id == me.id:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "不能封禁自己")
         if payload.banned and target.is_super:
@@ -140,14 +148,26 @@ def patch_user(
             )
         if payload.banned and target.role == 1 and admin.admin_count(db) <= 1:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "至少需要保留一名可用管理员")
-        target.banned = payload.banned
         if payload.banned:
-            target.token_version += 1  # 让已登录的会话立即失效
+            days = int(payload.ban_days or 0)
+            until = utcnow() + timedelta(days=days) if days > 0 else None
+            reason = (payload.ban_reason or "").strip()[:200]
+            ban_service.apply_ban(db, target, reason=reason, until=until, by_id=me.id)
+            # 故意不踢会话：让还在线的用户马上看到「你已被封禁」弹窗，而不是被静默登出
+            detail = {
+                "target": target.username,
+                "reason": reason,
+                "days": days,
+                "until": until.isoformat(timespec="seconds") + "Z" if until else None,
+            }
+        else:
+            ban_service.clear_ban(db, target)
+            detail = {"target": target.username}
         log_action(
             db,
             "admin_user_ban" if payload.banned else "admin_user_unban",
             me.id,
-            {"target": target.username},
+            detail,
             request,
         )
         changed.append("banned")

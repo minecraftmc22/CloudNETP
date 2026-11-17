@@ -169,6 +169,11 @@ _COLUMN_PATCHES: dict[str, dict[str, str]] = {
         "email_verified": "BOOLEAN NOT NULL DEFAULT 0",
         # 超级管理员：老库补列后默认 0，再由 _bootstrap_super_admin 提第一个管理员
         "is_super": "BOOLEAN NOT NULL DEFAULT 0",
+        # 封禁详情：原因 / 封禁时间 / 解封时间（NULL = 永久）
+        "ban_reason": "VARCHAR(200) NULL",
+        "banned_at": "DATETIME NULL",
+        "ban_until": "DATETIME NULL",
+        "banned_by": "BIGINT NULL",
     },
     "shares": {
         # 合集分享：根节点 id 的 JSON 数组；NULL = 单节点分享

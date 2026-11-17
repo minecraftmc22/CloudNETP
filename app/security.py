@@ -183,6 +183,35 @@ def verify_reset(token: str, password_hash: str) -> int | None:
 
 
 # --------------------------------------------------------------------------- #
+# 封禁申诉令牌
+# --------------------------------------------------------------------------- #
+def sign_ban_ticket(user_id: int, stamp: str, ttl: int = 3600) -> str:
+    """签发给被ban用户的短期票据：只够读封禁信息、提交申诉。
+
+    `stamp` 是这次封禁的时间戳（banned_at 的秒数）。管理员解封后重新封禁，
+    stamp 变了，旧票据自动作废。
+    """
+    exp = int(time.time()) + ttl
+    raw = f"banticket:{user_id}:{exp}:{stamp}".encode()
+    return f"{user_id}.{exp}.{stamp}.{_sign(raw)}"
+
+
+def verify_ban_ticket(token: str) -> tuple[int, str] | None:
+    """校验封禁票据，返回 (user_id, stamp)；无效/过期返回 None。"""
+    try:
+        uid_s, exp_s, stamp, sig = token.split(".", 3)
+        uid, exp = int(uid_s), int(exp_s)
+    except (ValueError, AttributeError):
+        return None
+    if exp < int(time.time()):
+        return None
+    raw = f"banticket:{uid}:{exp}:{stamp}".encode()
+    if not hmac.compare_digest(_sign(raw), sig):
+        return None
+    return uid, stamp
+
+
+# --------------------------------------------------------------------------- #
 # 请求来源 / IP
 # --------------------------------------------------------------------------- #
 def client_ip(request: Request) -> str:

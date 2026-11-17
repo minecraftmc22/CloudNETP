@@ -7,6 +7,7 @@ import { api, escapeHtml, formatBytes, formatTime, percent } from "../api.js";
 import { H, t } from "../i18n.js";
 import { store } from "../store.js";
 import { avatarMarkup } from "../ui/avatar.js";
+import { absTime } from "../ui/ban.js";
 import { Dialog } from "../ui/dialog.js";
 import { openMenu } from "../ui/menu.js";
 import { copyText } from "../ui/share.js";
@@ -25,6 +26,7 @@ const TABS = [
   { id: "overview", label: "概览", icon: "i-chart" },
   { id: "users", label: "用户", icon: "i-user" },
   { id: "reports", label: "举报审核", icon: "i-alert" },
+  { id: "appeals", label: "申诉审核", icon: "i-shield" },
   { id: "feedback", label: "意见反馈", icon: "i-mail" },
   { id: "logs", label: "审计日志", icon: "i-clock" },
   { id: "settings", label: "系统设置", icon: "i-settings" },
@@ -591,6 +593,7 @@ export function renderAdmin(root) {
     actions: null,
     users: { page: 1, query: "", filter: "all", total: 0 },
     reports: { page: 1, filter: "pending", total: 0 },
+    appeals: { page: 1, filter: "pending", total: 0 },
     feedback: { page: 1, filter: "pending", total: 0 },
     logs: { page: 1, query: "", action: "", userId: null, username: "", total: 0 },
   };
@@ -895,9 +898,12 @@ export function renderAdmin(root) {
       : user.role === 1
         ? H`<span class="admin-badge is-ok">管理员</span>`
         : "";
+    const banTip = user.banned
+      ? [user.banReason || t("未填写原因"), user.banUntil ? t("解封时间：{when}", { when: absTime(user.banUntil) }) : t("永久封禁")].join(" · ")
+      : "";
     const status = user.banned
-      ? H`<span class="admin-badge is-banned">已封禁</span>`
-      : H`<span class="admin-badge is-ok">正常</span>`;
+      ? H`<span class="admin-badge is-banned" title="${escapeHtml(banTip)}">${t("已封禁")}</span>`
+      : H`<span class="admin-badge is-ok">${t("正常")}</span>`;
     // 名称优先用昵称（display_name），登录名只在两者不同时作为次要标识
     const shownName = user.displayName || user.username;
     const alias = shownName !== user.username ? H`@${user.username} · ` : "";
@@ -974,6 +980,16 @@ export function renderAdmin(root) {
       }
     } else {
       items.push({ label: "成员角色由超级管理员管理", icon: "i-lock", disabled: true });
+    }
+
+    if (user.banned) {
+      // 已封禁时允许直接改原因 / 时长，不必先解封再封
+      items.push({
+        label: "修改封禁",
+        icon: "i-alert",
+        disabled: self || targetSuper || lockedMember,
+        onClick: () => setBanned(user, reload, { reban: true }),
+      });
     }
 
     items.push(
@@ -1120,22 +1136,69 @@ export function renderAdmin(root) {
     }
   }
 
-  async function setBanned(user, reload) {
-    const ban = !user.banned;
-    const ok = await Dialog.confirm({
-      title: ban ? "封禁账号" : "解封账号",
-      message: ban
-        ? t("封禁后 {name} 会立即被踢下线，且无法再登录。文件不会被删除，解封后恢复。", {
-            name: `<b>${escapeHtml(user.username)}</b>`,
-          })
-        : t("{name} 将恢复登录权限。", { name: `<b>${escapeHtml(user.username)}</b>` }),
-      confirmText: ban ? "封禁" : "解封",
-      danger: ban,
+  const BAN_DAYS = [
+    { value: "1", label: "1 天" },
+    { value: "3", label: "3 天" },
+    { value: "7", label: "7 天" },
+    { value: "30", label: "30 天" },
+    { value: "0", label: "永久封禁" },
+  ];
+
+  async function setBanned(user, reload, { reban = false } = {}) {
+    const ban = reban || !user.banned;
+    if (!ban) {
+      const ok = await Dialog.confirm({
+        title: t("解封账号"),
+        message: t("{name} 将恢复登录权限，封禁原因与到期时间会一起清空。", {
+          name: `<b>${escapeHtml(user.username)}</b>`,
+        }),
+        confirmText: t("解封"),
+      });
+      if (!ok) return;
+      try {
+        await api.patch(`/api/admin/users/${user.id}`, { banned: false });
+        Toast.success(t("账号已解封"));
+        reload();
+      } catch (err) {
+        Toast.error(err.message);
+      }
+      return;
+    }
+
+    const values = await Dialog.form({
+      title: t(reban ? "修改封禁 · {name}" : "封禁账号 · {name}", { name: user.username }),
+      message: t(
+        "封禁后 {name} 无法继续使用网盘：在线的会立刻看到封禁说明，不在线的下次登录会被带到申诉页。文件不会被删除，解封后恢复。",
+        { name: `<b>${escapeHtml(user.username)}</b>` }
+      ),
+      confirmText: t("封禁"),
+      danger: true,
+      fields: [
+        {
+          name: "reason",
+          label: t("封禁原因"),
+          placeholder: t("会展示给用户，例如：传播违规内容"),
+          value: reban ? user.banReason || "" : "",
+          maxlength: 200,
+          validate: (v) => (String(v || "").trim().length < 2 ? t("写一句原因吧，用户要看到") : null),
+        },
+        {
+          name: "days",
+          type: "select",
+          label: t("封禁时长"),
+          value: reban ? "0" : "7",
+          options: BAN_DAYS,
+        },
+      ],
     });
-    if (!ok) return;
+    if (!values) return;
     try {
-      await api.patch(`/api/admin/users/${user.id}`, { banned: ban });
-      Toast.success(ban ? "账号已封禁" : "账号已解封");
+      await api.patch(`/api/admin/users/${user.id}`, {
+        banned: true,
+        banReason: values.reason.trim(),
+        banDays: Number(values.days),
+      });
+      Toast.success(t("账号已封禁"));
       reload();
     } catch (err) {
       Toast.error(err.message);
@@ -1710,6 +1773,189 @@ export function renderAdmin(root) {
     }
 
     loadFeedback();
+  }
+
+  const APPEAL_FILTERS = [
+    { id: "pending", label: "待审核" },
+    { id: "approved", label: "已通过" },
+    { id: "rejected", label: "已驳回" },
+    { id: "all", label: "全部" },
+  ];
+
+  const APPEAL_STATUS = {
+    pending: { label: "审核中", tone: "warn" },
+    approved: { label: "已通过", tone: "ok" },
+    rejected: { label: "未通过", tone: "banned" },
+  };
+
+  async function showAppeals() {
+    panel.innerHTML = H`
+      <div class="admin-toolbar">
+        <div class="admin-chips">
+          ${APPEAL_FILTERS.map(
+            (f) =>
+              H`<button class="admin-chip ${state.appeals.filter === f.id ? "is-active" : ""}" type="button" data-filter="${f.id}">${t(f.label)}</button>`
+          ).join("")}
+        </div>
+        <div class="grow"></div>
+        <span class="admin-count" data-count></span>
+      </div>
+      <div data-list>${loading()}</div>
+      <div class="admin-pager" data-pager></div>`;
+
+    const listEl = panel.querySelector("[data-list]");
+    const countEl = panel.querySelector("[data-count]");
+    const pagerEl = panel.querySelector("[data-pager]");
+
+    panel.querySelectorAll("[data-filter]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        state.appeals.filter = btn.dataset.filter;
+        state.appeals.page = 1;
+        panel.querySelectorAll("[data-filter]").forEach((b) => b.classList.toggle("is-active", b === btn));
+        loadAppeals();
+      });
+    });
+
+    async function loadAppeals() {
+      listEl.innerHTML = loading();
+      const params = new URLSearchParams({
+        status: state.appeals.filter,
+        page: String(state.appeals.page),
+        pageSize: String(PAGE_SIZE),
+      });
+      let data;
+      try {
+        data = await api.get(`/api/admin/appeals?${params}`);
+      } catch (err) {
+        if (state.tab === "appeals") {
+          listEl.innerHTML = errorBlock(err.message);
+          pagerEl.innerHTML = "";
+        }
+        return;
+      }
+      if (state.tab !== "appeals") return;
+      countEl.textContent = t("{n} 条申诉", { n: data.total });
+      setSub(
+        `${t("{n} 条申诉", { n: data.total })} · ${t(
+          APPEAL_FILTERS.find((f) => f.id === state.appeals.filter)?.label || "全部"
+        )}`
+      );
+
+      if (!data.items.length) {
+        listEl.innerHTML = H`
+          <div class="empty">
+            <div class="empty__art"><svg class="icon"><use href="#i-shield"/></svg></div>
+            <div class="empty__title">${t("没有待处理的申诉")}</div>
+            <div class="empty__desc">${t("用户在封禁页提交申诉后会出现在这里。")}</div>
+          </div>`;
+        pagerEl.innerHTML = "";
+        return;
+      }
+
+      listEl.innerHTML = H`<div class="appeal-list">${data.items
+        .map((item) => {
+          const meta = APPEAL_STATUS[item.status] || APPEAL_STATUS.pending;
+          const banReason = item.banReason || item.currentBan?.reason || t("未填写原因");
+          const until = item.banUntil || item.currentBan?.banUntil;
+          return H`
+          <article class="appeal-item" data-appeal="${item.id}">
+            <div class="appeal-item__top">
+              <span class="admin-badge is-${meta.tone}">${t(meta.label)}</span>
+              <span class="appeal-item__user">
+                ${escapeHtml(item.displayName || item.username)}
+                <span class="muted">@${escapeHtml(item.username)} #${item.userId}</span>
+                ${item.isSuper ? H`<span class="admin-badge is-super">${t("超级管理员")}</span>` : item.role === 1 ? H`<span class="admin-badge is-ok">${t("管理员")}</span>` : ""}
+              </span>
+              <span class="appeal-item__time">${escapeHtml(absTime(item.createdAt))}</span>
+            </div>
+            <div class="appeal-item__ban">
+              <span>${t("封禁原因：{text}", { text: escapeHtml(banReason) })}</span>
+              <span>${until ? t("解封时间：{when}", { when: escapeHtml(absTime(until)) }) : t("永久封禁")}</span>
+              ${item.banned ? "" : H`<span class="appeal-item__done">${t("账号已解封")}</span>`}
+            </div>
+            <p class="appeal-item__msg">${escapeHtml(item.message)}</p>
+            ${
+              item.reply
+                ? H`<div class="appeal-item__reply">${t("管理员回复：{text}", {
+                    text: escapeHtml(item.reply),
+                  })}</div>`
+                : ""
+            }
+            ${
+              item.status === "pending"
+                ? H`<div class="appeal-item__actions">
+                    <button class="btn btn--accent btn--sm" type="button" data-approve>${t("通过并解封")}</button>
+                    <button class="btn btn--subtle btn--sm" type="button" data-reject>${t("驳回")}</button>
+                    <button class="btn btn--subtle btn--sm" type="button" data-logs>${t("查看该用户日志")}</button>
+                  </div>`
+                : H`<div class="appeal-item__actions">
+                    <button class="btn btn--subtle btn--sm" type="button" data-logs>${t("查看该用户日志")}</button>
+                  </div>`
+            }
+          </article>`;
+        })
+        .join("")}</div>`;
+
+      data.items.forEach((item) => {
+        const card = listEl.querySelector(`[data-appeal="${item.id}"]`);
+        if (!card) return;
+        card.querySelector("[data-logs]")?.addEventListener("click", () => {
+          state.logs = {
+            page: 1,
+            query: "",
+            action: "",
+            userId: item.userId,
+            username: item.username,
+            total: 0,
+          };
+          switchTab("logs");
+        });
+        card.querySelector("[data-approve]")?.addEventListener("click", () => review(item, true));
+        card.querySelector("[data-reject]")?.addEventListener("click", () => review(item, false));
+      });
+
+      pagerEl.innerHTML = pagerHtml(state.appeals.page, data.total, PAGE_SIZE);
+      pagerEl.querySelectorAll("[data-page]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const page = Number(btn.dataset.page);
+          if (!page || page === state.appeals.page) return;
+          state.appeals.page = page;
+          loadAppeals();
+        });
+      });
+    }
+
+    async function review(item, approve) {
+      let reply = "";
+      if (approve) {
+        const ok = await Dialog.confirm({
+          title: t("通过申诉并解封"),
+          message: t("将立即解除 {name} 的封禁，并清空封禁原因与到期时间。", {
+            name: `<b>${escapeHtml(item.username)}</b>`,
+          }),
+          confirmText: t("通过并解封"),
+        });
+        if (!ok) return;
+      } else {
+        reply = await Dialog.prompt({
+          title: t("驳回申诉"),
+          message: t("账号会继续保持封禁状态；说明会显示在用户的申诉页。"),
+          label: t("给用户的说明"),
+          placeholder: t("例如：证据不足 / 请补充说明文件来源"),
+          confirmText: t("驳回"),
+        });
+        if (reply === null) return;
+      }
+      try {
+        await api.post(`/api/admin/appeals/${item.id}/review`, { approve, reply });
+        Toast.success(approve ? t("已通过申诉并解封") : t("已驳回这条申诉"));
+        loadAppeals();
+      } catch (err) {
+        Toast.error(err.message);
+      }
+    }
+
+    loadAppeals();
   }
 
   async function showLogs() {
@@ -2770,6 +3016,7 @@ export function renderAdmin(root) {
     if (name === "overview") showOverview();
     else if (name === "users") showUsers();
     else if (name === "reports") showReports();
+    else if (name === "appeals") showAppeals();
     else if (name === "feedback") showFeedback();
     else if (name === "logs") showLogs();
     else showSettings();
