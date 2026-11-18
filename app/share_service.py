@@ -210,27 +210,81 @@ def share_payload(
     }
 
 
-def list_page(db: Session, user_id: int, *, page: int = 1, page_size: int = 10) -> dict:
-    """分享列表分页；每页条数可选（前端默认 10）。"""
-    page_size = max(1, min(100, int(page_size or 10)))
-    total = int(db.scalar(select(func.count(Share.id)).where(Share.user_id == user_id)) or 0)
-    pages = max(1, (total + page_size - 1) // page_size)
-    page = max(1, min(pages, int(page or 1)))
+def _payloads(db: Session, shares: list[Share]) -> list[dict]:
+    """批量算出分享列表项：一次取齐节点，避免远程库逐条往返。"""
+    if not shares:
+        return []
+    ids: set[int] = set()
+    for s in shares:
+        ids.update(root_ids(s))
+    nodes = {n.id: n for n in db.scalars(select(Node).where(Node.id.in_(ids))).all()}
+    return [share_payload(db, s, nodes.get(s.node_id), nodes) for s in shares]
+
+
+def is_live(payload: dict) -> bool:
+    """还能用的分享（未过期、未取消、次数没用完、文件还在）。"""
+    return payload.get("status") == "active"
+
+
+# 单次最多扫这么多条：状态是靠节点存活 + 时间算出来的，没法直接用 SQL 过滤
+SCAN_LIMIT = 2000
+
+
+def split_items(db: Session, user_id: int) -> tuple[list[dict], list[dict]]:
+    """把某人的全部分享拆成（还有效, 历史过期）两组，新的在前。"""
     shares = db.scalars(
         select(Share)
         .where(Share.user_id == user_id)
         .order_by(Share.created_at.desc())
-        .offset((page - 1) * page_size)
-        .limit(page_size)
+        .limit(SCAN_LIMIT)
     ).all()
-    items = []
-    if shares:
-        ids: set[int] = set()
-        for s in shares:
-            ids.update(root_ids(s))
-        nodes = {n.id: n for n in db.scalars(select(Node).where(Node.id.in_(ids))).all()}
-        items = [share_payload(db, s, nodes.get(s.node_id), nodes) for s in shares]
-    return {"items": items, "total": total, "page": page, "pageSize": page_size, "pages": pages}
+    items = _payloads(db, shares)
+    live = [i for i in items if is_live(i)]
+    dead = [i for i in items if not is_live(i)]
+    return live, dead
+
+
+def list_page(
+    db: Session, user_id: int, *, page: int = 1, page_size: int = 10, scope: str = "all"
+) -> dict:
+    """分享列表分页。
+
+    scope: active 只看还能用的 / history 只看过期与已取消 / all 全都要（老调用方默认）。
+    状态是算出来的，所以先在内存里分组再分页，顺带返回两边的条数给按钮上的角标用。
+    """
+    page_size = max(1, min(100, int(page_size or 10)))
+    live, dead = split_items(db, user_id)
+    if scope == "active":
+        pool = live
+    elif scope == "history":
+        pool = dead
+    else:
+        # 不分组时仍然按创建时间倒序（老接口的行为）
+        pool = sorted(live + dead, key=lambda i: i.get("createdAt") or "", reverse=True)
+    total = len(pool)
+    pages = max(1, (total + page_size - 1) // page_size)
+    page = max(1, min(pages, int(page or 1)))
+    start = (page - 1) * page_size
+    return {
+        "items": pool[start : start + page_size],
+        "total": total,
+        "page": page,
+        "pageSize": page_size,
+        "pages": pages,
+        "scope": scope if scope in {"active", "history"} else "all",
+        "counts": {"active": len(live), "history": len(dead)},
+    }
+
+
+def purge_history(db: Session, user_id: int) -> int:
+    """删掉某人所有已失效的分享记录（不动文件本体），返回条数。"""
+    shares = db.scalars(
+        select(Share).where(Share.user_id == user_id).limit(SCAN_LIMIT)
+    ).all()
+    doomed = [s for s, item in zip(shares, _payloads(db, shares)) if not is_live(item)]
+    for share in doomed:
+        db.delete(share)
+    return len(doomed)
 
 
 def list_for_user(db: Session, user_id: int, limit: int = 200) -> list[dict]:

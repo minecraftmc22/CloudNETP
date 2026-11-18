@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """设置页标签页改版回归。
 
-  1. 四个页签齐全，默认停在外观页，其它页隐藏
+  1. 五个页签齐全，默认停在外观页，其它页隐藏
   2. 点页签只切 class/hidden 不重建 DOM（同一节点还在）
   3. 外观页藏着时进去再切回来，主题模式滑块要重新排（不是 0 宽）
   4. 记住上次的页签：刷新后还在那一页
@@ -158,14 +158,21 @@ def main() -> int:
                 }"""
             )
             check(
-                "四个页签",
-                structure["tabs"] == ["appearance", "mascot", "files", "account"],
+                "五个页签",
+                structure["tabs"] == ["appearance", "mascot", "files", "quick", "account"],
                 str(structure["tabs"]),
             )
             check("默认停在外观页", structure["active"] == ["appearance"], str(structure["active"]))
             check(
                 "只有外观页可见",
-                structure["panes"] == [["appearance", True], ["mascot", False], ["files", False], ["account", False]],
+                structure["panes"]
+                == [
+                    ["appearance", True],
+                    ["mascot", False],
+                    ["files", False],
+                    ["quick", False],
+                    ["account", False],
+                ],
                 str(structure["panes"]),
             )
             check("页签滑块排开了", structure["thumbW"] > 20, str(structure["thumbW"]))
@@ -327,7 +334,7 @@ def main() -> int:
                 }"""
             )
             check("手机上能切到文件页", mobile_state["paneVisible"], str(mobile_state))
-            check("四个页签不用横向滚也能看完", not mobile_state["segClipped"], str(mobile_state))
+            check("五个页签不用横向滚也能看完", not mobile_state["segClipped"], str(mobile_state))
             check(
                 "最后一个页签没被裁掉",
                 mobile_state["lastRight"] <= mobile_state["barRight"] + 1,

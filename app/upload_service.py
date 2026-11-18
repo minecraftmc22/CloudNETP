@@ -125,8 +125,8 @@ def init_upload(
         parent_id = None
     ns.require_parent(db, user.id, parent_id)
 
-    if size <= 0:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "不能上传空文件")
+    if size < 0:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "文件大小不合法")
     max_size = get_int(db, "max_file_size_bytes") or settings.max_file_size_bytes
     if size > max_size:
         raise HTTPException(
@@ -143,6 +143,21 @@ def init_upload(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "sha256 格式不正确")
 
     mime = (mime or "").strip()[:127] or None
+
+    # 0) 空文件：没有分片可传，直接建节点（和秒传同一个出口）。
+    #    以前这里直接拒，前端拿到 400/422 甚至被代理折成 500，看着像"服务器炸了"。
+    if size == 0:
+        node = ns.create_file(
+            db, user, parent_id, name, storage.ensure_empty_blob(), 0, mime, quick=quick
+        )
+        if not quick:
+            ns.recalc_usage(db, user)
+        return {
+            "instant": True,
+            "node": ns.node_payload(node),
+            "sessionId": None,
+            "uploadedBytes": 0,
+        }
 
     # 1) 秒传：盘上已有同内容且大小一致
     if digest and storage.blob_exists(digest, size):

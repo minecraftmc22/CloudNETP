@@ -831,6 +831,9 @@ def update_settings(
         "webdav_enabled",
         "lyrics_style",
         "surface_opacity",
+        # 快传接收偏好（存放目录另走 PUT /api/quick/inbox-folder，因为要支持恢复默认）
+        "quick_receive_enabled",
+        "quick_auto_accept",
     }
     for field, value in payload.model_dump(exclude_none=True).items():
         if field in allowed:

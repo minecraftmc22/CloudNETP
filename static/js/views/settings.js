@@ -23,6 +23,7 @@ import {
 import { getMascotScale, isMascotWheelZoom, setMascotScale, setMascotWheelZoom } from "../ui/live2d.js";
 import { isMascotLocked, setMascotLocked } from "../ui/mascot-actions.js";
 import { mountAiSettings } from "../ui/ai-config.js";
+import { pickFolder } from "../ui/picker.js";
 
 const THEME_MODES = [
   { value: 0, label: "亮色" },
@@ -198,6 +199,9 @@ export function renderSettings(root) {
             </button>
             <button class="segmented__btn" type="button" data-settings-tab="files">
               <svg class="icon icon--s"><use href="#i-share"/></svg>文件与分享
+            </button>
+            <button class="segmented__btn" type="button" data-settings-tab="quick">
+              <svg class="icon icon--s"><use href="#i-bolt"/></svg>快传
             </button>
             <button class="segmented__btn" type="button" data-settings-tab="account">
               <svg class="icon icon--s"><use href="#i-user"/></svg>账号
@@ -536,6 +540,48 @@ export function renderSettings(root) {
                 <input type="checkbox" data-toggle="shareShowName" ${s.shareShowName ? "checked" : ""}>
                 <span class="switch__track"><span class="switch__knob"></span></span>
               </label>
+            </div>
+          </div>
+        </section>
+
+        </div>
+
+        <div class="settings-pane" data-settings-pane="quick">
+
+        <section class="settings-card">
+          <div class="settings-card__head"><svg class="icon icon--s"><use href="#i-bolt"/></svg>发给用户</div>
+          <div class="settings-card__body">
+            <div class="setting-row">
+              <div class="setting-row__main">
+                <div class="setting-row__label">允许别人发文件给我</div>
+                <div class="setting-row__desc">关掉后，别人在「快传 → 发给用户」里会看到你已经关闭接收；已经发过来、还没处理的那几条，照样可以同意或拒绝</div>
+              </div>
+              <label class="switch">
+                <input type="checkbox" data-toggle="quickReceiveEnabled" ${s.quickReceiveEnabled === false ? "" : "checked"}>
+                <span class="switch__track"><span class="switch__knob"></span></span>
+              </label>
+            </div>
+            <div class="setting-row">
+              <div class="setting-row__main">
+                <div class="setting-row__label">自动同意，直接存进我的文件</div>
+                <div class="setting-row__desc">打开后不再需要你点「同意」，文件直接落到下面这个位置；想先看看内容再决定就关掉它</div>
+              </div>
+              <label class="switch">
+                <input type="checkbox" data-toggle="quickAutoAccept" ${s.quickAutoAccept ? "checked" : ""}>
+                <span class="switch__track"><span class="switch__knob"></span></span>
+              </label>
+            </div>
+            <div class="setting-row">
+              <div class="setting-row__main">
+                <div class="setting-row__label">收到后存到</div>
+                <div class="setting-row__desc" data-quick-folder-path>我的文件 / 快传的文件</div>
+              </div>
+              <div class="row" style="gap:8px;flex:none">
+                <button class="btn btn--subtle" type="button" data-act="quick-folder">
+                  <svg class="icon icon--s"><use href="#i-folder"/></svg>选择文件夹
+                </button>
+                <button class="btn btn--subtle" type="button" data-act="quick-folder-reset" hidden>恢复默认</button>
+              </div>
             </div>
           </div>
         </section>
@@ -1375,6 +1421,44 @@ export function renderSettings(root) {
       }
     });
   });
+
+  /* --- 快传：收到后存到哪（目录选择 + 恢复默认） --- */
+  const quickPathEl = root.querySelector("[data-quick-folder-path]");
+  const quickResetBtn = root.querySelector('[data-act="quick-folder-reset"]');
+
+  function paintQuickPath(path) {
+    const parts = (path?.path || []).map((part) => part.name);
+    if (quickPathEl) quickPathEl.textContent = parts.length ? parts.join(" / ") : "我的文件 / 快传的文件";
+    if (quickResetBtn) quickResetBtn.toggleAttribute("hidden", path ? path.isDefault !== false : true);
+  }
+
+  async function saveQuickFolder(folderId) {
+    try {
+      // 选根目录等于「恢复默认」：默认位置就是 我的文件/快传的文件
+      const data = await api.put("/api/quick/inbox-folder", { folderId });
+      paintQuickPath(data?.path);
+      Toast.success(
+        folderId
+          ? t("收到后存到「{path}」", { path: quickPathEl?.textContent || "" })
+          : t("已恢复默认位置：{path}", { path: quickPathEl?.textContent || "" })
+      );
+    } catch (err) {
+      Toast.error(err.message);
+    }
+  }
+
+  root.querySelector('[data-act="quick-folder"]')?.addEventListener("click", async () => {
+    const picked = await pickFolder({ title: "选择收件目录", confirmText: "存到这里" });
+    if (picked === undefined) return;
+    await saveQuickFolder(picked);
+  });
+  quickResetBtn?.addEventListener("click", () => saveQuickFolder(null));
+  api
+    .get("/api/quick/receive")
+    .then((data) => paintQuickPath(data?.receive?.path))
+    .catch(() => {
+      /* 拿不到就保持默认文案 */
+    });
 
   /* --- 回收站开关（关闭需服务端验证码确认） --- */
   const trashSwitch = root.querySelector('[data-toggle="trashEnabled"]');

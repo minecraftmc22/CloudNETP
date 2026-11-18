@@ -55,6 +55,19 @@ def blob_exists(sha256: str, size: int | None = None) -> bool:
     return size is None or path.stat().st_size == size
 
 
+def ensure_empty_blob() -> str:
+    """空文件的 blob（sha256 固定是 e3b0c44…），第一次用到时落一个 0 字节文件。
+
+    空文件也走内容寻址，这样多个空文件的节点共用同一份 blob，删掉其中一个也不会
+    把别人的内容带走（引用计数在 node_service.retain_blob / release_blob）。
+    """
+    digest = hashlib.sha256(b"").hexdigest()
+    target = ensure_blob_dirs(digest)
+    if not target.is_file():
+        target.touch()
+    return digest
+
+
 def commit_tmp(tmp: Path, sha256: str) -> int:
     """把临时文件原子地放进 blob 目录，返回最终大小。"""
     target = ensure_blob_dirs(sha256)

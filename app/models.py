@@ -99,6 +99,12 @@ class UserSetting(Base):
     ai_memories: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     # 同意《快传使用规范》的时间；NULL = 还没同意（创建快传前必须同意一次）
     quick_terms_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # 允许别人用「快传 → 发给用户」把文件发过来（关掉后发送方会收到 403）
+    quick_receive_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # 收到就自动同意、直接存进「我的文件」，不用人工点同意
+    quick_auto_accept: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # 收到的文件存到哪个目录；NULL = 默认的 我的文件/快传的文件
+    quick_inbox_folder: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
 
 
 class AudioPref(Base):
@@ -151,6 +157,9 @@ class Node(Base):
     # 快传专用文件：不占用户配额、不出现在「我的文件」/搜索/WebDAV 里，
     # 只由对应的取件码引用；过期后由清理任务连 blob 一起回收
     quick_owned: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # 站内快传的待接收副本：指向 quick_transfers.id。
+    # 非空 = 还躺在暂存区，接收方只能在「快传」里预览；同意后清空并搬进「我的文件」
+    pending_send_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
 
     __table_args__ = (
         CheckConstraint("type IN ('folder', 'file')", name="ck_nodes_type"),
@@ -277,7 +286,7 @@ class QuickTransfer(Base):
     """快传：一张表装三种形态，靠 kind 区分。
 
     - drop   扫码直传：token 是手机端的凭据，target_id 是上传落地目录，uses 记已收文件数
-    - send   站内快传：owner_id 发送者、peer_id 接收者，node_ids 是接收方那边复制出的副本
+    - send   站内快传：owner_id 发送者、peer_id 接收者，node_ids 是接收方那边的待接收副本
     - pickup 免登录取件码：code 是 6 位口令，node_ids 是要交付的文件，uses 记下载次数
     """
 
@@ -293,7 +302,7 @@ class QuickTransfer(Base):
     token: Mapped[str] = mapped_column(String(43), unique=True, nullable=False, index=True)
     # pickup 的取件码（明文：它就是访问凭据本身，等同短口令，靠限流防枚举）
     code: Mapped[str | None] = mapped_column(String(12), nullable=True, index=True)
-    # JSON 数组：pickup 的交付文件 / send 复制出来的副本
+    # JSON 数组：pickup 的交付文件 / send 待接收或已存入的顶层节点
     node_ids: Mapped[str | None] = mapped_column(Text, nullable=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False, default="")
     size: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
@@ -301,6 +310,12 @@ class QuickTransfer(Base):
     message: Mapped[str | None] = mapped_column(String(200), nullable=True)
     # send：接收方是否已读
     seen: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # send 的接收状态：pending 待接收 / accepted 已存入 / rejected 已拒绝 / expired 已过期
+    send_status: Mapped[str] = mapped_column(String(10), nullable=False, default="pending")
+    # 接收方做出决定的时间（同意 / 拒绝）
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # 发送方是否已经看到接收结果（被拒绝时前端提示一次）；默认 True = 无需提示
+    result_seen: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     uses: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     max_uses: Mapped[int | None] = mapped_column(Integer, nullable=True)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

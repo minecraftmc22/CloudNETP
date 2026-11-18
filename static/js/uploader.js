@@ -126,7 +126,9 @@ export async function uploadFile({
 
   if (init.instant) {
     onProgress(file.size, file.size);
-    return { node: init.node, instant: true, deduplicated: true, sha256 };
+    // 空文件在服务端也是「直接建节点」，但盘上本来就没有这份内容，别标成秒传
+    const empty = file.size === 0;
+    return { node: init.node, instant: !empty, deduplicated: !empty, sha256 };
   }
 
   const sessionId = init.sessionId;

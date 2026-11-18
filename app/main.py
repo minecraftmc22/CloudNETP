@@ -33,8 +33,8 @@ def _prepare_dirs() -> None:
 
 
 def _startup_maintenance() -> None:
-    """清理过期的上传会话分片与超期回收站条目。"""
-    from . import node_service, upload_service
+    """清理过期的上传会话分片、超期回收站条目，以及作废的站内快传暂存文件。"""
+    from . import node_service, quick_service, upload_service
     from .settings_store import get_int
 
     with db_failover.current_sessionmaker()() as db:
@@ -55,6 +55,19 @@ def _startup_maintenance() -> None:
         except Exception:  # pragma: no cover
             db.rollback()
             logger.exception("清理回收站失败")
+        try:
+            # 待接收超过 7 天的站内快传作废，暂存文件一并回收（不占用户配额的副本）
+            result = quick_service.cleanup_sends(db)
+            db.commit()
+            if result.get("expired") or result.get("purged"):
+                logger.info(
+                    "站内快传清理：作废 %s 条，删除记录 %s 条",
+                    result.get("expired", 0),
+                    result.get("purged", 0),
+                )
+        except Exception:  # pragma: no cover
+            db.rollback()
+            logger.exception("清理站内快传失败")
 
 
 @asynccontextmanager

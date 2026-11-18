@@ -15,7 +15,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
-from .models import Blob, Node, User, utcnow
+from .models import Blob, Node, QuickTransfer, User, utcnow
 from .storage import blob_exists, delete_blob
 
 MAX_DEPTH = 64  # 目录层级保护，同时防止异常数据造成死循环
@@ -211,14 +211,29 @@ def node_payload(node: Node, child_count: int | None = None, *, is_admin: bool =
 # --------------------------------------------------------------------------- #
 # 读取
 # --------------------------------------------------------------------------- #
+def pending_send_node(db: Session, node: Node, user_id: int) -> bool:
+    """这个快传文件是不是「发给我的、还没同意」的那一份。
+
+    待接收副本挂在接收方名下（预览、下载全部走现有的节点接口），但它属于暂存区，
+    默认对 `get_node` 不可见 —— 只有接收方本人、且这条快传还在待接收状态时放行，
+    这样双击预览不用另造一套接口。
+    """
+    if not node.pending_send_id:
+        return False
+    qt = db.get(QuickTransfer, node.pending_send_id)
+    if qt is None or qt.kind != "send" or qt.peer_id != user_id:
+        return False
+    return qt.send_status == "pending" and not qt.revoked
+
+
 def get_node(db: Session, user_id: int, node_id: int, *, allow_deleted: bool = False) -> Node:
     node = db.get(Node, node_id)
     if not node or node.user_id != user_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "文件不存在或无权访问")
     if node.deleted_at and not allow_deleted:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "该文件在回收站中")
-    # 快传专用文件只能通过取件码访问，不能按 id 当普通文件操作
-    if node.quick_owned:
+    # 快传专用文件只能通过取件码访问（待接收的站内快传除外，接收方要能先看内容）
+    if node.quick_owned and not pending_send_node(db, node, user_id):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "文件不存在或无权访问")
     return node
 

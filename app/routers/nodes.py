@@ -580,8 +580,6 @@ async def upload(
                     raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "存储空间不足")
                 digest.update(block)
                 fh.write(block)
-        if written == 0:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, "不能上传空文件")
         sha = digest.hexdigest()
         dedup = storage.blob_exists(sha, written)
         storage.commit_tmp(tmp, sha)

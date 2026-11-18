@@ -155,6 +155,16 @@ _COLUMN_PATCHES: dict[str, dict[str, str]] = {
         "language": "VARCHAR(16) NULL",
         # 同意《快传使用规范》的时间；老库补列后为 NULL，即需要重新同意一次
         "quick_terms_at": "DATETIME NULL",
+        # 站内快传的接收偏好：老库补列后默认「允许接收、不自动同意、用默认目录」
+        "quick_receive_enabled": "BOOLEAN NOT NULL DEFAULT 1",
+        "quick_auto_accept": "BOOLEAN NOT NULL DEFAULT 0",
+        "quick_inbox_folder": "BIGINT NULL",
+    },
+    "quick_transfers": {
+        # 站内快传改成「接收方同意后才进我的文件」：老记录都是已投递的，按已接收处理
+        "send_status": "VARCHAR(10) NOT NULL DEFAULT 'accepted'",
+        "decided_at": "DATETIME NULL",
+        "result_seen": "BOOLEAN NOT NULL DEFAULT 1",
     },
     "share_reports": {
         # 来自快传取件码的举报：记 quick_transfers.id（此时 share_id 为 0）
@@ -182,6 +192,8 @@ _COLUMN_PATCHES: dict[str, dict[str, str]] = {
     "nodes": {
         # 快传专用文件：不计配额、不出现在我的文件；老库补列后默认 0
         "quick_owned": "BOOLEAN NOT NULL DEFAULT 0",
+        # 站内快传的待接收副本：非空 = 还在暂存区，只能在「快传」里预览
+        "pending_send_id": "BIGINT NULL",
     },
     "upload_sessions": {
         # 快传上传的会话：合并后建出来的节点标 quick_owned

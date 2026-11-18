@@ -88,8 +88,21 @@ def list_shares(
     user: CurrentUser,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=10, ge=1, le=100, alias="pageSize"),
+    scope: str = Query(default="all", pattern="^(all|active|history)$"),
 ) -> dict:
-    return ss.list_page(db, user.id, page=page, page_size=page_size)
+    """scope=active 只看还有效的，history 只看过期/已取消，all 全都要（默认）。"""
+    return ss.list_page(db, user.id, page=page, page_size=page_size, scope=scope)
+
+
+@router.delete("/shares/history")
+def clear_share_history(request: Request, db: DbSession, user: CurrentUser) -> dict:
+    """一键清空：把已失效的分享记录全删掉（文件不动）。"""
+    check_origin(request)
+    count = ss.purge_history(db, user.id)
+    if count:
+        log_action(db, "share_delete", user.id, {"history": count}, request)
+    db.commit()
+    return {"deleted": count}
 
 
 @router.delete("/shares/{share_id}")

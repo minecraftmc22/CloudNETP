@@ -107,6 +107,10 @@ class SettingsIn(CamelModel):
     lyrics_style: dict | None = None
     # 各模块背景不透明度（nav/titlebar/panel/dialog → 0-100），整体覆盖
     surface_opacity: dict | None = None
+    # 快传：允许别人发文件过来 / 收到就自动存进「我的文件」
+    # （存放目录要能「恢复默认」，null 表达不了，走 PUT /api/quick/inbox-folder）
+    quick_receive_enabled: bool | None = None
+    quick_auto_accept: bool | None = None
 
 
 class ProfileIn(CamelModel):
@@ -262,7 +266,7 @@ class PurgeIn(CamelModel):
 # --------------------------------------------------------------------------- #
 class UploadInitIn(CamelModel):
     name: str = Field(min_length=1, max_length=255)
-    size: int = Field(gt=0)
+    size: int = Field(ge=0)
     parent_id: int | None = None
     sha256: str | None = Field(default=None, max_length=64)
     mime: str | None = Field(default=None, max_length=127)
@@ -342,9 +346,15 @@ class QuickReadIn(CamelModel):
     ids: list[int] | None = Field(default=None, max_length=200)
 
 
+class QuickInboxFolderIn(CamelModel):
+    """收到的快传文件存到哪个目录；folder_id=None 表示恢复默认（我的文件/快传的文件）。"""
+
+    folder_id: int | None = None
+
+
 class QuickDropInitIn(CamelModel):
     name: str = Field(min_length=1, max_length=255)
-    size: int = Field(ge=1)
+    size: int = Field(ge=0)
     sha256: str | None = Field(default=None, max_length=64)
     mime: str | None = Field(default=None, max_length=127)
     chunk_size: int | None = Field(default=None, ge=0)

@@ -791,6 +791,57 @@
   font-size: 11.5px;
 }
 
+/* 「发给用户」的浏览弹层：一行一个条目，双击进目录 / 双击文件预览 */
+.send-browse {
+  width: min(520px, 100%);
+}
+.send-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: var(--radius-s);
+  background: transparent;
+  color: var(--text-1);
+  text-align: left;
+  font: inherit;
+}
+.send-row:hover,
+.send-row:focus-visible {
+  background: var(--fill-hover);
+}
+.send-row .icon {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  color: var(--accent);
+}
+.send-row__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.send-row__name {
+  font-size: 12.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.send-row__meta {
+  font-size: 11px;
+  color: var(--text-3);
+}
+.send-row .icon--chev {
+  width: 13px;
+  height: 13px;
+  color: var(--text-3);
+}
+
 /* ------------------------------------------------------------
    窄屏
    ------------------------------------------------------------ */

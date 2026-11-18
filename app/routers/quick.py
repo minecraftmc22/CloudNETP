@@ -22,6 +22,7 @@ from ..models import Node, User
 from ..schemas import (
     QuickDropIn,
     QuickDropInitIn,
+    QuickInboxFolderIn,
     QuickPickupIn,
     QuickPickupSaveIn,
     QuickReadIn,
@@ -113,19 +114,56 @@ def create_drop(body: QuickDropIn, request: Request, db: DbSession, user: Curren
 
 
 @router.get("/quick/drops")
-def list_drops(db: DbSession, user: CurrentUser) -> dict:
-    items = qs.list_for_user(db, user.id, "drop")
-    return {"items": items, "total": len(items)}
+def list_drops(
+    db: DbSession,
+    user: CurrentUser,
+    scope: str = Query(default="all", pattern="^(all|active|history)$"),
+) -> dict:
+    items = qs.list_for_user(db, user.id, "drop", limit=300, scope=scope)
+    return {
+        "items": items,
+        "total": len(items),
+        "scope": scope,
+        "counts": qs.counts_for(db, user.id, "drop"),
+    }
 
 
 @router.delete("/quick/drops/{qt_id}")
 def revoke_drop(qt_id: int, request: Request, db: DbSession, user: CurrentUser) -> dict:
+    """还能用的 = 关闭；已经失效的 = 把这条记录删掉。"""
     check_origin(request)
     qt = qs.get_owned(db, user.id, qt_id, kind="drop")
+    if qs.is_dead(qt):
+        qs.purge(db, qt)
+        log_action(db, "quick_drop_delete", user.id, {"id": qt_id}, request)
+        db.commit()
+        return {"deleted": True}
     qs.revoke(qt)
     log_action(db, "quick_drop_revoke", user.id, {"id": qt.id}, request)
     db.commit()
     return {"revoked": True}
+
+
+@router.delete("/quick/history")
+def clear_quick_history(
+    request: Request,
+    db: DbSession,
+    user: CurrentUser,
+    kind: str = Query(default="pickup", pattern="^(pickup|drop)$"),
+) -> dict:
+    """一键清空某个标签下的失效记录（取件码会一起回收它自己的快传暂存文件）。"""
+    check_origin(request)
+    count = qs.purge_dead(db, user.id, kind)
+    if count:
+        log_action(
+            db,
+            "quick_pickup_delete" if kind == "pickup" else "quick_drop_delete",
+            user.id,
+            {"history": count, "kind": kind},
+            request,
+        )
+    db.commit()
+    return {"deleted": count}
 
 
 # --------------------------------------------------------------------------- #
@@ -160,13 +198,100 @@ def send_files(body: QuickSendIn, request: Request, db: DbSession, user: Current
 @router.get("/quick/inbox")
 def inbox(db: DbSession, user: CurrentUser) -> dict:
     items = qs.send_list(db, user.id, incoming=True)
-    return {"items": items, "unread": qs.unread_count(db, user.id)}
+    return {
+        "items": items,
+        "unread": qs.unread_count(db, user.id),
+        # 等接收方点头的条数：标签上的角标用它，比未读更迫切
+        "pending": qs.pending_count(db, user.id),
+    }
 
 
 @router.get("/quick/outbox")
 def outbox(db: DbSession, user: CurrentUser) -> dict:
     items = qs.send_list(db, user.id, incoming=False)
-    return {"items": items, "total": len(items)}
+    return {
+        "items": items,
+        "total": len(items),
+        # 对方接受 / 拒绝后还没提示过的条数（被拒绝要明确告诉发送方）
+        "unseenResults": qs.unseen_results(db, user.id),
+    }
+
+
+@router.post("/quick/outbox/ack")
+def ack_outbox(request: Request, db: DbSession, user: CurrentUser) -> dict:
+    """发送方点「知道了」：把接收结果标成已看过，不再提示。"""
+    check_origin(request)
+    count = qs.ack_results(db, user.id)
+    db.commit()
+    return {"acked": count}
+
+
+@router.get("/quick/receive")
+def receive_pref(db: DbSession, user: CurrentUser) -> dict:
+    """设置页：接收开关、自动同意、收到后存到哪（含默认目录的路径）。"""
+    pref = qs.receive_pref(db, user.id)
+    return {"receive": {**pref, "path": qs.inbox_path(db, user)}}
+
+
+@router.put("/quick/inbox-folder")
+def set_inbox_folder(
+    body: QuickInboxFolderIn, request: Request, db: DbSession, user: CurrentUser
+) -> dict:
+    check_origin(request)
+    path = qs.set_inbox_folder(db, user, body.folder_id)
+    log_action(db, "quick_inbox_folder", user.id, {"folderId": body.folder_id}, request)
+    db.commit()
+    return {"path": path}
+
+
+@router.get("/quick/sends/{qt_id}/items")
+def send_items(
+    qt_id: int,
+    db: DbSession,
+    user: CurrentUser,
+    parent_id: int | None = Query(default=None, alias="parentId"),
+) -> dict:
+    """同意之前先看看里面是什么：接收方逐层浏览这条快传的目录。"""
+    qt = qs.get_send(db, user.id, qt_id)
+    return qs.send_items(db, qt, user, parent_id)
+
+
+@router.post("/quick/sends/{qt_id}/accept")
+def accept_send(qt_id: int, request: Request, db: DbSession, user: CurrentUser) -> dict:
+    check_origin(request)
+    qt = qs.get_send(db, user.id, qt_id)
+    nodes = qs.accept_send(db, user, qt)
+    log_action(
+        db,
+        "quick_send_accept",
+        user.id,
+        {"id": qt.id, "from": qt.owner_id, "count": len(nodes), "size": qt.size},
+        request,
+    )
+    db.commit()
+    db.refresh(qt)
+    return {
+        "send": qs.payload(db, qt, with_code=False),
+        "saved": len(nodes),
+        "nodes": [ns.node_payload(node) for node in nodes],
+    }
+
+
+@router.post("/quick/sends/{qt_id}/reject")
+def reject_send(qt_id: int, request: Request, db: DbSession, user: CurrentUser) -> dict:
+    check_origin(request)
+    qt = qs.get_send(db, user.id, qt_id)
+    qs.reject_send(db, user, qt)
+    log_action(
+        db,
+        "quick_send_reject",
+        user.id,
+        {"id": qt.id, "from": qt.owner_id, "size": qt.size},
+        request,
+    )
+    db.commit()
+    db.refresh(qt)
+    return {"send": qs.payload(db, qt, with_code=False)}
 
 
 @router.post("/quick/inbox/read")
@@ -207,9 +332,18 @@ def create_pickup(body: QuickPickupIn, request: Request, db: DbSession, user: Cu
 
 
 @router.get("/quick/pickups")
-def list_pickups(db: DbSession, user: CurrentUser) -> dict:
-    items = qs.list_for_user(db, user.id, "pickup")
-    return {"items": items, "total": len(items)}
+def list_pickups(
+    db: DbSession,
+    user: CurrentUser,
+    scope: str = Query(default="all", pattern="^(all|active|history)$"),
+) -> dict:
+    items = qs.list_for_user(db, user.id, "pickup", limit=300, scope=scope)
+    return {
+        "items": items,
+        "total": len(items),
+        "scope": scope,
+        "counts": qs.counts_for(db, user.id, "pickup"),
+    }
 
 
 @router.get("/quick/pickups/code/{code}")
@@ -239,8 +373,14 @@ def pickup_save(
 
 @router.delete("/quick/pickups/{qt_id}")
 def revoke_pickup(qt_id: int, request: Request, db: DbSession, user: CurrentUser) -> dict:
+    """还能用的 = 撤销；已经失效的 = 把这条记录删掉（顺带回收它的快传暂存文件）。"""
     check_origin(request)
     qt = qs.get_owned(db, user.id, qt_id, kind="pickup")
+    if qs.is_dead(qt):
+        qs.purge(db, qt)
+        log_action(db, "quick_pickup_delete", user.id, {"id": qt_id}, request)
+        db.commit()
+        return {"deleted": True}
     qs.revoke(qt)
     log_action(db, "quick_pickup_revoke", user.id, {"id": qt.id}, request)
     db.commit()

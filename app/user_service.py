@@ -68,6 +68,10 @@ def user_payload(db: Session, user: User) -> dict[str, Any]:
             "shareShowName": bool(s.share_show_name),
             "lyricsStyle": s.lyrics_style or {},
             "surfaceOpacity": s.surface_opacity or {},
+            # 快传接收偏好（默认允许接收、不自动同意）
+            "quickReceiveEnabled": bool(s.quick_receive_enabled),
+            "quickAutoAccept": bool(s.quick_auto_accept),
+            "quickInboxFolder": s.quick_inbox_folder,
         },
     }
 

@@ -3,7 +3,7 @@
  *
  * 三个标签页共用一套记录接口：
  *   drop   一次性链接 + 二维码，手机扫码往指定目录传
- *   send   直接投递到另一个用户的网盘（复用 blob，不复制物理文件）
+ *   send   投递到对方的暂存区，对方同意后才搬进他的网盘（复用 blob，不复制物理文件）
  *   pickup 6 位取件码，谁拿到都能下载，可设有效期与下载次数
  */
 import { api, escapeHtml, formatBytes, formatTime } from "../api.js";
@@ -13,6 +13,7 @@ import { Toast } from "../ui/toast.js";
 import { DROP_MAX_FILES, collectDropped } from "../ui/drop-tree.js";
 import { pickFolder } from "../ui/picker.js";
 import { pickNodes } from "../ui/file-browser.js";
+import { openSendBrowser } from "../ui/send-browser.js";
 import { copyText } from "../ui/share.js";
 import { siteOrigin } from "../store.js";
 import { uploadFile } from "../uploader.js";
@@ -24,7 +25,7 @@ const MAX_ITEMS = 100;
 
 const TABS = [
   { key: "drop", label: "扫码直传", icon: "i-upload", desc: "手机扫码登录后，把相册里的东西直接传进指定目录" },
-  { key: "send", label: "发给用户", icon: "i-share", desc: "直接投递到对方的网盘根目录，不用提取码" },
+  { key: "send", label: "发给用户", icon: "i-share", desc: "先发到对方的暂存区，对方同意后才存进他的网盘" },
   { key: "pickup", label: "取件码", icon: "i-key", desc: "生成 6 位码，谁拿到都能取，到期自动失效" },
 ];
 
@@ -77,7 +78,16 @@ export function renderQuick(root) {
     inbox: [],
     outbox: [],
     pickups: [],
+    // 记录列表分「进行中 / 历史过期」两个视角，默认只看还能用的
+    dropScope: "active",
+    pickupScope: "active",
+    dropCounts: { active: 0, history: 0 },
+    pickupCounts: { active: 0, history: 0 },
     unread: 0,
+    // 「发给用户」：待接收条数（标签角标）、被拒绝后还没提示过的条数、收件目录
+    pending: 0,
+    unseenResults: 0,
+    receive: null,
     target: { id: null, name: t("我的文件") },
     minutes: 30,
     days: 7,
@@ -209,7 +219,7 @@ export function renderQuick(root) {
       (tab) => H`
       <button class="quick-tab${state.tab === tab.key ? " is-active" : ""}" type="button" data-tab="${tab.key}">
         <svg class="icon"><use href="#${tab.icon}"/></svg>
-        <span>${t(tab.label)}${tab.key === "send" && state.unread ? ` (${state.unread})` : ""}</span>
+        <span>${t(tab.label)}${tab.key === "send" && (state.pending || state.unread) ? ` (${state.pending || state.unread})` : ""}</span>
       </button>`
     ).join("");
     // 标签栏只在第一次露面时滑进来，切标签不重播（否则点一下抖一下）
@@ -231,8 +241,8 @@ export function renderQuick(root) {
       const alive = state.drops.filter((item) => item.status === "active").length;
       summaryEl.textContent = state.drops.length ? t("{n} 个会话 · {alive} 个可用", { n: state.drops.length, alive }) : "";
     } else if (state.tab === "send") {
-      summaryEl.textContent = state.unread
-        ? t("{n} 条未读", { n: state.unread })
+      summaryEl.textContent = state.pending
+        ? t("{n} 条待接收 · 送出 {out} 条", { n: state.pending, out: state.outbox.length })
         : t("收到 {in} 条 · 送出 {out} 条", { in: state.inbox.length, out: state.outbox.length });
     } else {
       const alive = state.pickups.filter((item) => item.status === "active").length;
@@ -249,6 +259,68 @@ export function renderQuick(root) {
     // 卡片依次浮起，列表条目再跟着逐条冒出来
     playIn(panelEl.querySelectorAll(":scope > .quick-card"), { stagger: 70 });
     playIn(panelEl.querySelectorAll(".quick-list > *"), { stagger: 34, delay: 70 });
+  }
+
+  /* ---------------- 记录列表的工具条 ----------------
+   * 记录分两个视角：进行中 / 历史过期（过期、已取消）。失效的那些不再混在下面，
+   * 收到历史里，能逐条删、也能一键清空。 */
+  function listbarHtml(scope, counts) {
+    const onHistory = scope === "history";
+    const num = onHistory ? counts.history : counts.active;
+    // 按钮上带的是「另一边」有多少条，这样不切过去也知道历史里堆了几条
+    const other = onHistory ? counts.active : counts.history;
+    return H`
+      <div class="quick-listbar">
+        <span class="quick-listbar__label">
+          <svg class="icon icon--s"><use href="#${onHistory ? "i-clock" : "i-play"}"/></svg>
+          ${onHistory ? t("历史过期") : t("进行中")}
+        </span>
+        <span class="quick-listbar__count">${num}</span>
+        <span class="grow"></span>
+        ${
+          onHistory && counts.history
+            ? H`<button class="btn btn--subtle btn--danger" type="button" data-act="clear-history">
+                <svg class="icon icon--s"><use href="#i-trash"/></svg>${t("清空历史")}
+              </button>`
+            : ""
+        }
+        <button class="btn btn--subtle" type="button" data-act="toggle-history">
+          <svg class="icon icon--s" ${onHistory ? 'style="transform:rotate(90deg)"' : ""}>
+            <use href="#${onHistory ? "i-chevron" : "i-clock"}"/>
+          </svg>
+          ${onHistory ? t("返回进行中") : t("历史过期")}
+          ${other ? H`<span class="quick-listbar__count">${other}</span>` : ""}
+        </button>
+      </div>`;
+  }
+
+  /** 切换记录视角 + 清空历史：两个标签页共用一套 */
+  function bindListbar(listEl, kind, scopeKey, repaint) {
+    listEl.querySelector('[data-act="toggle-history"]')?.addEventListener("click", () => {
+      state[scopeKey] = state[scopeKey] === "history" ? "active" : "history";
+      repaint();
+    });
+    listEl.querySelector('[data-act="clear-history"]')?.addEventListener("click", async () => {
+      const counts = kind === "drop" ? state.dropCounts : state.pickupCounts;
+      const ok = await Dialog.confirm({
+        title: t("清空历史记录"),
+        message:
+          kind === "drop"
+            ? t("把 {n} 条已失效的快传链接记录删掉，已经传过来的文件不受影响。", { n: counts.history })
+            : t("把 {n} 个已失效的取件码记录删掉，快传暂存区里属于它们的文件也会一起回收。", { n: counts.history }),
+        confirmText: t("清空"),
+        danger: true,
+      });
+      if (!ok) return;
+      try {
+        const data = await api.del(`/api/quick/history?kind=${kind}`);
+        Toast.success(t("已删除 {n} 条记录", { n: data.deleted || 0 }));
+        await loadAll();
+        repaint();
+      } catch (err) {
+        Toast.error(err.message);
+      }
+    });
   }
 
   /* ---------------- 扫码直传 ---------------- */
@@ -315,10 +387,12 @@ export function renderQuick(root) {
         });
         state.lastDrop = data.drop;
         state.drops = [data.drop, ...state.drops];
+        state.dropCounts = { ...state.dropCounts, active: state.dropCounts.active + 1 };
         paintDrop();
         // 新生成的二维码与刚冒出来的那条记录单独弹一下，比整块重绘更有点「生成成功」的手感
         playIn(panelEl.querySelectorAll(".quick-share"), { typed: "quick-pop" });
-        playIn(panelEl.querySelectorAll(".quick-list > .quick-row:first-child"), { typed: "quick-pop" });
+        // 列表顶上还挂着工具条，第一条记录未必是 :first-child
+        playIn([panelEl.querySelector(".quick-list > .quick-row")], { typed: "quick-pop" });
         Toast.success(t("链接已生成，手机扫码即可上传"));
       } catch (err) {
         Toast.error(err.message);
@@ -353,16 +427,27 @@ export function renderQuick(root) {
     }
 
     const listEl = panelEl.querySelector("[data-list]");
-    if (!state.drops.length) {
-      listEl.innerHTML = H`<div class="quick-empty">
-        <svg class="icon"><use href="#i-bolt"/></svg>
-        <div>${t("还没有生成过快传链接")}</div>
-      </div>`;
-      return;
-    }
-    listEl.innerHTML = state.drops
-      .map(
-        (item) => H`
+    const onHistory = state.dropScope === "history";
+    const rows = state.drops.filter((item) =>
+      onHistory ? item.status !== "active" : item.status === "active"
+    );
+
+    const emptyHtml = onHistory
+      ? H`<div class="quick-empty">
+          <svg class="icon"><use href="#i-clock"/></svg>
+          <div>${t("还没有过期或已关闭的快传")}</div>
+        </div>`
+      : H`<div class="quick-empty">
+          <svg class="icon"><use href="#i-bolt"/></svg>
+          <div>${t("还没有生成过快传链接")}</div>
+        </div>`;
+
+    listEl.innerHTML =
+      listbarHtml(state.dropScope, state.dropCounts) +
+      (rows.length
+        ? rows
+            .map(
+              (item) => H`
       <div class="quick-row${item.status === "active" ? "" : " is-dead"}" data-id="${item.id}">
         <span class="quick-row__icon"><svg class="icon"><use href="#i-folder"/></svg></span>
         <div class="quick-row__main">
@@ -375,16 +460,25 @@ export function renderQuick(root) {
         </div>
         <span class="quick-row__tag ${item.status === "active" ? "is-active" : "is-dead"}">${t(STATUS_TEXT[item.status] || item.status)}</span>
         <div class="quick-row__actions">
-          <button class="icon-btn" type="button" data-act="open" title="${t("打开链接")}" ${item.status === "active" ? "" : "disabled"}>
-            <svg class="icon"><use href="#i-arrow-up-right"/></svg>
-          </button>
-          <button class="icon-btn" type="button" data-act="revoke" title="${t("关闭")}" ${item.status === "active" ? "" : "disabled"}>
-            <svg class="icon"><use href="#i-close"/></svg>
-          </button>
+          ${
+            onHistory
+              ? H`<button class="icon-btn" type="button" data-act="forget" title="${t("删除记录")}">
+                  <svg class="icon"><use href="#i-trash"/></svg>
+                </button>`
+              : H`<button class="icon-btn" type="button" data-act="open" title="${t("打开链接")}">
+                  <svg class="icon"><use href="#i-arrow-up-right"/></svg>
+                </button>
+                <button class="icon-btn" type="button" data-act="revoke" title="${t("关闭")}">
+                  <svg class="icon"><use href="#i-close"/></svg>
+                </button>`
+          }
         </div>
       </div>`
-      )
-      .join("");
+            )
+            .join("")
+        : emptyHtml);
+
+    bindListbar(listEl, "drop", "dropScope", paintDrop);
 
     listEl.querySelectorAll(".quick-row").forEach((row) => {
       const item = state.drops.find((d) => d.id === Number(row.dataset.id));
@@ -395,7 +489,7 @@ export function renderQuick(root) {
       row.querySelector('[data-act="revoke"]')?.addEventListener("click", async () => {
         const ok = await Dialog.confirm({
           title: t("关闭快传"),
-          message: t("关闭后这条链接立即失效，已经打开的页面也传不了文件了。"),
+          message: t("关闭后这条链接立即失效，已经打开的页面也传不了文件了。记录会收进「历史过期」。"),
           confirmText: t("关闭"),
           danger: true,
         });
@@ -404,8 +498,33 @@ export function renderQuick(root) {
           await api.del(`/api/quick/drops/${item.id}`);
           item.status = "revoked";
           state.lastDrop = null;
+          state.dropCounts = {
+            active: Math.max(0, state.dropCounts.active - 1),
+            history: state.dropCounts.history + 1,
+          };
           paintDrop();
-          Toast.success(t("已关闭"));
+          Toast.success(t("已关闭，记录收进历史过期"));
+        } catch (err) {
+          Toast.error(err.message);
+        }
+      });
+      row.querySelector('[data-act="forget"]')?.addEventListener("click", async () => {
+        const ok = await Dialog.confirm({
+          title: t("删除这条记录"),
+          message: t("只删掉这条历史记录，已经传过来的文件不受影响。"),
+          confirmText: t("删除记录"),
+          danger: true,
+        });
+        if (!ok) return;
+        try {
+          await api.del(`/api/quick/drops/${item.id}`);
+          state.drops = state.drops.filter((d) => d.id !== item.id);
+          state.dropCounts = {
+            ...state.dropCounts,
+            history: Math.max(0, state.dropCounts.history - 1),
+          };
+          paintDrop();
+          Toast.success(t("记录已删除"));
         } catch (err) {
           Toast.error(err.message);
         }
@@ -414,15 +533,60 @@ export function renderQuick(root) {
   }
 
   /* ---------------- 发给用户 ---------------- */
+  /** 接收状态 → 标签文案与配色（与后端 quick_service.send_status 对齐） */
+  const SEND_TAGS = {
+    pending: { text: "待接收", cls: "is-wait" },
+    accepted: { text: "已存入", cls: "is-active" },
+    rejected: { text: "被拒绝", cls: "is-dead" },
+    expired: { text: "已过期", cls: "" },
+  };
+
+  function sendTag(item) {
+    const conf = SEND_TAGS[item.sendStatus] || SEND_TAGS.pending;
+    return H`<span class="quick-row__tag ${conf.cls}">${t(conf.text)}</span>`;
+  }
+
+  /** 收到后存到哪：设置里的收件目录（默认 我的文件/快传的文件） */
+  function receivePathLabel() {
+    const parts = (state.receive?.path?.path || []).map((part) => part.name);
+    return parts.length ? parts.join(" / ") : t("我的文件 / 快传的文件");
+  }
+
+  async function decideSend(item, action) {
+    if (action === "reject") {
+      const ok = await Dialog.confirm({
+        title: t("拒绝这份快传"),
+        message: t("拒绝后文件会从暂存区删掉，对方会看到「文件被拒绝」。想留个余地的话，也可以先点眼睛看看里面是什么。"),
+        confirmText: t("拒绝"),
+        danger: true,
+      });
+      if (!ok) return;
+    }
+    try {
+      await api.post(`/api/quick/sends/${item.id}/${action}`, {});
+      if (action === "accept") {
+        Toast.success(t("已存入 {path}", { path: receivePathLabel() }));
+      } else {
+        Toast.success(t("已拒绝，对方会看到「文件被拒绝」"));
+      }
+      await loadAll();
+      paintTabs();
+      paintPanel();
+    } catch (err) {
+      Toast.error(err.message);
+    }
+  }
+
   function paintSend() {
+    const pending = state.pending || 0;
     panelEl.innerHTML = H`
       <div class="quick-card">
         <div class="quick-card__title">
           <svg class="icon icon--s"><use href="#i-share"/></svg>
-          <span data-i18n="直接发到对方的网盘">${t("直接发到对方的网盘")}</span>
+          <span data-i18n="发给用户">${t("发给用户")}</span>
         </div>
-        <div class="quick-card__desc" data-i18n="文件会复制一份到对方的根目录（同一份内容只占一份磁盘），对方登录后在「我的文件」里就能看到，不用来你的空间里挑。">
-          ${t("文件会复制一份到对方的根目录（同一份内容只占一份磁盘），对方登录后在「我的文件」里就能看到，不用来你的空间里挑。")}
+        <div class="quick-card__desc" data-i18n="文件先放进对方的暂存区，对方看完内容点「同意」之后才搬进他的网盘（默认 我的文件/快传的文件）；对方也可以拒绝，拒绝后会提示你。">
+          ${t("文件先放进对方的暂存区，对方看完内容点「同意」之后才搬进他的网盘（默认 我的文件/快传的文件）；对方也可以拒绝，拒绝后会提示你。")}
         </div>
         <div class="quick-fields">
           <label class="quick-field" style="flex:1 1 180px">
@@ -450,7 +614,7 @@ export function renderQuick(root) {
         <div class="quick-card__title">
           <svg class="icon icon--s"><use href="#i-download"/></svg>
           <span data-i18n="收到的">${t("收到的")}</span>
-          ${state.unread ? H`<span class="quick-row__tag is-active">${t("{n} 条未读", { n: state.unread })}</span>` : ""}
+          ${pending ? H`<span class="quick-row__tag is-wait">${t("{n} 条待接收", { n: pending })}</span>` : ""}
           <span style="flex:1"></span>
           <button class="btn btn--subtle" type="button" data-act="read" ${state.unread ? "" : "disabled"}>${t("全部标为已读")}</button>
         </div>
@@ -461,6 +625,17 @@ export function renderQuick(root) {
           <svg class="icon icon--s"><use href="#i-arrow-up-right"/></svg>
           <span data-i18n="送出的">${t("送出的")}</span>
         </div>
+        ${
+          state.unseenResults
+            ? H`
+        <div class="quick-notice" data-notice>
+          <svg class="icon icon--s"><use href="#i-alert"/></svg>
+          <span>${t("有 {n} 条快传对方没有收下（文件被拒绝或已过期），可以换个方式再发一次。", { n: state.unseenResults })}</span>
+          <span style="flex:1"></span>
+          <button class="btn btn--subtle" type="button" data-act="ack">${t("知道了")}</button>
+        </div>`
+            : ""
+        }
         <div class="quick-list" data-outbox></div>
       </div>`;
 
@@ -510,14 +685,20 @@ export function renderQuick(root) {
       const btn = panelEl.querySelector('[data-act="send"]');
       btn.disabled = true;
       try {
-        await api.post("/api/quick/sends", {
+        const data = await api.post("/api/quick/sends", {
           nodeIds: state.sendNodes.map((node) => node.id),
           toUsername: to,
           message: message || null,
         });
         state.sendNodes = [];
-        Toast.success(t("已发送给 {name}", { name: to }));
+        const accepted = data?.send?.sendStatus === "accepted";
+        Toast.success(
+          accepted
+            ? t("已发送给 {name}，对方开着自动接收，已经存进他的网盘", { name: to })
+            : t("已发送给 {name}，等他同意后才会存进他的网盘", { name: to })
+        );
         await loadAll();
+        paintTabs();
         paintPanel(true);
       } catch (err) {
         Toast.error(err.message);
@@ -538,31 +719,74 @@ export function renderQuick(root) {
       }
     });
 
+    panelEl.querySelector('[data-act="ack"]')?.addEventListener("click", async () => {
+      try {
+        await api.post("/api/quick/outbox/ack", {});
+        state.unseenResults = 0;
+        paintSend();
+      } catch (err) {
+        Toast.error(err.message);
+      }
+    });
+
     const inboxEl = panelEl.querySelector("[data-inbox]");
     inboxEl.innerHTML = state.inbox.length
       ? state.inbox
-          .map(
-            (item) => H`
-        <div class="quick-row">
-          <span class="quick-row__icon"><svg class="icon"><use href="#i-download"/></svg></span>
+          .map((item) => {
+            const waiting = item.sendStatus === "pending";
+            const dim = !waiting && item.sendStatus !== "accepted";
+            return H`
+        <div class="quick-row ${waiting ? "is-pending" : ""} ${dim ? "is-dead" : ""}" data-id="${item.id}" data-send>
+          <span class="quick-row__icon"><svg class="icon"><use href="#${item.count > 1 ? "i-folder" : "i-file"}"/></svg></span>
           <div class="quick-row__main">
             <div class="quick-row__name">${escapeHtml(item.peer?.displayName || item.peer?.username || "")} · ${escapeHtml(item.name)}</div>
             <div class="quick-row__meta">${formatBytes(item.size)} · ${formatTime(item.createdAt)}${
               item.message ? ` · ${escapeHtml(item.message)}` : ""
-            }</div>
+            }${waiting ? ` · ${t("双击查看内容")}` : ""}</div>
           </div>
-          ${item.seen ? "" : H`<span class="quick-row__tag is-active">${t("未读")}</span>`}
-        </div>`
-          )
+          ${sendTag(item)}
+          ${
+            waiting
+              ? H`<div class="quick-row__actions">
+                  <button class="icon-btn" type="button" data-act="browse" title="${t("查看内容")}">
+                    <svg class="icon"><use href="#i-eye"/></svg>
+                  </button>
+                  <button class="icon-btn" type="button" data-act="accept" title="${t("同意并存入")}">
+                    <svg class="icon"><use href="#i-check"/></svg>
+                  </button>
+                  <button class="icon-btn" type="button" data-act="reject" title="${t("拒绝")}">
+                    <svg class="icon"><use href="#i-close"/></svg>
+                  </button>
+                </div>`
+              : ""
+          }
+        </div>`;
+          })
           .join("")
       : H`<div class="quick-empty"><svg class="icon"><use href="#i-download"/></svg><div>${t("还没收到过快传文件")}</div></div>`;
+
+    inboxEl.querySelectorAll("[data-send]").forEach((row) => {
+      const item = state.inbox.find((entry) => entry.id === Number(row.dataset.id));
+      if (!item || item.sendStatus !== "pending") return;
+      row.addEventListener("dblclick", (event) => {
+        // 点的是按钮就别顺手把弹层打开
+        if (event.target.closest("[data-act]")) return;
+        openSendBrowser(item, { onAccept: () => decideSend(item, "accept") });
+      });
+      row.querySelector('[data-act="browse"]')?.addEventListener("click", () => {
+        openSendBrowser(item, { onAccept: () => decideSend(item, "accept") });
+      });
+      row.querySelector('[data-act="accept"]')?.addEventListener("click", () => decideSend(item, "accept"));
+      row.querySelector('[data-act="reject"]')?.addEventListener("click", () => decideSend(item, "reject"));
+    });
 
     const outboxEl = panelEl.querySelector("[data-outbox]");
     outboxEl.innerHTML = state.outbox.length
       ? state.outbox
-          .map(
-            (item) => H`
-        <div class="quick-row">
+          .map((item) => {
+            const dim = item.sendStatus === "rejected" || item.sendStatus === "expired";
+            return H`
+        <div class="quick-row ${dim ? "is-dead" : ""}" data-id="${item.id}">
           <span class="quick-row__icon"><svg class="icon"><use href="#i-arrow-up-right"/></svg></span>
           <div class="quick-row__main">
             <div class="quick-row__name">${escapeHtml(item.name)} → ${escapeHtml(item.peer?.displayName || item.peer?.username || "")}</div>
@@ -570,8 +794,9 @@ export function renderQuick(root) {
               item.message ? ` · ${escapeHtml(item.message)}` : ""
             }</div>
           </div>
-        </div>`
-          )
+          ${sendTag(item)}
+        </div>`;
+          })
           .join("")
       : H`<div class="quick-empty"><svg class="icon"><use href="#i-share"/></svg><div>${t("还没有发送过")}</div></div>`;
   }
@@ -803,9 +1028,9 @@ export function renderQuick(root) {
      * 不在网盘里建目录 —— 取件码本来也只列文件。
      */
     async function uploadList(entries) {
-      const live = entries.filter((item) => item.file && item.file.size > 0);
+      const live = entries.filter((item) => item.file);
       if (!live.length) {
-        Toast.warn(t("空文件不会被上传"));
+        Toast.warn(t("没有可上传的文件"));
         return;
       }
       let overflow = 0;
@@ -940,11 +1165,12 @@ export function renderQuick(root) {
         });
         state.lastPickup = data.pickup;
         state.pickups = [data.pickup, ...state.pickups];
+        state.pickupCounts = { ...state.pickupCounts, active: state.pickupCounts.active + 1 };
         state.pickupItems = [];
         state.uploading = [];
         paintPickup();
         playIn(panelEl.querySelectorAll(".quick-share"), { typed: "quick-pop" });
-        playIn(panelEl.querySelectorAll(".quick-list > .quick-row:first-child"), { typed: "quick-pop" });
+        playIn([panelEl.querySelector(".quick-list > .quick-row")], { typed: "quick-pop" });
         Toast.success(t("取件码已生成"));
       } catch (err) {
         Toast.error(err.message);
@@ -1075,18 +1301,29 @@ export function renderQuick(root) {
 
     // ---- 历史记录 ----
     const listEl = panelEl.querySelector("[data-list]");
-    if (!state.pickups.length) {
-      listEl.innerHTML = H`<div class="quick-empty">
-        <svg class="icon"><use href="#i-key"/></svg>
-        <div>${t("还没有生成过取件码")}</div>
-      </div>`;
-      return;
-    }
-    listEl.innerHTML = state.pickups
-      .map((item) => {
-        const files = item.items || [];
-        const aliveFiles = files.filter((file) => file.alive).length;
-        return H`
+    const onHistory = state.pickupScope === "history";
+    const rows = state.pickups.filter((item) =>
+      onHistory ? item.status !== "active" : item.status === "active"
+    );
+
+    const emptyHtml = onHistory
+      ? H`<div class="quick-empty">
+          <svg class="icon"><use href="#i-clock"/></svg>
+          <div>${t("还没有过期或已撤销的取件码")}</div>
+        </div>`
+      : H`<div class="quick-empty">
+          <svg class="icon"><use href="#i-key"/></svg>
+          <div>${t("还没有生成过取件码")}</div>
+        </div>`;
+
+    listEl.innerHTML =
+      listbarHtml(state.pickupScope, state.pickupCounts) +
+      (rows.length
+        ? rows
+            .map((item) => {
+              const files = item.items || [];
+              const aliveFiles = files.filter((file) => file.alive).length;
+              return H`
       <div class="quick-row${item.status === "active" ? "" : " is-dead"}" data-id="${item.id}">
         <span class="quick-row__icon"><svg class="icon"><use href="#i-key"/></svg></span>
         <div class="quick-row__main">
@@ -1095,16 +1332,25 @@ export function renderQuick(root) {
         </div>
         <span class="quick-row__tag ${item.status === "active" ? "is-active" : "is-dead"}">${t(STATUS_TEXT[item.status] || item.status)}</span>
         <div class="quick-row__actions">
-          <button class="icon-btn" type="button" data-act="copy" title="${t("复制取件链接")}" ${item.status === "active" ? "" : "disabled"}>
-            <svg class="icon"><use href="#i-link"/></svg>
-          </button>
-          <button class="icon-btn" type="button" data-act="revoke" title="${t("撤销")}" ${item.status === "active" ? "" : "disabled"}>
-            <svg class="icon"><use href="#i-close"/></svg>
-          </button>
+          ${
+            onHistory
+              ? H`<button class="icon-btn" type="button" data-act="forget" title="${t("删除记录")}">
+                  <svg class="icon"><use href="#i-trash"/></svg>
+                </button>`
+              : H`<button class="icon-btn" type="button" data-act="copy" title="${t("复制取件链接")}">
+                  <svg class="icon"><use href="#i-link"/></svg>
+                </button>
+                <button class="icon-btn" type="button" data-act="revoke" title="${t("撤销")}">
+                  <svg class="icon"><use href="#i-close"/></svg>
+                </button>`
+          }
         </div>
       </div>`;
-      })
-      .join("");
+            })
+            .join("")
+        : emptyHtml);
+
+    bindListbar(listEl, "pickup", "pickupScope", paintPickup);
 
     listEl.querySelectorAll(".quick-row").forEach((row) => {
       const item = state.pickups.find((p) => p.id === Number(row.dataset.id));
@@ -1116,7 +1362,7 @@ export function renderQuick(root) {
       row.querySelector('[data-act="revoke"]')?.addEventListener("click", async () => {
         const ok = await Dialog.confirm({
           title: t("撤销取件码"),
-          message: t("撤销后这个码立刻失效，已经发出去的码也取不下了。"),
+          message: t("撤销后这个码立刻失效，已经发出去的码也取不下了。记录会收进「历史过期」。"),
           confirmText: t("撤销"),
           danger: true,
         });
@@ -1125,8 +1371,33 @@ export function renderQuick(root) {
           await api.del(`/api/quick/pickups/${item.id}`);
           item.status = "revoked";
           state.lastPickup = null;
+          state.pickupCounts = {
+            active: Math.max(0, state.pickupCounts.active - 1),
+            history: state.pickupCounts.history + 1,
+          };
           paintPickup();
-          Toast.success(t("已撤销"));
+          Toast.success(t("已撤销，记录收进历史过期"));
+        } catch (err) {
+          Toast.error(err.message);
+        }
+      });
+      row.querySelector('[data-act="forget"]')?.addEventListener("click", async () => {
+        const ok = await Dialog.confirm({
+          title: t("删除这条记录"),
+          message: t("这条取件码已经失效。删掉记录时，快传暂存区里只给它用的文件也会一起回收；从「我的文件」选进来的文件不受影响。"),
+          confirmText: t("删除记录"),
+          danger: true,
+        });
+        if (!ok) return;
+        try {
+          await api.del(`/api/quick/pickups/${item.id}`);
+          state.pickups = state.pickups.filter((p) => p.id !== item.id);
+          state.pickupCounts = {
+            ...state.pickupCounts,
+            history: Math.max(0, state.pickupCounts.history - 1),
+          };
+          paintPickup();
+          Toast.success(t("记录已删除"));
         } catch (err) {
           Toast.error(err.message);
         }
@@ -1137,18 +1408,31 @@ export function renderQuick(root) {
   /* ---------------- 数据 ---------------- */
   async function loadAll() {
     try {
-      const [drops, inbox, outbox, pickups, limits] = await Promise.all([
+      const [drops, inbox, outbox, pickups, limits, receive] = await Promise.all([
         api.get("/api/quick/drops"),
         api.get("/api/quick/inbox"),
         api.get("/api/quick/outbox"),
         api.get("/api/quick/pickups"),
         api.get("/api/quick/limits").catch(() => null),
+        api.get("/api/quick/receive").catch(() => null),
       ]);
       state.drops = drops.items || [];
       state.inbox = inbox.items || [];
       state.unread = inbox.unread || 0;
+      state.pending = inbox.pending || 0;
       state.outbox = outbox.items || [];
+      state.unseenResults = outbox.unseenResults || 0;
+      state.receive = receive?.receive || null;
       state.pickups = pickups.items || [];
+      // 角标用服务端算好的数：只拉了前 300 条，自己数会漏
+      state.dropCounts = drops.counts || {
+        active: state.drops.filter((d) => d.status === "active").length,
+        history: state.drops.filter((d) => d.status !== "active").length,
+      };
+      state.pickupCounts = pickups.counts || {
+        active: state.pickups.filter((p) => p.status === "active").length,
+        history: state.pickups.filter((p) => p.status !== "active").length,
+      };
       if (limits?.limits) {
         state.limits = limits.limits;
         // 管理员调小上限后，默认值也要跟着收回来

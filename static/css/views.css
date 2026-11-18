@@ -2458,6 +2458,44 @@ html[data-ai="off"] .mascot__act[data-mascot-act="chat"] {
   gap: 6px;
 }
 
+/* 「历史过期分享」入口：标题栏里的胶囊按钮 + 条数角标 */
+.listbar__toggle {
+  gap: 6px;
+  height: 30px;
+  padding: 0 10px;
+  font-size: 12.5px;
+}
+.listbar__toggle .icon {
+  flex: none;
+  transition: transform var(--dur-fast) var(--ease-fluent);
+}
+.listbar__toggle.is-on {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 38%, transparent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.listbar__count {
+  flex: none;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--stroke-hair);
+  background: var(--fill-subtle);
+  color: var(--text-3);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.listbar__toggle.is-on .listbar__count {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  color: var(--accent);
+}
+
 /* ------------------------------------------------------------
    设置 · 个人资料（头像 / 昵称 / 简介）
    ------------------------------------------------------------ */

@@ -163,6 +163,9 @@ def main() -> int:
         keep_file.write_bytes(f"collapse-payload-{stamp}".encode() * 200)
         keep2_file = tmp / f"收起样本2-{stamp}.txt"
         keep2_file.write_bytes(f"collapse2-payload-{stamp}".encode() * 200)
+        # 0 字节文件（内容为空但有文件名）以前会被前端直接跳过，现在要能正常上传
+        empty_file = tmp / f"空文件-{stamp}.txt"
+        empty_file.write_bytes(b"")
 
         with sync_playwright() as p:
             try:
@@ -305,10 +308,27 @@ def main() -> int:
             check("窄屏也能收起", not page4.locator(".upload-panel__list").is_visible())
             page4.screenshot(path=str(OUT / "upload_panel_mobile.png"), full_page=False)
 
-            print("\n[E] 控制台无报错")
-            for name, errs in (("宽屏", errors), ("窄屏", errors4)):
-                check(f"{name}无 JS 异常", not errs, "; ".join(errs[:2]))
+            print("\n[E] 0 字节文件也能上传")
+            ctx5, page5, errors5 = make_page(session_token)
+            page5.goto(base + "/#/files", wait_until="domcontentloaded")
+            page5.wait_for_selector("[data-file-input]", state="attached", timeout=20000)
+            page5.set_input_files("[data-file-input]", str(empty_file))
+            page5.wait_for_function(
+                "name => [...document.querySelectorAll('.tile, .frow')]"
+                ".some(el => el.innerText.includes(name))",
+                arg=empty_file.name,
+                timeout=30000,
+            )
+            tile = page5.locator(".tile, .frow").filter(has_text=empty_file.name).first
+            check("空文件出现在列表里", tile.count() == 1)
+            check("列表里显示 0 B", "0 B" in tile.inner_text(), tile.inner_text().replace("\n", " "))
+            check("没有报错提示", page5.locator(".toast.is-error").count() == 0)
+            page5.screenshot(path=str(OUT / "upload_empty_file.png"), full_page=False)
+            ctx5.close()
 
+            print("\n[F] 控制台无报错")
+            for name, errs in (("宽屏", errors), ("窄屏", errors4), ("空文件", errors5)):
+                check(f"{name}无 JS 异常", not errs, "; ".join(errs[:2]))
             browser.close()
 
         print(f"\n结果：{passed} 通过，{failed} 失败")

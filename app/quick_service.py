@@ -19,7 +19,7 @@ from collections import defaultdict, deque
 from datetime import datetime, timedelta
 
 from fastapi import HTTPException, status
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
 from . import node_service as ns
@@ -75,6 +75,11 @@ def _expire_reason(qt: QuickTransfer) -> str:
     if qt.revoked:
         return "这个快传已被取消"
     return "这个快传已过期"
+
+
+def is_dead(qt: QuickTransfer) -> bool:
+    """对外用的名字：已取消或已过期，都不该再被使用。"""
+    return _dead(qt)
 
 
 def _nodes(db: Session, ids: list[int], user_id: int) -> list[Node]:
@@ -190,6 +195,10 @@ def payload(db: Session, qt: QuickTransfer, *, with_code: bool = True) -> dict:
         data["seen"] = qt.seen
         data["peerId"] = qt.peer_id
         data["nodeIds"] = id_list(qt)
+        # 接收状态：接收方同意之前文件只在暂存区，不占「我的文件」
+        data["sendStatus"] = send_status(qt)
+        data["decidedAt"] = _iso(qt.decided_at)
+        data["resultSeen"] = qt.result_seen
     return data
 
 
@@ -272,8 +281,13 @@ def note_drop_upload(db: Session, qt: QuickTransfer, node: Node) -> None:
 
 
 # --------------------------------------------------------------------------- #
-# 站内快传（send）
+# 站内快传（send）：先放进暂存区，接收方同意后才落进「我的文件」
 # --------------------------------------------------------------------------- #
+# 待接收的有效期：超过就自动作废（记录留着给双方看，文件由清理任务回收）
+SEND_DAYS = 7
+DEFAULT_INBOX_NAME = "快传的文件"
+
+
 def _has_blocked_content(db: Session, user_id: int, node: Node) -> bool:
     """文件（或文件夹里任意一层）是否含已被举报确认的内容。"""
     if node.type == "file":
@@ -293,6 +307,145 @@ def _has_blocked_content(db: Session, user_id: int, node: Node) -> bool:
     ).first() is not None
 
 
+def send_status(qt: QuickTransfer) -> str:
+    """对外暴露的接收状态。
+
+    「过期」是算出来的，不用后台改库：到点了还挂在待接收就按过期展示，
+    文件在清理任务里回收。
+    """
+    if qt.kind != "send":
+        return ""
+    if qt.send_status == "pending" and qt.expires_at and qt.expires_at <= utcnow():
+        return "expired"
+    return qt.send_status or "accepted"
+
+
+def receive_pref(db: Session, user_id: int) -> dict:
+    """接收偏好：允许接收 / 自动同意 / 存放目录。没有设置行时按默认值走。"""
+    row = db.get(UserSetting, user_id)
+    return {
+        "enabled": True if row is None else bool(row.quick_receive_enabled),
+        "autoAccept": False if row is None else bool(row.quick_auto_accept),
+        "folderId": None if row is None else row.quick_inbox_folder,
+    }
+
+
+def _stage_subtree(
+    db: Session,
+    owner: User,
+    node: Node,
+    qt_id: int,
+    parent_id: int | None,
+    _depth: int = 0,
+) -> Node:
+    """把节点（含子树）复制成 owner 名下的「待接收副本」。
+
+    与「我的文件」里的复制不同，这里打上 quick_owned + pending_send_id：
+    不占配额、不进搜索/WebDAV/我的文件，接收方只能在「快传」里预览。
+    文件复用同一个 blob，只加引用、不复制物理数据。
+    """
+    if _depth > ns.MAX_DEPTH:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "目录层级过深，无法发送")
+    if node.type == "folder":
+        clone = Node(
+            user_id=owner.id,
+            parent_id=parent_id,
+            type="folder",
+            name=node.name,
+            size=0,
+            quick_owned=True,
+            pending_send_id=qt_id,
+        )
+        db.add(clone)
+        db.flush()
+        children = db.scalars(
+            select(Node).where(
+                Node.user_id == node.user_id,
+                Node.parent_id == node.id,
+                Node.deleted_at.is_(None),
+            )
+        ).all()
+        for child in children:
+            _stage_subtree(db, owner, child, qt_id, clone.id, _depth + 1)
+        return clone
+    if node.blob_sha256:
+        ns.retain_blob(db, node.blob_sha256, int(node.size or 0))
+    clone = Node(
+        user_id=owner.id,
+        parent_id=parent_id,
+        type="file",
+        name=node.name,
+        blob_sha256=node.blob_sha256,
+        size=int(node.size or 0),
+        mime=node.mime,
+        quick_owned=True,
+        pending_send_id=qt_id,
+    )
+    db.add(clone)
+    db.flush()
+    return clone
+
+
+def inbox_folder(db: Session, user: User) -> Node:
+    """收到的文件存到哪：用户挑的目录；没挑（或目录被删了）就用 我的文件/快传的文件。"""
+    row = db.get(UserSetting, user.id)
+    folder_id = row.quick_inbox_folder if row else None
+    if folder_id:
+        node = db.get(Node, folder_id)
+        if node and node.user_id == user.id and node.type == "folder" and not node.deleted_at:
+            return node
+        # 目录没了就悄悄回默认，别让接收一直失败
+        if row is not None:
+            row.quick_inbox_folder = None
+            db.flush()
+    existing = db.scalars(
+        select(Node).where(
+            Node.user_id == user.id,
+            Node.parent_id.is_(None),
+            Node.type == "folder",
+            Node.deleted_at.is_(None),
+            Node.quick_owned.is_(False),
+            func.lower(Node.name) == DEFAULT_INBOX_NAME.lower(),
+        )
+    ).first()
+    if existing is not None:
+        return existing
+    return ns.create_folder(db, user, None, DEFAULT_INBOX_NAME)
+
+
+def inbox_path(db: Session, user: User) -> dict:
+    """设置页展示的「收到后存到哪」，含是否还在用默认位置。"""
+    row = db.get(UserSetting, user.id)
+    folder_id = row.quick_inbox_folder if row else None
+    node = db.get(Node, folder_id) if folder_id else None
+    if node is not None and node.user_id == user.id and node.type == "folder" and not node.deleted_at:
+        trail = ns.breadcrumb(db, user.id, node.id)
+        return {"folderId": node.id, "isDefault": False, "path": trail}
+    return {
+        "folderId": None,
+        "isDefault": True,
+        "path": [
+            {"id": None, "name": "我的文件"},
+            {"id": None, "name": DEFAULT_INBOX_NAME},
+        ],
+    }
+
+
+def set_inbox_folder(db: Session, user: User, folder_id: int | None) -> dict:
+    """folder_id=None 表示恢复默认（我的文件/快传的文件）。"""
+    row = db.get(UserSetting, user.id)
+    if row is None:
+        row = UserSetting(user_id=user.id)
+        db.add(row)
+    if folder_id is None:
+        row.quick_inbox_folder = None
+    else:
+        node = ns.require_parent(db, user.id, folder_id)
+        row.quick_inbox_folder = node.id if node else None
+    db.flush()
+    return inbox_path(db, user)
+
+
 def send_files(
     db: Session,
     sender: User,
@@ -301,6 +454,11 @@ def send_files(
     to_username: str,
     message: str | None,
 ) -> QuickTransfer:
+    """投递到对方的暂存区，等对方同意后才搬进他的「我的文件」。
+
+    对方在设置里开了「自动同意」就直接落盘（等于以前的行为），
+    关了「接收快传文件」则直接 403。
+    """
     require_terms(db, sender)
     for node in nodes:
         if _has_blocked_content(db, sender.id, node):
@@ -313,6 +471,11 @@ def send_files(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "不能发给自己，自己的文件直接移动就好")
     if receiver.banned:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "对方已被封禁，无法接收")
+    pref = receive_pref(db, receiver.id)
+    if not pref["enabled"]:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, "对方关闭了「接收快传文件」，现在发不过去"
+        )
 
     total = 0
     for node in nodes:
@@ -331,30 +494,248 @@ def send_files(
     if receiver.used_bytes + total > receiver.quota_bytes:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "对方空间不足，先让他清理一下")
 
-    clones: list[Node] = []
-    added = 0
-    for node in nodes:
-        clone, size = ns.copy_subtree(db, receiver, node, None)
-        clones.append(clone)
-        added += size
-    ns.recalc_usage(db, receiver)
-
     name, _, count = _summary(nodes)
     qt = QuickTransfer(
         kind="send",
         owner_id=sender.id,
         peer_id=receiver.id,
         token=secrets.token_urlsafe(32),
-        node_ids=json.dumps([c.id for c in clones]),
         name=name,
-        size=added,
+        size=total,
         count=count,
         message=(message or "").strip()[:FLASH_MESSAGE_MAX] or None,
         seen=False,
+        send_status="pending",
+        result_seen=True,
+        expires_at=_hint(days=SEND_DAYS),
     )
     db.add(qt)
     db.flush()
+    staged = [_stage_subtree(db, receiver, node, qt.id, None) for node in nodes]
+    qt.node_ids = json.dumps([n.id for n in staged])
+    db.flush()
+    if pref["autoAccept"]:
+        accept_send(db, receiver, qt)
     return qt
+
+
+def get_send(db: Session, user_id: int, qt_id: int, *, as_peer: bool = True) -> QuickTransfer:
+    qt = db.get(QuickTransfer, qt_id)
+    if not qt or qt.kind != "send":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "记录不存在")
+    if as_peer and qt.peer_id != user_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "记录不存在")
+    if not as_peer and qt.owner_id != user_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "记录不存在")
+    return qt
+
+
+def _send_staging(db: Session, qt: QuickTransfer) -> list[Node]:
+    """这条快传还在暂存区里的顶层副本（已存入/已拒绝时为空）。"""
+    out: list[Node] = []
+    for node_id in id_list(qt):
+        node = db.get(Node, node_id)
+        if node is not None and node.pending_send_id == qt.id:
+            out.append(node)
+    return out
+
+
+def _purge_staging(db: Session, qt: QuickTransfer) -> int:
+    """删掉暂存区里的副本（含子树）并回收 blob 引用。只动 pending_send_id 指向自己的节点。"""
+    ids: list[int] = []
+    for node in _send_staging(db, qt):
+        ids.extend(ns.subtree_ids(db, node.user_id, node.id))
+    qt.node_ids = json.dumps([])
+    if not ids:
+        return 0
+    shas = db.scalars(
+        select(Node.blob_sha256).where(Node.id.in_(ids), Node.blob_sha256.is_not(None))
+    ).all()
+    # 先删节点再减 blob 引用：node.blob_sha256 有外键，顺序反了会撞 FK
+    db.execute(Node.__table__.delete().where(Node.id.in_(ids)))
+    db.flush()
+    for sha in {s for s in shas if s}:
+        ns.release_blob(db, sha)
+    db.flush()
+    return len(ids)
+
+
+def accept_send(db: Session, user: User, qt: QuickTransfer) -> list[Node]:
+    """接收方同意：把暂存区的副本搬进收件目录，成为普通的「我的文件」。"""
+    if qt.send_status != "pending":
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "这条快传已经处理过了")
+    if send_status(qt) == "expired":
+        raise HTTPException(status.HTTP_410_GONE, "这条快传已经过期了")
+    roots = _send_staging(db, qt)
+    if not roots:
+        raise HTTPException(status.HTTP_410_GONE, "文件已经不在暂存区了")
+
+    total = 0
+    all_ids: list[int] = []
+    for root in roots:
+        ids = ns.subtree_ids(db, user.id, root.id)
+        all_ids.extend(ids)
+        total += int(
+            sum(
+                int(n or 0)
+                for n in db.scalars(
+                    select(Node.size).where(Node.id.in_(ids), Node.type == "file")
+                ).all()
+            )
+        )
+    if (user.used_bytes or 0) + total > (user.quota_bytes or 0):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "你的空间不够存放这些文件，先清理一下")
+
+    parent = inbox_folder(db, user)
+    parent_id = parent.id if parent else None
+    for root in roots:
+        # 收件目录里已有同名 → 落成「名字 (1)」，和资源管理器一致
+        root.name = ns.unique_name(db, user.id, parent_id, root.name, exclude_id=root.id)
+        root.parent_id = parent_id
+        root.updated_at = utcnow()
+    db.execute(
+        update(Node)
+        .where(Node.id.in_(all_ids))
+        .values(quick_owned=False, pending_send_id=None)
+    )
+    db.flush()
+
+    qt.node_ids = json.dumps([root.id for root in roots])
+    qt.send_status = "accepted"
+    qt.decided_at = utcnow()
+    qt.updated_at = utcnow()
+    # 做过决定了就等于看过了，别再算进「未读」
+    qt.seen = True
+    # 同意是「好消息」，不打扰发送方；只有被拒绝 / 过期才提示一次
+    qt.result_seen = True
+    db.flush()
+    ns.recalc_usage(db, user)
+    return roots
+
+
+def reject_send(db: Session, user: User, qt: QuickTransfer) -> None:
+    """接收方拒绝：暂存区的副本直接删掉，发送方看到「文件被拒绝」。"""
+    if qt.send_status != "pending":
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "这条快传已经处理过了")
+    _purge_staging(db, qt)
+    qt.send_status = "rejected"
+    qt.decided_at = utcnow()
+    qt.updated_at = utcnow()
+    qt.seen = True
+    qt.result_seen = False
+    db.flush()
+
+
+def send_items(db: Session, qt: QuickTransfer, user: User, parent_id: int | None = None) -> dict:
+    """接收方在同意前逐层浏览这条快传里到底有什么（双击文件夹/文件时用）。"""
+    if qt.peer_id != user.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "记录不存在")
+    if send_status(qt) != "pending":
+        raise HTTPException(status.HTTP_410_GONE, "这条快传已经处理过了")
+
+    if parent_id is None:
+        nodes = _send_staging(db, qt)
+        breadcrumb = [{"id": None, "name": qt.name}]
+    else:
+        folder = db.get(Node, parent_id)
+        if (
+            folder is None
+            or folder.pending_send_id != qt.id
+            or folder.user_id != user.id
+            or folder.type != "folder"
+        ):
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "目录不存在")
+        nodes = db.scalars(
+            select(Node).where(
+                Node.user_id == user.id,
+                Node.parent_id == folder.id,
+                Node.deleted_at.is_(None),
+                Node.pending_send_id == qt.id,
+            )
+        ).all()
+        trail: list[dict] = []
+        cursor: Node | None = folder
+        guard = 0
+        while cursor is not None and cursor.pending_send_id == qt.id and guard < ns.MAX_DEPTH:
+            guard += 1
+            trail.append({"id": cursor.id, "name": cursor.name})
+            cursor = db.get(Node, cursor.parent_id) if cursor.parent_id else None
+        trail.reverse()
+        breadcrumb = [{"id": None, "name": qt.name}, *trail]
+
+    # 文件夹在前，再按名字排，跟「我的文件」的列表顺序一致
+    ordered = sorted(nodes, key=lambda n: (n.type != "folder", (n.name or "").lower()))
+    counts = ns.child_counts(db, user.id, [n.id for n in ordered if n.type == "folder"])
+    return {
+        "items": [ns.node_payload(n, counts.get(n.id)) for n in ordered],
+        "breadcrumb": breadcrumb,
+        "send": payload(db, qt, with_code=False),
+    }
+
+
+def pending_count(db: Session, user_id: int) -> int:
+    rows = db.scalars(
+        select(QuickTransfer).where(
+            QuickTransfer.kind == "send",
+            QuickTransfer.peer_id == user_id,
+            QuickTransfer.send_status == "pending",
+        )
+    ).all()
+    return sum(1 for row in rows if send_status(row) == "pending")
+
+
+def unseen_results(db: Session, user_id: int) -> int:
+    """发送方还没看过的接收结果（被拒绝 / 已过期时提示一次）。"""
+    rows = db.scalars(
+        select(QuickTransfer).where(
+            QuickTransfer.kind == "send",
+            QuickTransfer.owner_id == user_id,
+            QuickTransfer.result_seen.is_(False),
+        )
+    ).all()
+    return sum(1 for row in rows if send_status(row) != "pending")
+
+
+def ack_results(db: Session, user_id: int) -> int:
+    rows = db.scalars(
+        select(QuickTransfer).where(
+            QuickTransfer.kind == "send",
+            QuickTransfer.owner_id == user_id,
+            QuickTransfer.result_seen.is_(False),
+        )
+    ).all()
+    changed = 0
+    for row in rows:
+        if send_status(row) == "pending":
+            continue
+        row.result_seen = True
+        changed += 1
+    return changed
+
+
+def cleanup_sends(db: Session, *, keep_days: int = 30) -> dict:
+    """清理站内快传：过期的待接收作废并回收暂存文件，处理完的老记录按天数删。"""
+    now = utcnow()
+    expired = 0
+    purged = 0
+    for qt in db.scalars(select(QuickTransfer).where(QuickTransfer.kind == "send")).all():
+        status_now = send_status(qt)
+        if status_now == "expired" and qt.send_status == "pending":
+            _purge_staging(db, qt)
+            qt.send_status = "expired"
+            qt.result_seen = False
+            qt.updated_at = now
+            expired += 1
+            continue
+        if status_now == "pending":
+            continue
+        stamp = qt.decided_at or qt.updated_at
+        if stamp and (now - stamp).days >= keep_days:
+            _purge_staging(db, qt)  # 兜底：中途失败可能留下暂存文件
+            db.delete(qt)
+            purged += 1
+    db.flush()
+    return {"expired": expired, "purged": purged}
 
 
 def _user_brief(db: Session, users: dict[int, User], uid: int | None) -> dict:
@@ -378,6 +759,8 @@ def send_list(db: Session, user_id: int, *, incoming: bool, limit: int = 100) ->
     ).all()
     if not rows:
         return []
+    # 待接收的排前面：接收方一进来就该看到「等你同意」的那几条
+    rows = sorted(rows, key=lambda row: (send_status(row) != "pending", -row.id))
     peer_ids = {row.owner_id if incoming else row.peer_id for row in rows}
     users = {
         u.id: u
@@ -783,9 +1166,14 @@ def cleanup_expired(db: Session, *, retention_days: int | None = None) -> dict:
         db.delete(qt)
         removed_codes += 1
 
-    # 上传了但没被任何取件码引用（创建中途失败）的孤儿文件，也按保留期回收
+    # 上传了但没被任何取件码引用（创建中途失败）的孤儿文件，也按保留期回收。
+    # 站内快传的待接收副本（pending_send_id 非空）不在此列：它们归 send 的生命周期管。
     orphans = db.scalars(
-        select(Node).where(Node.quick_owned.is_(True), Node.created_at <= cutoff)
+        select(Node).where(
+            Node.quick_owned.is_(True),
+            Node.pending_send_id.is_(None),
+            Node.created_at <= cutoff,
+        )
     ).all()
     for node in orphans:
         used = db.scalars(
@@ -805,11 +1193,13 @@ def cleanup_expired(db: Session, *, retention_days: int | None = None) -> dict:
     for sha in shas:
         ns.release_blob(db, sha)
     db.flush()
+    sends = cleanup_sends(db)
     return {
         "codes": removed_codes,
         "files": removed_files,
         "bytes": removed_bytes,
         "retentionDays": retention_days,
+        **sends,
     }
 
 
@@ -847,7 +1237,10 @@ def report_pickup(
     return report
 
 
-def list_for_user(db: Session, user_id: int, kind: str, limit: int = 100) -> list[dict]:
+def list_for_user(
+    db: Session, user_id: int, kind: str, limit: int = 100, scope: str = "all"
+) -> list[dict]:
+    """scope: active 只看可用 / history 只看失效 / all 全都要（默认）。"""
     if kind == "send":
         return send_list(db, user_id, incoming=False, limit=limit)
     rows = db.scalars(
@@ -856,7 +1249,22 @@ def list_for_user(db: Session, user_id: int, kind: str, limit: int = 100) -> lis
         .order_by(QuickTransfer.created_at.desc())
         .limit(limit)
     ).all()
+    if scope == "active":
+        rows = [row for row in rows if not _dead(row)]
+    elif scope == "history":
+        rows = [row for row in rows if _dead(row)]
     return [payload(db, row) for row in rows]
+
+
+def counts_for(db: Session, user_id: int, kind: str) -> dict:
+    """某个 kind 下「还能用 / 已失效」各有多少条，给列表上的角标用。"""
+    rows = db.scalars(
+        select(QuickTransfer).where(
+            QuickTransfer.owner_id == user_id, QuickTransfer.kind == kind
+        )
+    ).all()
+    dead = sum(1 for row in rows if _dead(row))
+    return {"active": len(rows) - dead, "history": dead}
 
 
 def get_owned(db: Session, user_id: int, qt_id: int, *, kind: str | None = None) -> QuickTransfer:
@@ -869,3 +1277,48 @@ def get_owned(db: Session, user_id: int, qt_id: int, *, kind: str | None = None)
 def revoke(qt: QuickTransfer) -> None:
     qt.revoked = True
     qt.updated_at = utcnow()
+
+
+def purge(db: Session, qt: QuickTransfer) -> None:
+    """彻底删掉一条已失效的记录。
+
+    取件码顺手回收它自己的快传暂存文件（`quick_owned`）：被别的取件码还引用着的、
+    或者本来就是从「我的文件」选来的，一律不动 —— 那属于用户自己的网盘。
+    """
+    if qt.kind == "pickup":
+        node_ids = id_list(qt)
+        db.execute(delete(QuickPickupItem).where(QuickPickupItem.quick_id == qt.id))
+        db.flush()
+        doomed: list[Node] = []
+        for node_id in node_ids:
+            node = db.get(Node, node_id)
+            if node is None or not node.quick_owned:
+                continue
+            still_used = db.scalars(
+                select(QuickPickupItem.id).where(QuickPickupItem.node_id == node_id).limit(1)
+            ).first()
+            if still_used is not None:
+                continue
+            doomed.append(node)
+        # 先删节点再减 blob 引用（node.blob_sha256 有外键，顺序反了会撞 FK）
+        shas = [node.blob_sha256 for node in doomed if node.blob_sha256]
+        for node in doomed:
+            db.delete(node)
+        db.flush()
+        for sha in shas:
+            ns.release_blob(db, sha)
+        db.flush()
+    db.delete(qt)
+
+
+def purge_dead(db: Session, user_id: int, kind: str) -> int:
+    """清空历史：把某个 kind 下所有已失效的记录删掉，返回条数。"""
+    rows = db.scalars(
+        select(QuickTransfer).where(
+            QuickTransfer.owner_id == user_id, QuickTransfer.kind == kind
+        )
+    ).all()
+    doomed = [row for row in rows if _dead(row)]
+    for row in doomed:
+        purge(db, row)
+    return len(doomed)

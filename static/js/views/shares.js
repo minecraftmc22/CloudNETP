@@ -2,7 +2,8 @@
  * 我的分享：列出自己创建的链接，复制 / 打开 / 取消。
  *
  * - 分页：服务端分页，每页条数可选（默认 10，按设备记住）
- * - 已取消 / 已过期的记录：可以「重新分享」（生成新链接）或「删除记录」
+ * - 「历史过期分享」：过期 / 已取消 / 次数用完的记录收进另一个列表，可以逐条删除或直接清空
+ * - 已失效的记录还能「重新分享」（按原文件与时长生成新链接）
  */
 import { api, escapeHtml, formatBytes, formatTime } from "../api.js";
 import { H, t } from "../i18n.js";
@@ -31,6 +32,9 @@ export function renderShares(root) {
     pageSize: PAGE_SIZES.includes(stored) ? stored : 10,
     pages: 1,
     total: 0,
+    // active 只看还能用的 / history 只看历史过期
+    scope: "active",
+    counts: { active: 0, history: 0 },
   };
 
   root.innerHTML = H`
@@ -41,6 +45,11 @@ export function renderShares(root) {
       </div>
       <span class="view-sub" data-summary></span>
       <div class="grow"></div>
+      <button class="btn btn--subtle listbar__toggle" type="button" data-act="history" title="">
+        <svg class="icon icon--s" data-history-icon><use href="#i-clock"/></svg>
+        <span data-history-label>历史过期分享</span>
+        <span class="listbar__count" data-history-count hidden>0</span>
+      </button>
       <button class="icon-btn" type="button" data-act="refresh" title="刷新列表">
         <svg class="icon"><use href="#i-refresh"/></svg>
       </button>
@@ -55,24 +64,43 @@ export function renderShares(root) {
   const listEl = root.querySelector("[data-list]");
   const summaryEl = root.querySelector("[data-summary]");
   const pagerEl = root.querySelector("[data-pager]");
+  const toggleEl = root.querySelector('[data-act="history"]');
+  const labelEl = root.querySelector("[data-history-label]");
+  const countEl = root.querySelector("[data-history-count]");
+  const toggleIconEl = root.querySelector("[data-history-icon]");
 
   const absUrl = (share) => H`${siteOrigin()}${share.url}`;
-  const dead = (share) => share.status !== "active";
+  const history = () => state.scope === "history";
+
+  function paintToggle() {
+    const dead = state.counts.history;
+    countEl.textContent = String(dead);
+    countEl.hidden = !dead;
+    labelEl.textContent = history() ? t("返回当前分享") : t("历史过期分享");
+    toggleEl.title = history()
+      ? t("回到还能用的分享列表")
+      : t("过期、已取消、次数用完的分享都在这里");
+    toggleEl.classList.toggle("is-on", history());
+    toggleIconEl.setAttribute("href", history() ? "#i-chevron" : "#i-clock");
+    toggleIconEl.style.transform = history() ? "rotate(90deg)" : "";
+  }
 
   async function load() {
     if (state.loading) return;
     state.loading = true;
     try {
       const data = await api.get(
-        `/api/shares?page=${state.page}&pageSize=${state.pageSize}`
+        `/api/shares?page=${state.page}&pageSize=${state.pageSize}&scope=${state.scope}`
       );
       state.items = data.items || [];
       state.total = data.total || 0;
       state.pages = data.pages || 1;
       state.page = data.page || 1;
+      state.counts = data.counts || { active: state.total, history: 0 };
       render();
     } catch (err) {
       pagerEl.hidden = true;
+      paintToggle();
       listEl.innerHTML = H`<div class="empty">
           <div class="empty__art"><svg class="icon"><use href="#i-alert"/></svg></div>
           <div class="empty__title">加载失败</div>
@@ -84,9 +112,6 @@ export function renderShares(root) {
   }
 
   function renderPager() {
-    if (state.total <= PAGE_SIZES[0] && state.pages <= 1 && state.items.length <= state.pageSize) {
-      // 只有一页时也给「每页显示」入口，方便提前改设置
-    }
     pagerEl.hidden = false;
     pagerEl.innerHTML = H`
       <span class="share-pager__info">${t("共 {n} 个链接 · 第 {page}/{pages} 页", {
@@ -95,6 +120,13 @@ export function renderShares(root) {
         pages: state.pages,
       })}</span>
       <span class="grow"></span>
+      ${
+        history() && state.counts.history
+          ? H`<button class="btn btn--subtle btn--danger" type="button" data-act="clear-history">
+              <svg class="icon icon--s"><use href="#i-trash"/></svg>${t("清空历史")}
+            </button>`
+          : ""
+      }
       <label class="share-pager__size">
         <span>${t("每页")}</span>
         <select data-page-size>
@@ -129,11 +161,33 @@ export function renderShares(root) {
       state.page += 1;
       load();
     });
+    pagerEl.querySelector('[data-act="clear-history"]')?.addEventListener("click", async () => {
+      const ok = await Dialog.confirm({
+        title: t("清空历史记录"),
+        message: t("把 {n} 条已失效的分享记录全部删掉。网盘里的文件不受影响，只是这些链接的痕迹不再留在列表里。", {
+          n: state.counts.history,
+        }),
+        confirmText: t("清空"),
+        danger: true,
+      });
+      if (!ok) return;
+      try {
+        const data = await api.del("/api/shares/history");
+        Toast.success(t("已删除 {n} 条记录", { n: data.deleted || 0 }));
+        state.page = 1;
+        await load();
+      } catch (err) {
+        Toast.error(err.message);
+      }
+    });
   }
 
   function render() {
+    paintToggle();
     summaryEl.textContent = state.total
-      ? t("{total} 个链接 · 当前第 {page} 页", { total: state.total, page: state.page })
+      ? history()
+        ? t("历史过期 · {total} 条", { total: state.total })
+        : t("{total} 个链接 · 当前第 {page} 页", { total: state.total, page: state.page })
       : "";
 
     if (!state.items.length) {
@@ -144,20 +198,30 @@ export function renderShares(root) {
         load();
         return;
       }
-      listEl.innerHTML = H`<div class="empty">
-          <div class="empty__art"><svg class="icon"><use href="#i-share"/></svg></div>
-          <div class="empty__title">还没有分享过文件</div>
-          <div class="empty__desc">在「我的文件」里右键任意文件或文件夹，选择「分享链接」即可生成。</div>
-          <a class="btn btn--accent" href="#/files" style="margin-top:14px">
-            <svg class="icon icon--s"><use href="#i-folder"/></svg>去我的文件
-          </a>
-        </div>`;
+      listEl.innerHTML = history()
+        ? H`<div class="empty">
+            <div class="empty__art"><svg class="icon"><use href="#i-clock"/></svg></div>
+            <div class="empty__title">没有历史分享</div>
+            <div class="empty__desc">过期、已取消或次数用完的分享会自动收进这里，到时候可以在这里删除记录。</div>
+            <button class="btn btn--subtle" type="button" data-act="back" style="margin-top:14px">
+              <svg class="icon icon--s" style="transform:rotate(90deg)"><use href="#i-chevron"/></svg>${t("返回当前分享")}
+            </button>
+          </div>`
+        : H`<div class="empty">
+            <div class="empty__art"><svg class="icon"><use href="#i-share"/></svg></div>
+            <div class="empty__title">还没有分享过文件</div>
+            <div class="empty__desc">在「我的文件」里右键任意文件或文件夹，选择「分享链接」即可生成。</div>
+            <a class="btn btn--accent" href="#/files" style="margin-top:14px">
+              <svg class="icon icon--s"><use href="#i-folder"/></svg>去我的文件
+            </a>
+          </div>`;
+      listEl.querySelector('[data-act="back"]')?.addEventListener("click", () => switchScope());
       return;
     }
 
     listEl.innerHTML = state.items
       .map((share) => {
-        const isDead = dead(share);
+        const isDead = share.status !== "active";
         const kindLabel =
           share.type === "multi"
             ? t("合集 {n} 项", { n: share.itemCount })
@@ -240,7 +304,7 @@ export function renderShares(root) {
         if (!ok) return;
         try {
           await api.del(`/api/shares/${share.id}`);
-          Toast.success(t("分享已取消"));
+          Toast.success(t("分享已取消，记录收进历史过期分享"));
           await load();
         } catch (err) {
           Toast.error(err.message);
@@ -279,6 +343,9 @@ export function renderShares(root) {
           } else {
             Toast.success(t("已重新分享，新链接已复制"));
           }
+          // 新的链接出现在「当前分享」里，跟着切回去
+          state.scope = "active";
+          state.page = 1;
           await load();
         } catch (err) {
           Toast.error(err.message);
@@ -289,6 +356,14 @@ export function renderShares(root) {
     renderPager();
   }
 
+  async function switchScope() {
+    state.scope = history() ? "active" : "history";
+    state.page = 1;
+    await load();
+  }
+
+  toggleEl.addEventListener("click", switchScope);
   root.querySelector('[data-act="refresh"]').addEventListener("click", load);
+  paintToggle();
   load();
 }

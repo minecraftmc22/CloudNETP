@@ -332,15 +332,32 @@ def main() -> int:
         check("发送 200", status == 200, str(status))
         send = data.get("send") or {}
         check("附言回传", send.get("message") == "测试附言", str(send.get("message")))
+        check("状态是待接收", send.get("sendStatus") == "pending", str(send.get("sendStatus")))
 
         status, listing = call(base, "GET", "/api/nodes", b_cookie)
         names = [item["name"] for item in listing.get("items") or []]
-        check("B 根目录收到副本", "发给B.txt" in names, str(names))
+        check("同意前 B 根目录还没有副本", "发给B.txt" not in names, str(names))
 
         status, inbox = call(base, "GET", "/api/quick/inbox", b_cookie)
         check("B 收件箱 1 条", len(inbox.get("items") or []) == 1, str(len(inbox.get("items") or [])))
         check("未读数 1", inbox.get("unread") == 1, str(inbox.get("unread")))
+        check("待接收角标 1", inbox.get("pending") == 1, str(inbox.get("pending")))
         check("发件人信息正确", ((inbox.get("items") or [{}])[0].get("peer") or {}).get("username") == a_name, a_name)
+
+        # 同意前可以先看内容，同意了才落进 我的文件/快传的文件
+        status, browse = call(base, "GET", f"/api/quick/sends/{send.get('id')}/items", b_cookie)
+        check("同意前可浏览内容", status == 200 and len(browse.get("items") or []) == 1, str(status))
+        status, accepted = call(base, "POST", f"/api/quick/sends/{send.get('id')}/accept", b_cookie)
+        check("同意 200", status == 200, str(status))
+        status, listing = call(base, "GET", "/api/nodes", b_cookie)
+        inbox_folder = next(
+            (item["id"] for item in listing.get("items") or [] if item["name"] == "快传的文件"), None
+        )
+        names = []
+        if inbox_folder:
+            status, listing = call(base, "GET", f"/api/nodes?parentId={inbox_folder}", b_cookie)
+            names = [item["name"] for item in listing.get("items") or []]
+        check("同意后落在 快传的文件", "发给B.txt" in names, str(names))
 
         status, outbox = call(base, "GET", "/api/quick/outbox", a_cookie)
         check("A 发件箱 1 条", len(outbox.get("items") or []) == 1, str(len(outbox.get("items") or [])))

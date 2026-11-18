@@ -21,6 +21,7 @@ import sys
 import tempfile
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -93,6 +94,23 @@ def http(base: str, method: str, path: str, body=None, cookie: str = ""):
         with urllib.request.urlopen(req, timeout=30) as resp:
             raw = resp.read()
             return resp.status, json.loads(raw or b"{}")
+    except urllib.error.HTTPError as exc:
+        raw = exc.read()
+        try:
+            return exc.code, json.loads(raw or b"{}")
+        except Exception:
+            return exc.code, {"raw": raw[:200].decode("utf-8", "replace")}
+
+
+def http_bytes(base: str, method: str, path: str, body: bytes, cookie: str = ""):
+    req = urllib.request.Request(base + path, data=body, method=method)
+    req.add_header("Origin", base)
+    req.add_header("Content-Type", "application/octet-stream")
+    if cookie:
+        req.add_header("Cookie", f"cloudnetp_session={cookie}")
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            return resp.status, json.loads(resp.read() or b"{}")
     except urllib.error.HTTPError as exc:
         raw = exc.read()
         try:
@@ -320,17 +338,120 @@ def main() -> int:
             stored = page.evaluate("() => localStorage.getItem('cloudnetp.sharePageSize')")
             check("每页条数被记住", stored == "20", str(stored))
 
-            # 改每页条数会回到第 1 页，这里直接找那条已取消的记录
+            # 改每页条数会回到第 1 页
             page.wait_for_function(
                 "() => document.querySelector('.share-pager__info')?.textContent.includes('第 1/')",
                 timeout=20000,
             )
             page.wait_for_timeout(600)
-            dead_row = page.locator(".share-row.is-dead").first
-            check("失效记录有标记", dead_row.count() >= 1)
-            check("失效记录能重新分享", dead_row.locator('[data-act="renew"]').count() == 1)
-            check("失效记录能删除", dead_row.locator('[data-act="forget"]').count() == 1)
+
+            # ---- 历史过期分享：失效记录不再混在主列表里 ----
+            check("主列表里没有失效记录", page.locator(".share-row.is-dead").count() == 0,
+                  str(page.locator(".share-row.is-dead").count()))
+            toggle = page.locator('[data-act="history"]')
+            check("有「历史过期分享」按钮", toggle.count() == 1)
+            check("按钮上带条数", toggle.locator("[data-history-count]").inner_text().strip() == "1",
+                  toggle.locator("[data-history-count]").inner_text())
+            toggle.click()
+            page.wait_for_selector(".share-row.is-dead", timeout=20000)
+            check("历史里有那条失效分享", page.locator(".share-row.is-dead").count() == 1,
+                  str(page.locator(".share-row.is-dead").count()))
+            check("历史里能重新分享", page.locator('.share-row.is-dead [data-act="renew"]').count() == 1)
+            check("历史里能删除记录", page.locator('.share-row.is-dead [data-act="forget"]').count() == 1)
+            check("切到历史后按钮换成返回", "返回当前分享" in toggle.inner_text(), toggle.inner_text())
             page.screenshot(path=str(OUT / "quick2_shares_dead.png"), full_page=False)
+
+            page.locator('.share-row.is-dead [data-act="forget"]').first.click()
+            page.wait_for_selector(".dialog [data-act='ok']", timeout=8000)
+            page.click(".dialog [data-act='ok']")
+            page.wait_for_selector(".share-row.is-dead", state="detached", timeout=20000)
+            check("删完历史就空了", page.locator(".share-row.is-dead").count() == 0)
+            check("空历史有说明", "没有历史分享" in page.locator(".empty").inner_text(),
+                  page.locator(".empty").inner_text()[:60])
+
+            toggle.click()
+            page.wait_for_selector(".share-row", timeout=20000)
+            check("返回后又能看到有效分享", page.locator(".share-row").count() >= 10,
+                  str(page.locator(".share-row").count()))
+
+            # ---------------- C2 快传：历史过期 ----------------
+            print("\n[C2] 快传：历史过期")
+            page.locator('[data-route="quick"]').click()
+            page.wait_for_selector('.quick-tab[data-tab="drop"]', timeout=20000)
+            page.evaluate("() => { const m = document.getElementById('mascot'); if (m) m.style.visibility = 'hidden'; }")
+            page.locator('.quick-tab[data-tab="drop"]').click()
+            page.wait_for_selector('[data-act="new-drop"]', timeout=20000)
+            check("快传列表有工具条", page.locator(".quick-listbar").count() == 1)
+            check(
+                "默认在看「进行中」",
+                "进行中" in page.locator(".quick-listbar").inner_text(),
+                page.locator(".quick-listbar").inner_text(),
+            )
+
+            page.click('[data-act="new-drop"]')
+            page.wait_for_selector(".quick-row", timeout=20000)
+            check("新建的记录在进行中", page.locator(".quick-row").count() == 1)
+            page.locator('.quick-row [data-act="revoke"]').first.click()
+            page.wait_for_selector(".dialog [data-act='ok']", timeout=8000)
+            page.click(".dialog [data-act='ok']")
+            page.wait_for_selector(".quick-row", state="detached", timeout=20000)
+            check("关闭后不再占着进行中", page.locator(".quick-row").count() == 0)
+            bar = page.locator(".quick-listbar").inner_text()
+            check("工具条上历史角标变 1", "1" in bar, bar)
+
+            page.click('[data-act="toggle-history"]')
+            page.wait_for_selector(".quick-row.is-dead", timeout=20000)
+            check("历史里能看到这条已关闭的快传", page.locator(".quick-row.is-dead").count() == 1)
+            check("历史里能删除记录", page.locator('.quick-row.is-dead [data-act="forget"]').count() == 1)
+            check("有「清空历史」按钮", page.locator('[data-act="clear-history"]').count() == 1)
+            page.screenshot(path=str(OUT / "quick2_drop_history.png"), full_page=False)
+
+            page.locator('.quick-row.is-dead [data-act="forget"]').first.click()
+            page.wait_for_selector(".dialog [data-act='ok']", timeout=8000)
+            page.click(".dialog [data-act='ok']")
+            page.wait_for_selector(".quick-row.is-dead", state="detached", timeout=20000)
+            check("删完历史空了", page.locator(".quick-row.is-dead").count() == 0)
+            check(
+                "空历史有说明",
+                "还没有过期或已关闭的快传" in page.locator(".quick-empty").inner_text(),
+                page.locator(".quick-empty").inner_text()[:50],
+            )
+
+            # 取件码那边同一套：先在接口层造一条已撤销的记录（取件码只收文件）
+            probe = tmp / f"历史取件-{stamp}.txt"
+            probe.write_bytes(b"pickup-history-probe" * 20)
+            with probe.open("rb") as fh:
+                st, up = http_bytes(
+                    base,
+                    "PUT",
+                    f"/api/nodes/upload?name={urllib.parse.quote(probe.name)}",
+                    fh.read(),
+                    session_token,
+                )
+            file_node = (up or {}).get("node") or {}
+            st, data = http(
+                base, "POST", "/api/quick/pickups", {"nodeIds": [file_node.get("id")], "days": 7}, session_token
+            )
+            gone = (data.get("pickup") or {}).get("id")
+            check("造了一条取件码", st == 200 and bool(gone), str(st))
+            st, dd = http(base, "DELETE", f"/api/quick/pickups/{gone}", None, session_token)
+            check("撤销取件码", dd.get("revoked") is True, str(dd))
+            # 换页不重新拉数据，这里整页刷新一次，让列表读到刚落库的状态
+            page.reload(wait_until="domcontentloaded")
+            page.wait_for_selector('.quick-tab[data-tab="pickup"]', timeout=20000)
+            page.evaluate("() => { const m = document.getElementById('mascot'); if (m) m.style.visibility = 'hidden'; }")
+            page.locator('.quick-tab[data-tab="pickup"]').click()
+            page.wait_for_selector(".quick-pick-drop", timeout=20000)
+            page.locator('.quick-pick-drop').wait_for()
+            page.click('[data-act="toggle-history"]')
+            page.wait_for_selector(".quick-row.is-dead", timeout=20000)
+            check("取件码历史里也有记录", page.locator(".quick-row.is-dead").count() == 1)
+            page.screenshot(path=str(OUT / "quick2_pickup_history.png"), full_page=False)
+            page.locator('.quick-row.is-dead [data-act="forget"]').first.click()
+            page.wait_for_selector(".dialog [data-act='ok']", timeout=8000)
+            page.click(".dialog [data-act='ok']")
+            page.wait_for_selector(".quick-row.is-dead", state="detached", timeout=20000)
+            check("取件码历史删除成功", page.locator(".quick-row.is-dead").count() == 0)
 
             # ---------------- D 后台快传设置卡片 ----------------
             print("\n[D] 后台快传设置")

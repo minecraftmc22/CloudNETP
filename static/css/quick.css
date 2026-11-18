@@ -376,6 +376,50 @@
   gap: 8px;
 }
 
+/* 列表顶上的一条：进行中 / 历史过期 两边的切换与清空 */
+.quick-listbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 2px 0;
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+
+.quick-listbar__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-2);
+}
+
+.quick-listbar__label .icon {
+  width: 13px;
+  height: 13px;
+  flex: none;
+}
+
+.quick-listbar__count {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--stroke-hair);
+  background: var(--fill-subtle);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.quick-listbar .btn {
+  height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
 .quick-row {
   display: flex;
   align-items: center;
@@ -393,6 +437,35 @@
 
 .quick-row.is-dead {
   opacity: 0.55;
+}
+
+/* 等接收方点「同意」的那一条：用主题色描边提示一下，别跟历史记录混在一起 */
+.quick-row.is-pending {
+  border-color: color-mix(in srgb, var(--accent) 34%, transparent);
+  background-color: color-mix(
+    in srgb,
+    var(--accent) 7%,
+    color-mix(in srgb, var(--dialog-surface) calc(var(--op-card, var(--card-a, 1)) * 88%), transparent)
+  );
+}
+
+/* 发送方看到「被拒绝」的提示条 */
+.quick-notice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 10px;
+  padding: 9px 12px;
+  border-radius: var(--radius-m);
+  border: 1px solid color-mix(in srgb, var(--danger) 32%, transparent);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--text-1);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.quick-notice > .icon {
+  color: var(--danger);
+  flex: none;
 }
 
 .quick-row__icon {
@@ -451,6 +524,12 @@
 .quick-row__tag.is-dead {
   background: var(--danger-soft);
   color: var(--danger);
+}
+
+/* 待接收：还没决定，用主题色，跟「有效」的绿色区分开 */
+.quick-row__tag.is-wait {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
 }
 
 .quick-row__actions {
@@ -676,6 +755,12 @@
   .quick-row__actions {
     width: 100%;
     justify-content: flex-end;
+  }
+
+  /* 工具条上的两个按钮在窄屏会挤成两行，让它自己折 */
+  .quick-listbar {
+    flex-wrap: wrap;
+    row-gap: 6px;
   }
 
   .quick-qr {

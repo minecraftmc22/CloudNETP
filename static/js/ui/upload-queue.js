@@ -51,9 +51,9 @@ function notify() {
 
 /** entries: [{ file, parentId }] */
 export function enqueue(entries) {
-  const items = entries.filter((entry) => entry.file && entry.file.size > 0);
+  const items = entries.filter((entry) => entry.file);
   if (!items.length) {
-    Toast.warn(t("空文件不会被上传"));
+    Toast.warn(t("没有可上传的文件"));
     return;
   }
 

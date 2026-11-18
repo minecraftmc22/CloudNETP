@@ -402,14 +402,18 @@ export function renderFiles(root) {
     const index = Number(el.dataset.index);
     state.cursor = index;
 
-    if (event.shiftKey && state.selected.size) {
+    // 勾选框是「累加选择」的入口：点它只切换自己，不清空别的选择。
+    // 单击行体仍是单选（触屏没有 ctrl，多选只能靠勾选框，这条别改回去）。
+    const viaCheck = Boolean(event.target.closest?.(".frow__check"));
+
+    if (!viaCheck && event.shiftKey && state.selected.size) {
       const anchor = state.items.findIndex((item) => state.selected.has(item.id));
       if (anchor >= 0) {
         const [from, to] = anchor < index ? [anchor, index] : [index, anchor];
         state.selected.clear();
         state.items.slice(from, to + 1).forEach((item) => state.selected.add(item.id));
       }
-    } else if (event.ctrlKey || event.metaKey) {
+    } else if (viaCheck || event.ctrlKey || event.metaKey) {
       if (state.selected.has(id)) state.selected.delete(id);
       else state.selected.add(id);
     } else {
@@ -698,13 +702,13 @@ export function renderFiles(root) {
       };
     }
 
-    const files = collected.files.filter((item) => item.file && item.file.size > 0);
+    const files = collected.files.filter((item) => item.file);
     if (!files.length && !collected.dirs.length) {
-      Toast.warn("没有可上传的文件（空文件会被跳过）");
+      Toast.warn(t("没有可上传的文件"));
       return;
     }
     if (collected.truncated) {
-      Toast.warn(`一次最多处理 ${DROP_MAX_FILES} 个文件，超出的部分已忽略`);
+      Toast.warn(t("一次最多处理 {n} 个文件，超出的部分已忽略", { n: DROP_MAX_FILES }));
     }
 
     const rootParent = state.parentId;
@@ -714,12 +718,14 @@ export function renderFiles(root) {
       return;
     }
 
-    if (collected.dirs.length) Toast.info(`正在创建 ${collected.dirs.length} 个文件夹…`);
+    if (collected.dirs.length) {
+      Toast.info(t("正在创建 {n} 个文件夹…", { n: collected.dirs.length }));
+    }
     let ensure;
     try {
       ensure = await ensureDropTree(collected.dirs, rootParent);
     } catch (err) {
-      Toast.error(`文件夹创建失败：${err.message || "请稍后重试"}`);
+      Toast.error(t("文件夹创建失败：{msg}", { msg: err.message || t("请稍后重试") }));
       return;
     }
 
@@ -729,7 +735,7 @@ export function renderFiles(root) {
       prepared.push({ file: item.file, parentId: dir ? await ensure(dir) : rootParent });
     }
     if (!prepared.length) {
-      Toast.success(`已创建 ${collected.dirs.length} 个文件夹（空文件未上传）`);
+      Toast.success(t("已创建 {n} 个文件夹", { n: collected.dirs.length }));
       await load({ keepScroll: true });
       return;
     }
