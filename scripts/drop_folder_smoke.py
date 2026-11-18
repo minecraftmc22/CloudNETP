@@ -1,14 +1,18 @@
 # -*- coding: utf-8 -*-
-"""拖入文件夹上传冒烟：目录结构保留 / 同名合并 / 忽略系统文件 / 空目录。
+"""拖入文件夹上传冒烟：目录结构保留 / 同名新建副本 / 忽略系统文件 / 空目录。
 
 用 DataTransferItem.webkitGetAsEntry 的伪实现喂一棵目录树，走真实上传接口。
+自带一个独立实例（库副本），不会碰真实库：
 
-用法：python scripts/drop_folder_smoke.py [port]
+    ./.venv/Scripts/python.exe scripts/drop_folder_smoke.py
 """
 from __future__ import annotations
 
 import base64
 import json
+import os
+import socket
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -19,22 +23,64 @@ from pathlib import Path
 
 import websocket
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 urllib.request.install_opener(urllib.request.build_opener(urllib.request.ProxyHandler({})))
 
-from app import db_failover  # noqa: E402
-from app.config import settings  # noqa: E402
-from app.models import User  # noqa: E402
-from app.security import create_token  # noqa: E402
-
-PORT = int(sys.argv[1]) if len(sys.argv) > 1 and sys.argv[1].isdigit() else 8000
-BASE = f"http://127.0.0.1:{PORT}"
+VENV_PY = ROOT / ".venv" / "Scripts" / "python.exe"
 CHROME = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
 OUT = Path(tempfile.gettempdir()) / "cloudnetp_shots"
 OUT.mkdir(exist_ok=True)
 ROOT_NAME = f"拖拽测试_{int(time.time()) % 100000}"
 
 ok = fail = 0
+
+
+def free_port() -> int:
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
+def snapshot_db(dst: Path) -> None:
+    src_path = ROOT / "storage" / "db" / "fallback.db"
+    if not src_path.is_file():
+        src_path = ROOT / "dev.db"
+    src = sqlite3.connect(f"file:{src_path.as_posix()}?mode=ro", uri=True)
+    out = sqlite3.connect(str(dst))
+    try:
+        src.backup(out)
+    finally:
+        src.close()
+        out.close()
+
+
+TMP = Path(tempfile.mkdtemp(prefix="cloudnetp-drop-folder-")).resolve()
+DB_COPY = TMP / "ui.db"
+snapshot_db(DB_COPY)
+PORT = free_port()
+BASE = f"http://127.0.0.1:{PORT}"
+os.environ.update(
+    {
+        "DATABASE_URL": f"sqlite:///{DB_COPY.as_posix()}",
+        "STORAGE_DIR": str(TMP / "storage"),
+        "HOST": "127.0.0.1",
+        "PORT": str(PORT),
+        "RELOAD": "0",
+        "DB_PROBE_INTERVAL": "0",
+        "DB_MIRROR_INTERVAL": "0",
+        "DB_FALLBACK_ENABLED": "0",
+    }
+)
+(TMP / "storage").mkdir(parents=True, exist_ok=True)
+
+from app import db_failover  # noqa: E402
+from app.config import settings  # noqa: E402
+from app.models import User  # noqa: E402
+from app.security import create_token  # noqa: E402
+
+# 子进程必须和父进程用同一把 SECRET_KEY，否则签出来的 cookie 服务端不认
+os.environ["SECRET_KEY"] = settings.SECRET_KEY
 
 
 def check(label, cond, extra=""):
@@ -84,19 +130,50 @@ def wait_api(fn, timeout=45, interval=0.6):
     return None
 
 
-def main():
-    if not db_failover._started:
-        db_failover.startup()
-    db = db_failover.current_sessionmaker()()
-    admin = db.query(User).filter(User.role == 1).order_by(User.id).first()
-    token = create_token(admin.id, admin.token_version)
-    cookie = f"{settings.COOKIE_NAME}={token}"
-    db.close()
+def wait_up(proc, log_path, timeout=60):
+    for _ in range(timeout * 2):
+        if proc.poll() is not None:
+            print(log_path.read_text(encoding="utf-8", errors="replace")[-1200:])
+            return False
+        try:
+            with urllib.request.urlopen(f"{BASE}/api/meta", timeout=2) as resp:
+                if resp.status == 200:
+                    return True
+        except Exception:
+            pass
+        time.sleep(0.5)
+    return False
 
-    # 保险：先清掉同名残留
-    for item in list_dir(cookie):
-        if item["type"] == "folder" and item["name"].startswith("拖拽测试_"):
-            http("DELETE", f"/api/nodes/{item['id']}/purge", cookie=cookie)
+
+def main():
+    log_path = TMP / "server.log"
+    log_file = open(log_path, "w", encoding="utf-8", errors="replace")
+    server = subprocess.Popen(
+        [str(VENV_PY), "main.py"],
+        cwd=str(ROOT),
+        env=os.environ.copy(),
+        stdout=log_file,
+        stderr=subprocess.STDOUT,
+    )
+    try:
+        if not wait_up(server, log_path):
+            raise SystemExit("测试实例没起来，看日志：" + str(log_path))
+
+        if not db_failover._started:
+            db_failover.startup()
+        db = db_failover.current_sessionmaker()()
+        admin = db.query(User).filter(User.role == 1).order_by(User.id).first()
+        token = create_token(admin.id, admin.token_version)
+        cookie = f"{settings.COOKIE_NAME}={token}"
+        db.close()
+
+        # 保险：先清掉同名残留
+        for item in list_dir(cookie):
+            if item["type"] == "folder" and item["name"].startswith("拖拽测试_"):
+                http("DELETE", f"/api/nodes/{item['id']}/purge", cookie=cookie)
+    except BaseException:
+        server.terminate()
+        raise
 
     profile = Path(tempfile.mkdtemp(prefix="cdp_drop_"))
     proc = subprocess.Popen(
@@ -267,20 +344,54 @@ def main():
         time.sleep(1.0)
         shot("drop_folder_done.png")
 
-        print("== 第二次拖入同名目录（应合并） ==")
+        print("== 第二次拖入同名目录（应新建一份，不覆盖） ==")
         js(f"window.__makeDrop({json.dumps(ROOT_NAME)}, 'extra.txt')")
-        merged = wait_api(
-            lambda: (lambda arr: arr if any(i["name"] == "extra.txt" for i in arr) else None)(
-                list_dir(cookie, root["id"])
+        copy_name = f"{ROOT_NAME} (1)"
+        root_items = wait_api(
+            lambda: (lambda items: items if any(i["name"] == copy_name for i in items) else None)(
+                list_dir(cookie)
             ),
             45,
-        ) or []
-        root_items = list_dir(cookie)
+        ) or list_dir(cookie)
         same = [i for i in root_items if i["type"] == "folder" and i["name"] == ROOT_NAME]
-        same2 = [i for i in root_items if i["type"] == "folder" and i["name"].startswith(ROOT_NAME + " (")]
-        check("同名目录没有新建副本", len(same) == 1 and not same2, [i["name"] for i in same + same2])
-        check("第二次的文件进同一目录", any(i["name"] == "extra.txt" for i in merged), [i["name"] for i in merged])
-        check("旧文件还在", any(i["name"] == "a.txt" for i in merged), "")
+        copies = [i for i in root_items if i["type"] == "folder" and i["name"] == copy_name]
+        check(
+            "同名目录新建了一份副本",
+            len(same) == 1 and len(copies) == 1,
+            [i["name"] for i in same + copies],
+        )
+        if copies:
+            copy_kids = wait_api(
+                lambda: (lambda arr: arr if any(i["name"] == "extra.txt" for i in arr) else None)(
+                    list_dir(cookie, copies[0]["id"])
+                ),
+                45,
+            ) or list_dir(cookie, copies[0]["id"])
+            check("第二次的文件进了新副本", any(i["name"] == "extra.txt" for i in copy_kids), [i["name"] for i in copy_kids])
+            first_kids_early = list_dir(cookie, root["id"])
+            same_named = [
+                (a["id"], b["id"])
+                for a in first_kids_early
+                for b in copy_kids
+                if a["name"] == b["name"] == "a.txt"
+            ]
+            check(
+                "两边的 a.txt 是各自独立的节点",
+                bool(same_named) and same_named[0][0] != same_named[0][1],
+                str(same_named),
+            )
+            check(
+                "新副本里的子目录也建好了",
+                any(i["name"] == "sub" and i["type"] == "folder" for i in copy_kids),
+                [i["name"] for i in copy_kids],
+            )
+        first_kids = list_dir(cookie, root["id"])
+        check(
+            "原目录没被覆盖",
+            any(i["name"] == "a.txt" for i in first_kids)
+            and not any(i["name"] == "extra.txt" for i in first_kids),
+            [i["name"] for i in first_kids],
+        )
 
         print("== 只拖空文件夹 ==")
         empty_name = ROOT_NAME + "_空"
@@ -362,6 +473,8 @@ def main():
             if item["type"] == "folder" and item["name"].startswith("拖拽测试_"):
                 st, _ = http("DELETE", f"/api/nodes/{item['id']}/purge", cookie=cookie)
                 print("清理", item["name"], st)
+        server.terminate()
+        log_file.close()
 
     print(f"\n通过 {ok} 项，失败 {fail} 项")
     return 0 if fail == 0 else 1

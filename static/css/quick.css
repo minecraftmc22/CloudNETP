@@ -861,6 +861,15 @@
   color: var(--text-3);
 }
 
+/* 两个上传按钮单独一行：跟着拖放提示走，窄屏时一起换行而不是被挤散 */
+.quick-pick-drop__acts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  margin-top: 2px;
+}
+
 .quick-field--grow {
   flex: 1;
   min-width: 160px;

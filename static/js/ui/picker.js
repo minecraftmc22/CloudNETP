@@ -5,7 +5,7 @@
  */
 import { api } from "../api.js";
 
-import { H } from "../i18n.js";
+import { H, t } from "../i18n.js";
 const ROOT = { id: null, name: "我的文件" };
 
 export function pickFolder({ title = "移动到", excludeId = null, confirmText = "移到这里" } = {}) {
@@ -77,7 +77,7 @@ export function pickFolder({ title = "移动到", excludeId = null, confirmText 
           load();
         });
       });
-      targetEl.textContent = t("目标：{path}", { path: trail.map((t) => t.name).join(" / ") });
+      targetEl.textContent = t("目标：{path}", { path: trail.map((part) => part.name).join(" / ") });
     }
 
     async function load() {

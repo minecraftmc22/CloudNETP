@@ -10,6 +10,7 @@ import { api, escapeHtml, formatBytes, formatTime } from "../api.js";
 import { H, t } from "../i18n.js";
 import { Dialog } from "../ui/dialog.js";
 import { Toast } from "../ui/toast.js";
+import { DROP_MAX_FILES, collectDropped } from "../ui/drop-tree.js";
 import { pickFolder } from "../ui/picker.js";
 import { pickNodes } from "../ui/file-browser.js";
 import { copyText } from "../ui/share.js";
@@ -18,6 +19,8 @@ import { uploadFile } from "../uploader.js";
 
 const DROP_MINUTES = [10, 30, 60, 120];
 const PICKUP_USE_CHOICES = [null, 1, 5, 10];
+/** 与后端 quick_service.MAX_ITEMS 一致：一条取件码最多列这么多文件 */
+const MAX_ITEMS = 100;
 
 const TABS = [
   { key: "drop", label: "扫码直传", icon: "i-upload", desc: "手机扫码登录后，把相册里的东西直接传进指定目录" },
@@ -633,14 +636,21 @@ export function renderQuick(root) {
         <div class="quick-pick-drop" data-drop>
           <svg class="icon"><use href="#i-upload"/></svg>
           <div class="quick-pick-drop__text">
-            <b>${t("把文件拖到这里")}</b>
-            <span>${t("或")}</span>
+            <b>${t("把文件或文件夹拖到这里")}</b>
+          </div>
+          <div class="quick-pick-drop__acts">
             <button class="btn btn--subtle" type="button" data-act="upload">
-              <svg class="icon icon--s"><use href="#i-plus"/></svg>${t("选择本机文件")}
+              <svg class="icon icon--s"><use href="#i-plus"/></svg>${t("选择文件")}
+            </button>
+            <button class="btn btn--subtle" type="button" data-act="upload-dir">
+              <svg class="icon icon--s"><use href="#i-folder"/></svg>${t("选择文件夹")}
             </button>
           </div>
-          <div class="quick-pick-drop__hint">${t("支持一次选多个；快传文件单独存放，不占你的网盘空间")}</div>
+          <div class="quick-pick-drop__hint">
+            ${t("支持一次选多个或整个文件夹；上传只停在快传暂存区，不占网盘空间，也不会进「我的文件」。")}
+          </div>
           <input type="file" multiple hidden data-file-input>
+          <input type="file" multiple hidden webkitdirectory data-dir-input>
         </div>
 
         <div class="quick-fields">
@@ -666,7 +676,7 @@ export function renderQuick(root) {
 
         <div class="quick-item-list" data-items></div>
         <div class="quick-uploads" data-uploads hidden></div>
-        <div class="quick-hint">${t("取件码只支持文件，文件夹请用「我的分享」生成链接。")}</div>
+        <div class="quick-hint">${t("取件码只列文件：选中或上传文件夹时，会展开成里面的每个文件。")}</div>
         <div data-last></div>
       </div>
 
@@ -750,11 +760,18 @@ export function renderQuick(root) {
         .join("");
     };
 
+    /** 加进待生成清单；返回这次被 100 项上限挡掉的数量 */
     const addItems = (rows) => {
       const seen = new Set(state.pickupItems.map((row) => row.id));
       const added = [];
+      let skipped = 0;
       for (const row of rows) {
         if (seen.has(row.id)) continue;
+        if (state.pickupItems.length >= MAX_ITEMS) {
+          skipped += 1;
+          continue;
+        }
+        seen.add(row.id);
         state.pickupItems.push({
           id: row.id,
           name: row.name,
@@ -775,18 +792,28 @@ export function renderQuick(root) {
           { stagger: 32, typed: "quick-pop" }
         );
       }
+      return skipped;
     };
 
-    async function uploadLocal(fileList) {
-      const files = [...fileList].filter((file) => file.size > 0);
-      if (!files.length) {
+    /**
+     * 真上传：文件和文件夹都走这里。
+     *
+     * 一律进快传暂存区（quick=true）：不落进任何目录、不进「我的文件」、也不占配额，
+     * 取件码引用它们，过期或撤销后由清理任务回收。文件夹只是展开成里面的文件，
+     * 不在网盘里建目录 —— 取件码本来也只列文件。
+     */
+    async function uploadList(entries) {
+      const live = entries.filter((item) => item.file && item.file.size > 0);
+      if (!live.length) {
         Toast.warn(t("空文件不会被上传"));
         return;
       }
-      for (const file of files) {
+      let overflow = 0;
+      for (const item of live) {
+        const file = item.file;
         const entry = {
-          key: H`${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-          name: file.name,
+          key: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          name: item.relPath || file.name,
           ratio: 0,
           status: "uploading",
           error: "",
@@ -804,7 +831,7 @@ export function renderQuick(root) {
           });
           entry.status = "done";
           entry.ratio = 1;
-          addItems([
+          overflow += addItems([
             {
               id: result.node.id,
               name: result.node.name,
@@ -823,15 +850,30 @@ export function renderQuick(root) {
       const failed = state.uploading.filter((row) => row.status === "error");
       state.uploading = failed;
       paintUploading();
+      if (overflow) {
+        Toast.info(
+          t("取件码一次最多 {n} 个文件，多出来的 {m} 个没有加进清单", {
+            n: MAX_ITEMS,
+            m: overflow,
+          })
+        );
+      }
     }
 
     paintItems();
     paintUploading();
 
+    const dirInput = panelEl.querySelector("[data-dir-input]");
     panelEl.querySelector('[data-act="upload"]').addEventListener("click", () => fileInput.click());
     fileInput.addEventListener("change", () => {
-      uploadLocal(fileInput.files);
+      uploadList([...fileInput.files].map((file) => ({ file, relPath: "" })));
       fileInput.value = "";
+    });
+    panelEl.querySelector('[data-act="upload-dir"]').addEventListener("click", () => dirInput.click());
+    dirInput.addEventListener("change", () => {
+      // webkitRelativePath 形如「选中的目录/子目录/文件名」，只留文件名（取件码不建目录）
+      uploadList([...dirInput.files].map((file) => ({ file, relPath: "" })));
+      dirInput.value = "";
     });
 
     const drop = panelEl.querySelector("[data-drop]");
@@ -845,10 +887,24 @@ export function renderQuick(root) {
     ["dragleave", "drop"].forEach((type) =>
       drop.addEventListener(type, () => setDragging(false))
     );
-    drop.addEventListener("drop", (event) => {
+    drop.addEventListener("drop", async (event) => {
       event.preventDefault();
-      const files = [...(event.dataTransfer?.files || [])];
-      if (files.length) uploadLocal(files);
+      const dt = event.dataTransfer;
+      if (!dt) return;
+      let collected;
+      try {
+        collected = await collectDropped(dt);
+      } catch {
+        collected = {
+          files: [...(dt.files || [])].map((file) => ({ file, relPath: "" })),
+          dirs: [],
+          truncated: false,
+        };
+      }
+      if (collected.truncated) {
+        Toast.warn(t("一次最多处理 {n} 个文件，超出的部分已忽略", { n: DROP_MAX_FILES }));
+      }
+      if (collected.files.length) uploadList(collected.files);
     });
 
     panelEl.querySelector('[data-act="pick"]').addEventListener("click", async () => {

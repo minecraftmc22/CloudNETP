@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """快传取件码新交互 + 我的分享分页 的 UI 冒烟。
 
-  [A] 快传 → 取件码：选本机文件上传（多选）、逐文件设置有效期/次数、生成取件码；
-      上传的快传文件不进「我的文件」，也不占配额
+  [A] 快传 → 取件码：选本机文件（多选）/ 整个文件夹上传、逐文件设置有效期/次数、生成取件码；
+      上传的文件只进快传暂存区，不进「我的文件」，也不占配额
   [B] 登录状态下输入取件码 → 看到清单 → 全部转存到网盘
   [C] 我的分享：默认每页 10 条、可翻页、可改每页条数；失效记录能「重新分享 / 删除记录」
   [D] 控制台无 JS 异常
@@ -218,7 +218,35 @@ def main() -> int:
                 "() => document.querySelectorAll('.quick-item-row').length === 2", timeout=30000
             )
             check("两个文件都进了待生成列表", page.locator(".quick-item-row").count() == 2)
-            check("上传区提示不占空间", "不占你的网盘空间" in page.locator(".quick-pick-drop").inner_text())
+            drop_text = page.locator(".quick-pick-drop").inner_text()
+            check(
+                "上传区说明「不进我的文件」",
+                "不会进「我的文件」" in drop_text and "不占网盘空间" in drop_text,
+                drop_text[:80],
+            )
+            check("上传区有文件夹入口", page.locator('[data-act="upload-dir"]').count() == 1)
+
+            # --- 整个文件夹：展开成里面的文件，只在快传暂存区，不在网盘里建目录 ---
+            folder = tmp / f"取件目录-{stamp}"
+            (folder / "子目录").mkdir(parents=True, exist_ok=True)
+            (folder / "目录文件.txt").write_bytes(b"pickup-folder-file" * 200)
+            (folder / "子目录" / "深层.txt").write_bytes(b"pickup-folder-deep" * 120)
+            page.set_input_files("[data-dir-input]", str(folder))
+            page.wait_for_function(
+                "() => document.querySelectorAll('.quick-item-row').length === 4", timeout=40000
+            )
+            check("文件夹展开成里面的两个文件", page.locator(".quick-item-row").count() == 4)
+            item_names = page.locator(".quick-item-row .quick-item-row__name").all_inner_texts()
+            check(
+                "清单里是文件不是文件夹",
+                "目录文件.txt" in item_names and "深层.txt" in item_names,
+                str(item_names),
+            )
+
+            st, nodes = http(base, "GET", "/api/nodes", None, session_token)
+            names = [item["name"] for item in nodes.get("items") or []]
+            check("网盘里没有建出这个目录", folder.name not in names, str(names[:6]))
+
             rows = page.locator(".quick-item-row")
             check(
                 "每一行都有自己的设置",
@@ -236,10 +264,19 @@ def main() -> int:
             page.screenshot(path=str(OUT / "quick2_created.png"), full_page=False)
 
             st, me2 = http(base, "GET", "/api/me", None, session_token)
-            check("快传上传不占配额", me2["user"]["usedBytes"] == used_before, f"{used_before} -> {me2['user']['usedBytes']}")
+            check(
+                "快传上传不占配额",
+                me2["user"]["usedBytes"] == used_before,
+                f"{used_before} -> {me2['user']['usedBytes']}",
+            )
             st, nodes = http(base, "GET", "/api/nodes", None, session_token)
             names = [item["name"] for item in nodes.get("items") or []]
-            check("快传文件不在我的文件里", sample_a.name not in names and sample_b.name not in names)
+            check(
+                "上传的文件都不在我的文件里",
+                not any(name.startswith(Path(sample_a.name).stem) for name in names)
+                and not any(name in ("目录文件.txt", "深层.txt") for name in names),
+                str(names[:8]),
+            )
 
             # ---------------- B 登录后输入取件码取件 ----------------
             print("\n[B] 登录取件与转存")
@@ -259,7 +296,7 @@ def main() -> int:
             check("转存提示", "已转存" in toast, toast[:60])
             st, nodes = http(base, "GET", "/api/nodes", None, session_token)
             names = [item["name"] for item in nodes.get("items") or []]
-            check("文件进了我的文件", sample_a.name in names and sample_b.name in names, str(names[:6]))
+            check("转存后文件进了我的文件", sample_a.name in names and sample_b.name in names, str(names[:6]))
 
             # ---------------- C 我的分享分页 ----------------
             print("\n[C] 我的分享分页与失效记录")

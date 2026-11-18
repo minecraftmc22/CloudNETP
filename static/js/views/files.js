@@ -7,6 +7,7 @@ import { store } from "../store.js";
 import { Dialog } from "../ui/dialog.js";
 import { Toast } from "../ui/toast.js";
 import { openMenu } from "../ui/menu.js";
+import { DROP_MAX_FILES, collectDropped, dirOf, ensureDropTree } from "../ui/drop-tree.js";
 import { pickFolder } from "../ui/picker.js";
 import { runTask } from "../ui/tasks.js";
 import { canPreview, openViewer } from "../ui/viewer.js";
@@ -667,148 +668,7 @@ export function renderFiles(root) {
   /* ------------------------------------------------------------------ */
   /* 拖入文件 / 文件夹                                                    */
   /* ------------------------------------------------------------------ */
-  const DROP_MAX_FILES = 2000;
-  const DROP_MAX_DEPTH = 12;
-  const DROP_IGNORED = /^(\.DS_Store|Thumbs\.db|desktop\.ini)$/i;
-
-  const entryFile = (entry) => new Promise((resolve, reject) => entry.file(resolve, reject));
-  const readDirBatch = (reader) =>
-    new Promise((resolve, reject) => reader.readEntries(resolve, reject));
-
-  /** 把 DataTransfer 展开成 [{file, relPath}] 和目录路径列表（空目录也保留） */
-  async function collectDropped(dataTransfer) {
-    const items = [...(dataTransfer.items || [])];
-    const roots = items
-      .map((item) => (item.kind === "file" && item.webkitGetAsEntry ? item.webkitGetAsEntry() : null))
-      .filter(Boolean);
-    const files = [];
-    const dirs = [];
-    /** 同一文件只收一次：某些实现里 readEntries 会重复吐出同一批，别把文件传 N 遍 */
-    const seenFiles = new Set();
-    const seenDirs = new Set();
-
-    if (!roots.length) {
-      return {
-        files: [...(dataTransfer.files || [])].map((file) => ({ file, relPath: "" })),
-        dirs,
-        truncated: false,
-      };
-    }
-
-    let truncated = false;
-
-    const pushFile = async (entry, prefix) => {
-      if (DROP_IGNORED.test(entry.name)) return;
-      const relPath = prefix + entry.name;
-      try {
-        const file = await entryFile(entry);
-        const key = `${relPath}\u0000${file.size}\u0000${file.lastModified}`;
-        if (seenFiles.has(key)) return;
-        seenFiles.add(key);
-        files.push({ file, relPath });
-      } catch {
-        /* 单个文件读不出来就跳过，不影响其它文件 */
-      }
-    };
-
-    const walk = async (dir, prefix, depth) => {
-      if (depth > DROP_MAX_DEPTH) {
-        truncated = true;
-        return;
-      }
-      const key = prefix.replace(/\/$/, "");
-      if (seenDirs.has(key)) return;
-      seenDirs.add(key);
-      dirs.push(key);
-      const reader = dir.createReader();
-      for (;;) {
-        let batch = [];
-        try {
-          batch = await readDirBatch(reader);
-        } catch {
-          break;
-        }
-        if (!batch.length) break;
-        for (const child of batch) {
-          if (files.length >= DROP_MAX_FILES) {
-            truncated = true;
-            return;
-          }
-          if (child.isFile) await pushFile(child, prefix);
-          else if (child.isDirectory) await walk(child, `${prefix}${child.name}/`, depth + 1);
-        }
-      }
-    };
-
-    for (const entry of roots) {
-      if (entry.isFile) await pushFile(entry, "");
-      else if (entry.isDirectory) await walk(entry, `${entry.name}/`, 0);
-    }
-    return { files, dirs, truncated };
-  }
-
-  /** 按相对路径逐级建目录；同名文件夹直接复用，拖第二次不会出现「项目 (1)」 */
-  async function ensureDropTree(dirPaths, rootParent) {
-    const dirIds = new Map(); // "a/b" -> folderId
-    const inFlight = new Map(); // "a/b" -> Promise<folderId>（同一路径并发只建一次）
-    const childCache = new Map(); // parentId -> Map(name -> id)
-
-    if (!state.searchMode) {
-      const seeded = new Map();
-      for (const item of state.items) if (item.type === "folder") seeded.set(item.name, item.id);
-      childCache.set(rootParent, seeded);
-    }
-
-    async function childrenOf(parentId) {
-      if (!childCache.has(parentId)) {
-        const params = new URLSearchParams({ sort: "name", order: "asc" });
-        if (parentId !== null && parentId !== undefined) params.set("parentId", String(parentId));
-        const data = await api.get(`/api/nodes?${params.toString()}`);
-        const map = new Map();
-        for (const item of data.items || []) if (item.type === "folder") map.set(item.name, item.id);
-        childCache.set(parentId, map);
-      }
-      return childCache.get(parentId);
-    }
-
-    async function resolve(path) {
-      if (dirIds.has(path)) return dirIds.get(path);
-      let parentId = rootParent;
-      let prefix = "";
-      for (const part of path.split("/").filter(Boolean)) {
-        prefix = prefix ? `${prefix}/${part}` : part;
-        if (dirIds.has(prefix)) {
-          parentId = dirIds.get(prefix);
-          continue;
-        }
-        const kids = await childrenOf(parentId);
-        let id = kids.get(part);
-        if (!id) {
-          const res = await api.post("/api/nodes/folder", { parentId, name: part });
-          id = res.node.id;
-          kids.set(part, id);
-        }
-        dirIds.set(prefix, id);
-        parentId = id;
-      }
-      return parentId;
-    }
-
-    function ensure(path) {
-      if (dirIds.has(path)) return Promise.resolve(dirIds.get(path));
-      if (!inFlight.has(path)) {
-        const task = resolve(path).finally(() => inFlight.delete(path));
-        inFlight.set(path, task);
-      }
-      return inFlight.get(path);
-    }
-
-    const ordered = [...new Set(dirPaths.filter(Boolean))].sort(
-      (a, b) => a.split("/").length - b.split("/").length
-    );
-    for (const path of ordered) await ensure(path);
-    return ensure;
-  }
+  /* 展开与建目录都在 ui/drop-tree.js（和快传取件码共用同一套行为） */
 
   /** 拖拽入口：平铺文件直接传，带目录的先建结构再按目标目录上传 */
   let dropBusy = false;
@@ -865,8 +725,7 @@ export function renderFiles(root) {
 
     const prepared = [];
     for (const item of files) {
-      const slash = item.relPath.lastIndexOf("/");
-      const dir = slash > 0 ? item.relPath.slice(0, slash) : "";
+      const dir = dirOf(item.relPath);
       prepared.push({ file: item.file, parentId: dir ? await ensure(dir) : rootParent });
     }
     if (!prepared.length) {

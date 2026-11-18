@@ -360,13 +360,17 @@ def name_conflict(
 def unique_name(
     db: Session, user_id: int, parent_id: int | None, name: str, exclude_id: int | None = None
 ) -> str:
-    """同名时自动加 (2) (3)…，和 Windows 资源管理器行为一致。"""
+    """同名时自动加 (1) (2) (3)…，从第一份副本起就带序号。
+
+    以前是从 (2) 起编号（Windows 资源管理器的习惯），但用户对「第一份副本」
+    的预期就是 `名字 (1)`，所以统一从 1 开始。
+    """
     if not name_conflict(db, user_id, parent_id, name, exclude_id):
         return name
     stem, dot, suffix = name.rpartition(".")
     if not dot or len(stem) < 1:
         stem, suffix = name, ""
-    index = 2
+    index = 1
     while index < 1000:
         candidate = f"{stem} ({index})" + (f".{suffix}" if suffix else "")
         if not name_conflict(db, user_id, parent_id, candidate, exclude_id):
