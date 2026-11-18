@@ -1660,14 +1660,22 @@ export function renderSettings(root) {
   /* --- 标签页：只切 class / hidden，不重建 DOM ---
      放在最后：showPane 里要补排主题模式的滑块，得等 layoutThumb 那套 const 初始化完 */
   const tabBtns = [...root.querySelectorAll("[data-settings-tab]")];
+  const tabSeg = root.querySelector("[data-settings-tabs]");
   const tabThumb = root.querySelector("[data-tab-thumb]");
   const panes = [...root.querySelectorAll("[data-settings-pane]")];
 
   function layoutTabs() {
     const active = tabBtns.find((b) => b.classList.contains("is-active"));
-    if (!active || !tabThumb) return;
-    tabThumb.style.width = `${active.offsetWidth}px`;
-    tabThumb.style.transform = `translateX(${active.offsetLeft - 3}px)`;
+    if (!active || !tabThumb || !tabSeg) return;
+    // 滑块的 left/top:0 是 .segmented 的 padding box 原点，所以要扣掉边框；
+    // 宽高按按钮实测写，页签高度/内边距怎么改都不会错位
+    const sr = tabSeg.getBoundingClientRect();
+    const ar = active.getBoundingClientRect();
+    tabThumb.style.width = `${ar.width}px`;
+    tabThumb.style.height = `${ar.height}px`;
+    tabThumb.style.transform = `translate(${ar.left - sr.left - tabSeg.clientLeft}px, ${
+      ar.top - sr.top - tabSeg.clientTop
+    }px)`;
   }
 
   function showPane(id, { remember = true } = {}) {
@@ -1692,6 +1700,9 @@ export function renderSettings(root) {
   tabBtns.forEach((btn) => {
     btn.addEventListener("click", () => showPane(btn.dataset.settingsTab));
   });
+
+  // 首帧别让滑块从「0 宽、贴在左上角」滑出来：先关掉过渡排一次，下一帧恢复
+  if (tabThumb) tabThumb.style.transition = "none";
 
   // 记住上次的页签（localStorage，按设备记）；i18n 切语言整页重绘后也回到同一页
   let initialTab = "appearance";
@@ -1718,5 +1729,7 @@ export function renderSettings(root) {
   window.requestAnimationFrame(() => {
     layoutTabs();
     layoutThumb();
+    // 首帧排完再放开过渡，之后切页签才有滑动
+    if (tabThumb) tabThumb.style.transition = "";
   });
 }

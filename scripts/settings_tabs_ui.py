@@ -169,6 +169,63 @@ def main() -> int:
                 str(structure["panes"]),
             )
             check("页签滑块排开了", structure["thumbW"] > 20, str(structure["thumbW"]))
+
+            print("\n[A2] 滑块贴合标签 / 页签按文字宽度排 / 切换有过渡")
+            geo = page.evaluate(
+                """() => {
+                  const seg = document.querySelector('[data-settings-tabs]');
+                  const thumb = document.querySelector('[data-tab-thumb]');
+                  const btns = [...document.querySelectorAll('[data-settings-tab]')];
+                  const active = btns.find((b) => b.classList.contains('is-active'));
+                  const tr = thumb.getBoundingClientRect();
+                  const ar = active.getBoundingClientRect();
+                  return {
+                    dx: Math.round(tr.left - ar.left), dy: Math.round(tr.top - ar.top),
+                    dw: Math.round(tr.width - ar.width), dh: Math.round(tr.height - ar.height),
+                    widths: btns.map((b) => Math.round(b.getBoundingClientRect().width)),
+                    thumbBg: getComputedStyle(thumb).backgroundColor,
+                  };
+                }"""
+            )
+            check(
+                "滑块与选中页签严丝合缝",
+                max(abs(geo["dx"]), abs(geo["dy"]), abs(geo["dw"]), abs(geo["dh"])) <= 1,
+                str(geo),
+            )
+            check("页签按各自文字宽度排（不再等宽）", len(set(geo["widths"])) > 1, str(geo["widths"]))
+
+            anim = None
+            page.evaluate(
+                """() => {
+                  window.__tabAnims = [];
+                  const thumb = document.querySelector('[data-tab-thumb]');
+                  const btn = document.querySelector('[data-settings-tab="files"]');
+                  btn.addEventListener('click', () => {
+                    requestAnimationFrame(() =>
+                      window.__tabAnims.push(thumb.getAnimations().map((a) => a.transitionProperty + ':' + a.playState))
+                    );
+                  }, { once: true });
+                }"""
+            )
+            page.click('[data-settings-tab="files"]')
+            page.wait_for_timeout(120)
+            anim = page.evaluate(
+                """() => {
+                  const pane = [...document.querySelectorAll('[data-settings-pane]')].find((p) => !p.hidden);
+                  const thumb = document.querySelector('[data-tab-thumb]');
+                  return {
+                    running: thumb.getAnimations().filter((a) => a.playState === 'running').length,
+                    fps: window.__tabAnims.flat(),
+                    paneAnim: pane ? getComputedStyle(pane).animationName : null,
+                    paneRunning: pane ? pane.getAnimations().some((a) => a.playState === 'running') : false,
+                  };
+                }"""
+            )
+            check("切换时滑块在动（transform 过渡真的跑起来）", anim["running"] > 0, str(anim))
+            check("内容层有淡入动画", anim["paneAnim"] == "settings-pane-in" and anim["paneRunning"], str(anim))
+            page.click('[data-settings-tab="appearance"]')
+            page.wait_for_timeout(500)
+
             page.screenshot(path=str(OUT / "settings_tabs_appearance.png"))
 
             print("\n[B] 切页签：不重建 DOM，目标卡可见")

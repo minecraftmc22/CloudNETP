@@ -3366,7 +3366,8 @@ html[data-ai="off"] .mascot__act[data-mascot-act="chat"] {
   display: flex;
   align-items: center;
   gap: var(--sp-3);
-  margin: -8px 0 -10px;
+  margin: -4px 0 -6px;
+  padding: 3px 0;
   overflow-x: auto;
   overscroll-behavior-x: contain;
   scrollbar-width: none;
@@ -3374,20 +3375,45 @@ html[data-ai="off"] .mascot__act[data-mascot-act="chat"] {
 .settings-tabs::-webkit-scrollbar {
   display: none;
 }
+/* 每个页签按自己的文字宽度排：滑块才能贴着标签，不会宽出一大截压到邻居身上 */
 .settings-tabs .segmented {
   width: auto;
   flex: none;
+  grid-auto-columns: max-content;
+  gap: 2px;
+  padding: 3px;
 }
 .settings-tabs .segmented__btn {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 0 14px;
+  height: 30px;
+  padding: 0 15px;
   white-space: nowrap;
 }
 .settings-tabs .segmented__btn .icon {
   width: 14px;
   height: 14px;
+  flex: none;
+}
+/* 滑块：底色 .settings 里用的是 --layer-3（深色下 alpha 只有 0.3），
+   页签条上根本看不见「选中块」，也就看不出它在动 —— 这里换成实打实的
+   主题色薄片：底色 + 主题雾 + 描边 + 一点同色投影，深浅主题都立得起来。
+   几何全交给 JS（left/top/宽/高都实测），别在这里猜 padding。 */
+.settings .settings-tabs .segmented__thumb {
+  left: 0;
+  top: 0;
+  height: auto;
+  border-radius: var(--radius-s);
+  background-color: color-mix(in srgb, var(--accent-user) 16%, var(--layer-3));
+  background-image: var(--accent-tint, none);
+  border: 1px solid color-mix(in srgb, var(--accent-user) 26%, transparent);
+  box-shadow: 0 5px 14px -7px color-mix(in srgb, var(--accent-user) 60%, transparent);
+  transition: transform 340ms cubic-bezier(0.22, 1, 0.36, 1), width 260ms var(--ease-fluent),
+    height 200ms var(--ease-standard);
+}
+.settings-tabs .segmented__btn.is-active {
+  color: var(--text-1);
 }
 
 /* 每个页签一层：内部还是原来的卡外标题 + 卡身，间距与整页一致 */
@@ -3395,6 +3421,19 @@ html[data-ai="off"] .mascot__act[data-mascot-act="chat"] {
   display: flex;
   flex-direction: column;
   gap: 22px;
+  /* 切页签时整层轻微上浮淡入：hidden -> visible 会重新触发动画，
+     滑块在滑、内容也在换，切换才有「过渡」而不是硬切 */
+  animation: settings-pane-in 260ms var(--ease-fluent);
+}
+@keyframes settings-pane-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 /* 显式 display 会盖掉 [hidden] 的 display:none，必须重申 */
 .settings-pane[hidden] {
