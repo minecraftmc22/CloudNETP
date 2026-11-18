@@ -3362,12 +3362,17 @@ html[data-ai="off"] .mascot__act[data-mascot-act="chat"] {
    设置页：标签页（分组视图）
    页签条贴着 .settings 的卡间距往上收一点，别占一大截
    ------------------------------------------------------------ */
+/* 别用负的上外边距把页签条顶出 .view-body：
+   那是个 overflow:auto 的滚动容器，超出内容框的部分会被它从顶边裁掉 ——
+   页签条上边缘、圆角、描边全被切平，看着就像「上面被什么东西挡住了」。
+   想收紧间距就往下收（margin-bottom 负值安全），上面交给 .view-head 的内边距。
+   同理，横向滚动容器要留 padding，否则子元素的投影也会被裁。 */
 .settings-tabs {
   display: flex;
   align-items: center;
   gap: var(--sp-3);
-  margin: -4px 0 -6px;
-  padding: 3px 0;
+  margin: 0 0 -8px;
+  padding: 2px 0;
   overflow-x: auto;
   overscroll-behavior-x: contain;
   scrollbar-width: none;

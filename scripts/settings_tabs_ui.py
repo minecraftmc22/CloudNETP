@@ -443,6 +443,58 @@ def main() -> int:
                     f"text={text_col} pill={pill_bg} → {contrast(text_col, pill_bg)}:1",
                 )
 
+            print("\n[H] 页签条不能被 .view-body 的滚动裁剪切掉上边缘")
+            # .view-body 是 overflow:auto 的滚动容器，它按内容框裁剪子元素：
+            # 页签条一旦用负的上外边距顶出去，上边缘 / 圆角 / 描边就被切平
+            # （125% 缩放下尤其明显，看着像「上面被什么东西挡住了」）
+            for dpr in (1, 1.25, 1.5, 2):
+                zctx = browser.new_context(
+                    viewport={"width": 1280, "height": 800}, device_scale_factor=dpr
+                )
+                zctx.add_cookies(
+                    [{"name": "cloudnetp_session", "value": create_token(uid, ver), "url": base}]
+                )
+                zpage = zctx.new_page()
+                zpage.goto(f"{base}/#/settings", wait_until="domcontentloaded")
+                zpage.wait_for_selector("[data-settings-tabs] .segmented__btn", timeout=20000)
+                zpage.wait_for_timeout(800)
+                zgeo = zpage.evaluate(
+                    """() => {
+                      const body = document.querySelector('.view-body');
+                      const head = document.querySelector('.view-head');
+                      const bar = document.querySelector('.settings-tabs');
+                      const seg = document.querySelector('[data-settings-tabs]');
+                      const br = body.getBoundingClientRect();
+                      const hr = head.getBoundingClientRect();
+                      const wr = bar.getBoundingClientRect();
+                      const sr = seg.getBoundingClientRect();
+                      return {
+                        bodyTop: br.top,
+                        headBottom: hr.bottom,
+                        barTop: wr.top,
+                        segTop: sr.top,
+                        gap: Math.round(sr.top - hr.bottom),
+                        segRadius: getComputedStyle(seg).borderTopLeftRadius,
+                      };
+                    }"""
+                )
+                check(
+                    f"[{dpr}x] 页签条没被滚出内容框（bar {zgeo['barTop']:.1f} ≥ body {zgeo['bodyTop']:.1f}）",
+                    zgeo["barTop"] >= zgeo["bodyTop"] - 0.5,
+                    str(zgeo),
+                )
+                check(
+                    f"[{dpr}x] 页签容器上描边与圆角完整（seg {zgeo['segTop']:.1f} > body）",
+                    zgeo["segTop"] > zgeo["bodyTop"] + 0.5 and zgeo["segRadius"] != "0px",
+                    str(zgeo),
+                )
+                check(
+                    f"[{dpr}x] 与标题的间距不突兀（{zgeo['gap']}px）",
+                    0 <= zgeo["gap"] <= 24,
+                    str(zgeo),
+                )
+                zctx.close()
+
             check("没有 JS 报错", not errors and not merrors, str((errors + merrors)[:1]))
             browser.close()
     finally:

@@ -483,7 +483,7 @@
     gap: 12px;
   }
   .settings-tabs {
-    margin: -6px 0 -6px;
+    margin: 0 0 -6px;
   }
   .settings-pane {
     gap: 12px;
@@ -836,7 +836,7 @@
     gap: 18px;
   }
   .settings-tabs {
-    margin: -4px 0 -8px;
+    margin: 0 0 -8px;
   }
   /* 手机上四个页签挤一行：去掉图标、压紧内边距，别让「账号」露半个字 */
   .settings-tabs .segmented__btn {
