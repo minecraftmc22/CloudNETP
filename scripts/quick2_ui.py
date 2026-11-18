@@ -309,7 +309,13 @@ def main() -> int:
             page.locator('.quick-lookup [data-act="save"]').click()
             page.wait_for_selector(".picker", timeout=15000)
             page.locator('.picker__foot [data-act="ok"]').click()
-            page.wait_for_selector(".toast", timeout=20000)
+            # 别直接等 .toast：上一步「取件码已生成」的提示可能还挂在屏上，
+            # wait_for_selector 会立刻命中它，读到的是旧文案。等文案本身出现更稳。
+            page.wait_for_function(
+                "() => [...document.querySelectorAll('.toast')]"
+                ".some((el) => (el.textContent || '').includes('已转存'))",
+                timeout=20000,
+            )
             toast = " ".join(page.locator(".toast").all_inner_texts())
             check("转存提示", "已转存" in toast, toast[:60])
             st, nodes = http(base, "GET", "/api/nodes", None, session_token)

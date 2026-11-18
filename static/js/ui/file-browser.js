@@ -132,7 +132,9 @@ export function pickNodes({ title = "选择文件", mode = "any", confirmText = 
                data-id="${item.id}" data-type="${item.type}">
             <svg class="icon"><use href="#${item.icon}"/></svg>
             <span class="picker__name" title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</span>
-            <span class="picker__size">${item.type === "file" ? formatBytes(item.size) : t("{n} 项", { n: item.count || 0 })}</span>
+            <span class="picker__size">${
+              item.type === "file" ? formatBytes(item.size) : t("{n} 项", { n: item.childCount ?? 0 })
+            }</span>
             ${
               item.type === "folder"
                 ? '<button class="picker__enter" type="button" data-enter aria-label="进入文件夹"><svg class="icon icon--chev"><use href="#i-chevron"/></svg></button>'
