@@ -1211,7 +1211,8 @@ a.setting-row--link:hover .setting-row__chevron {
   right: 14px;
   bottom: 6px;
   z-index: 4;
-  width: calc(158px * var(--mascot-scale, 1));
+  /* 宽度 = min(基准, 视口比例) × 用户缩放；基准随视口平滑收，不留断点台阶 */
+  width: calc(min(158px, 14.5vw) * var(--mascot-scale, 1));
   /* 可拖动：接住指针事件，拖出位置后靠 translate 偏移 */
   pointer-events: auto;
   cursor: grab;
@@ -1287,10 +1288,13 @@ a.setting-row--link:hover .setting-row__chevron {
   animation: mascot-bob 5.2s var(--ease-standard) infinite alternate;
 }
 
-/* 切到 Live2D：模型自带待机动作，去掉云朵的上下浮动与投影 */
+/* 尺寸：基准值跟着视口宽度平滑收（min(x, N vw)），再乘用户设的 --mascot-scale。
+   以前是在 1100px 断点上写死 190×262 —— 一跨过断点（改窗口、浏览器
+   ±10% 页面缩放都会跨）整只突然缩一圈、左边和头顶同时弹一下，看着像「乱窜」；
+   而且写死的 px 把滚轮 / 滑杆的缩放整个吃掉了（窄窗口上拖滑杆没反应）。 */
 .mascot.is-live {
-  width: calc(232px * var(--mascot-scale, 1));
-  height: calc(320px * var(--mascot-scale, 1));
+  width: calc(min(232px, 21.2vw) * var(--mascot-scale, 1));
+  height: calc(min(320px, 29.3vw) * var(--mascot-scale, 1));
 }
 .mascot.is-live .mascot__stage {
   height: 100%;
@@ -1374,15 +1378,6 @@ a.setting-row--link:hover .setting-row__chevron {
   transform: none;
 }
 
-@media (max-width: 1100px) {
-  .mascot {
-    width: 120px;
-  }
-  .mascot.is-live {
-    width: 190px;
-    height: 262px;
-  }
-}
 @media (max-width: 720px) {
   .mascot {
     display: none;
@@ -3380,20 +3375,18 @@ html[data-ai="off"] .mascot__act[data-mascot-act="chat"] {
 .settings-tabs::-webkit-scrollbar {
   display: none;
 }
-/* 每个页签按自己的文字宽度排：滑块才能贴着标签，不会宽出一大截压到邻居身上 */
+/* 每个页签按自己的文字宽度排：滑块才能贴着标签，不会宽出一大截压到邻居身上。
+   底色 / 描边 / 滑块一律跟管理后台的 .admin-tabs 走同一套半透明层色
+   （--fill-subtle + --stroke-hair + --acrylic-strong 的毛玻璃滑块），
+   不再单独上实心主题色块 —— 两处页签条看起来才是同一个控件 */
 .settings-tabs .segmented {
   width: auto;
   flex: none;
   grid-auto-columns: max-content;
   gap: 2px;
   padding: 3px;
-  /* 页签条自带一层实底（--dialog-surface 打底 + 一点主题色雾）：
-     卡片的「不透明度」调到再低、壁纸再花，标签也读得清；
-     半透明的 --fill-subtle / --layer-3 在花壁纸上等于没有 */
-  background-color: color-mix(in srgb, var(--accent-user) 10%, var(--dialog-surface));
-  background-image: var(--accent-tint, none);
-  border: 1px solid var(--stroke);
-  box-shadow: var(--shadow-1);
+  background: var(--fill-subtle);
+  border: 1px solid var(--stroke-hair);
 }
 .settings-tabs .segmented__btn {
   display: inline-flex;
@@ -3408,38 +3401,22 @@ html[data-ai="off"] .mascot__act[data-mascot-act="chat"] {
   height: 14px;
   flex: none;
 }
-/* 滑块：实心主题色块（主题色 34% 混进 --dialog-surface，不透明），
-   + 主题色描边 + 同色外发光。深浅主题都在任何壁纸上都立得起来，
-   也不吃「卡片不透明度」那个滑块 */
+/* 滑块：毛玻璃片（跟后台一致）。left/top 必须是 0 —— 几何全由 JS 实测写，
+   基础样式里的 top:3px/left:3px 会和 translate 叠一起错位。 */
 .settings .settings-tabs .segmented__thumb {
   left: 0;
   top: 0;
   height: auto;
   border-radius: calc(var(--radius-s) - 1px);
-  background-color: color-mix(in srgb, var(--accent-user) 34%, var(--dialog-surface));
-  background-image: var(--accent-tint, none);
-  border: 1px solid color-mix(in srgb, var(--accent-user) 62%, transparent);
-  box-shadow: 0 6px 18px -8px color-mix(in srgb, var(--accent-user) 85%, transparent),
-    inset 0 1px 0 color-mix(in srgb, #fff 16%, transparent);
+  background: var(--acrylic-strong);
+  border: 0;
+  box-shadow: var(--shadow-1);
   transition: transform 340ms cubic-bezier(0.22, 1, 0.36, 1), width 260ms var(--ease-fluent),
     height 200ms var(--ease-standard);
 }
 .settings-tabs .segmented__btn.is-active {
   color: var(--text-1);
   font-weight: 600;
-}
-/* 浅色主题的 --dialog-surface 是纯白，混出来的色块太淡（跟页签底只差一点点），
-   而且浅底上深色字也撑不起「选中」的重量 —— 浅色下压成深紫实底 + 白字，
-   深色下保持「主题色 34% 混进面板色 + 亮字」，两边都够对比度 */
-:root[data-theme="light"] .settings .settings-tabs .segmented__thumb {
-  background-color: color-mix(in srgb, var(--accent-user) 52%, #2c2140);
-  background-image: none;
-  border-color: color-mix(in srgb, var(--accent-user) 48%, transparent);
-  box-shadow: 0 6px 18px -8px color-mix(in srgb, #2c2140 55%, transparent),
-    inset 0 1px 0 color-mix(in srgb, #fff 22%, transparent);
-}
-:root[data-theme="light"] .settings-tabs .segmented__btn.is-active {
-  color: #fff;
 }
 
 /* 每个页签一层：内部还是原来的卡外标题 + 卡身，间距与整页一致 */

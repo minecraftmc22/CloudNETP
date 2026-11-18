@@ -2117,7 +2117,35 @@ def _stream_anthropic(
 
 ACCENT_MAX_SIDE = 768
 ACCENT_MAX_INPUT_BYTES = 6 * 1024 * 1024
-_HEX_RE = re.compile(r"#[0-9a-fA-F]{6}")
+# 一次扫完、保持出现顺序（渐变的前后顺序就是模型想表达的方向）
+_COLOR_RE = re.compile(
+    r"#(?:[0-9a-fA-F]{6}|[0-9a-fA-F]{3})\b"
+    r"|rgba?\(\s*(\d{1,3})\s*[, ]\s*(\d{1,3})\s*[, ]\s*(\d{1,3})",
+    re.IGNORECASE,
+)
+
+
+def _parse_colors(text: str) -> list[str]:
+    """从模型回复里挑出颜色，返回去重后的 #rrggbb 列表（保持出现顺序）。
+
+    模型很少老实「只输出 JSON」：三位简写 #abc、rgb(12, 34, 56)、全角井号、
+    外面再包一层解释文字，都见过。能认的全认掉，免得因为写法不同就报
+    「模型没挑出能用的颜色」。
+    """
+    out: list[str] = []
+    raw = (text or "").replace("＃", "#")
+    for match in _COLOR_RE.finditer(raw):
+        if match.group(1) is None:
+            value = match.group(0)[1:].lower()
+            if len(value) == 3:
+                value = "".join(ch * 2 for ch in value)
+            color = "#" + value
+        else:
+            r, g, b = (min(255, int(match.group(i))) for i in (1, 2, 3))
+            color = "#%02x%02x%02x" % (r, g, b)
+        if color not in out:
+            out.append(color)
+    return out[:5]
 
 
 def normalize_accent_image(data_url: str) -> str:
@@ -2215,46 +2243,57 @@ def suggest_accent(
     candidates: Any = None,
     lang: str | None = None,
 ) -> dict:
-    """让模型看图挑主题色。返回 ``{"mode": ..., "colors": [...]}``。
+    """让模型看图挑主题色。返回 ``{"mode", "colors", "source"}``。
 
-    模型不认图片时（有些兼容接口就是这么报错）自动退回「只给候选色」再问一次，
-    不至于让整个功能在非视觉模型上完全用不了。
+    - 模型支持看图：把壁纸压成小图一起发过去
+    - 不支持看图 / 带图这轮失败：退回「只给候选色」再问一次
+    - 模型还是不吐颜色：用前端从图里采到的候选色兜底（source="sampled"），
+      别让整个功能直接死在「换个模型再试试」上
     """
     mode = "gradient" if mode == "gradient" else "solid"
     picks = _clean_candidates(candidates)
     run_cfg = dict(cfg)
-    run_cfg.update(tools=False, thinking=False, maxRounds=1, maxOutput=400)
+    # 这里别再卡 max_tokens：推理模型光思考就能把 400 个 token 烧完，
+    # 正文一个字都吐不出来，最后只会得到「模型没挑出能用的颜色」
+    run_cfg.update(tools=False, thinking=False, maxRounds=1, maxOutput=0)
 
     def ask(with_image: bool) -> list[str]:
         local = dict(run_cfg)
-        local["vision"] = bool(with_image and cfg.get("vision"))
-        prompt = _accent_prompt(mode, picks, with_image, lang or "")
+        # 只有前面真的带图时才在提示词里说「下面这张图」，
+        # 否则模型会对着空气找图，直接回一句「我看不到图片」
+        use_image = bool(with_image and image and cfg.get("vision"))
+        local["vision"] = use_image
+        prompt = _accent_prompt(mode, picks, use_image, lang or "")
         messages = [
             {
                 "role": "user",
                 "content": prompt,
-                "images": [image] if (with_image and local["vision"]) else [],
+                "images": [image] if use_image else [],
             }
         ]
         text = _run_text(local, user, messages)
-        colors: list[str] = []
-        for match in _HEX_RE.findall(text):
-            hex_color = match.lower()
-            if hex_color not in colors:
-                colors.append(hex_color)
-        return colors[:5]
+        colors = _parse_colors(text)
+        if not colors:
+            logger.warning("AI 取色没解析出颜色，模型原文：%s", (text or "")[:400])
+        return colors
 
     colors: list[str] = []
-    if image:
+    if image and cfg.get("vision"):
         try:
             colors = ask(True)
-        except AiError:
+        except AiError as exc:
+            logger.warning("AI 取色（带图）失败，改问纯文本：%s", exc.message)
             colors = []
     if not colors:
         colors = ask(False)
+    source = "model"
+    if not colors and picks:
+        # 模型没给出颜色，但图本身是采过色的 —— 先把能用的颜色给出去
+        colors = picks[: (3 if mode == "gradient" else 5)]
+        source = "sampled"
     if not colors:
         raise AiError("模型没挑出能用的颜色，换个模型再试试")
     if mode == "gradient" and len(colors) < 2:
         # 只回了一个色也不报错：前端会按同色系补一个相邻色
         mode = "solid"
-    return {"mode": mode, "colors": colors}
+    return {"mode": mode, "colors": colors[:5], "source": source}

@@ -1123,6 +1123,11 @@ export function renderSettings(root) {
       }
       if (result.mode === "gradient" && colors.length >= 2) applyGradient(colors);
       else applyAccent(colors[0]);
+      if (result.source === "sampled") {
+        // 模型这轮没吐颜色，服务端拿壁纸里采到的候选色兜的底 —— 如实说一声
+        Toast.warn(t("模型没返回颜色，先用从背景图里提取的颜色；想更准可以换个模型再试"));
+        return;
+      }
       Toast.success(
         colors.length > 1
           ? t("AI 挑了 {n} 个颜色，不满意可以自己改", { n: colors.length })

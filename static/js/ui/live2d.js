@@ -258,6 +258,8 @@ export function initLive2DMascot({ stage, host, bubble, pick, pickLabel, onPoke,
       state.trim = measureTrim(model, app);
       fit();
       host?.classList.remove("no-size-anim");
+      // 换模型后尺寸变了（云朵 158 → Live2D 232），按新尺寸重记一次「她在屏幕的位置」
+      rememberCenter();
       Promise.resolve(model.motion?.("Idle")).catch(() => {});
     } catch (err) {
       console.warn("[live2d] 模型加载失败", entry.url, err?.message || err);
@@ -382,6 +384,7 @@ export function initLive2DMascot({ stage, host, bubble, pick, pickLabel, onPoke,
   function resetPlacement() {
     state.offset = { dx: 0, dy: 0 };
     applyOffset(true);
+    rememberCenter();
   }
   window.addEventListener("mascot:reset", resetPlacement);
 
@@ -446,8 +449,10 @@ export function initLive2DMascot({ stage, host, bubble, pick, pickLabel, onPoke,
 
   function applyOffset(save = false) {
     state.offset = clampOffset(state.offset.dx, state.offset.dy);
-    document.documentElement.style.setProperty("--mascot-dx", `${Math.round(state.offset.dx)}px`);
-    document.documentElement.style.setProperty("--mascot-dy", `${Math.round(state.offset.dy)}px`);
+    // 存整数：反复按比例重算时小数会越积越歪，也免得 localStorage 里一串 17 位小数
+    state.offset = { dx: Math.round(state.offset.dx), dy: Math.round(state.offset.dy) };
+    document.documentElement.style.setProperty("--mascot-dx", `${state.offset.dx}px`);
+    document.documentElement.style.setProperty("--mascot-dy", `${state.offset.dy}px`);
     if (save) {
       try {
         localStorage.setItem(POS_KEY, JSON.stringify(state.offset));
@@ -456,6 +461,44 @@ export function initLive2DMascot({ stage, host, bubble, pick, pickLabel, onPoke,
       }
     }
     notifyMove();
+  }
+
+  /* ---------------- 位置锚定：视口 / 尺寸变了别乱窜 ----------------
+     dx/dy 是绝对 px。浏览器页面缩放（±10%）或改窗口宽度后视口变了，
+     同一个 dx 在新视口里的相对位置就变了 —— 人明明没动，看板娘却往边上
+     滑一截。所以另记一份「她中心在视口里的比例」（centerFrac），视口一变
+     就按比例放回去。同理，滚轮 / 滑杆改大小时她是贴着右下角往外长的，
+     拖到屏幕中间再缩放会一路往左上飘；停手后按同一比例回正，
+     视觉上就是围着原地变大变小，而不是「乱窜」。
+
+     注意 centerFrac 只在「用户真的把她放在某处」时才更新（拖动结束、
+     重置、首次加载）。宽高过渡中间那些半成品位置绝不能记：贴角放大时
+     画布尺寸一直在变，记下来下次回正会照着被顶歪的位置算，越缩越偏。 */
+  const viewport = { w: window.innerWidth, h: window.innerHeight };
+  let centerFrac = null;
+
+  function rememberCenter() {
+    if (!host || host.classList.contains("is-hidden")) return;
+    const r = host.getBoundingClientRect();
+    if (!r.width || !r.height) return;
+    centerFrac = {
+      cx: (r.left + r.width / 2) / window.innerWidth,
+      cy: (r.top + r.height / 2) / window.innerHeight,
+    };
+  }
+
+  /** 把看板娘挪回「记忆里那个占屏比例」，偏移不够就夹回可用范围 */
+  function restoreCenter() {
+    if (!centerFrac || !host || host.classList.contains("is-hidden")) return;
+    const r = host.getBoundingClientRect();
+    if (!r.width || !r.height) return;
+    const wantLeft = centerFrac.cx * window.innerWidth - r.width / 2;
+    const wantTop = centerFrac.cy * window.innerHeight - r.height / 2;
+    const dx = state.offset.dx + (wantLeft - r.left);
+    const dy = state.offset.dy + (wantTop - r.top);
+    if (Math.abs(dx - state.offset.dx) < 0.5 && Math.abs(dy - state.offset.dy) < 0.5) return;
+    state.offset = { dx, dy };
+    applyOffset(true);
   }
 
   function pokeAt(clientX, clientY) {
@@ -523,6 +566,8 @@ export function initLive2DMascot({ stage, host, bubble, pick, pickLabel, onPoke,
     host?.classList.remove("is-dragging");
     if (current.moved) {
       applyOffset(true);
+      // 人放下的位置才是「她想待的地方」，之后缩放 / 改窗口都按这个比例回正
+      rememberCenter();
       return;
     }
     if (!canceled) pokeAt(event.clientX, event.clientY);
@@ -533,6 +578,7 @@ export function initLive2DMascot({ stage, host, bubble, pick, pickLabel, onPoke,
 
   // 落盘一次：旧版本留下的偏移可能已经越界，夹回来的值顺手写回去，别每次加载都重算
   applyOffset(true);
+  rememberCenter();
 
   /* ---------------- 悬停滚轮改大小 ---------------- */
 
@@ -629,6 +675,18 @@ export function initLive2DMascot({ stage, host, bubble, pick, pickLabel, onPoke,
   let shapeRaf = 0;
 
   const onResize = () => {
+    // 视口尺寸变了（浏览器页面缩放 / 改窗口宽高）才把位置按比例放回去；
+    // 只是改看板娘大小（mascot:resize）时视口没变，不能动她的位置
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const viewportChanged = vw !== viewport.w || vh !== viewport.h;
+    viewport.w = vw;
+    viewport.h = vh;
+    if (viewportChanged) {
+      restoreCenter();
+      // 宽高是过渡过去的（视口变化也会带动 vw 基准变化），落定后再精确一次
+      window.setTimeout(restoreCenter, 340);
+    }
     applyOffset();
     // 宽高带过渡动画：缩放过程中先别按中间尺寸反复重排画布，
     // 等滚轮停下、过渡走完再按最终大小对齐一次（默认 220ms 过渡，留点余量）。
@@ -655,6 +713,9 @@ export function initLive2DMascot({ stage, host, bubble, pick, pickLabel, onPoke,
     shapeRaf = window.requestAnimationFrame(() => {
       shapeRaf = 0;
       fit();
+      // 大小定下来后把她挪回原来的中心：右下角锚点会让「长个」往左上顶，
+      // 拖到屏幕中间的人一缩放就飘走，回正一下才像是原地变大变小
+      restoreCenter();
     });
   });
 

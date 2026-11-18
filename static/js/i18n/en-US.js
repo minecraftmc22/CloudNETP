@@ -1347,6 +1347,7 @@ export default {
   "AI 正在挑颜色…": "AI is picking colors…",
   "管理员已关闭 AI 功能": "The administrator has turned AI off",
   "AI 没挑出可用的颜色，换个模型再试试": "AI didn't return usable colors — try another model",
+  "模型没返回颜色，先用从背景图里提取的颜色；想更准可以换个模型再试": "The model returned no colors, so colors sampled from your wallpaper are used — try another model for better results",
   "AI 挑了 {n} 个颜色，不满意可以自己改": "AI picked {n} colors — tweak them if you like",
   "用「看板娘 · 对话设置」里的 AI 接口取色": "Picks colors with the same AI endpoint as the mascot chat (Settings → Mascot · Chat settings)",
   "还没设置背景图，AI 取色用不了（去「设置 → 外观」换一张自定义背景图）": "No background image yet — AI color picking needs one (Settings → Appearance)",
