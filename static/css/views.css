@@ -3382,6 +3382,13 @@ html[data-ai="off"] .mascot__act[data-mascot-act="chat"] {
   grid-auto-columns: max-content;
   gap: 2px;
   padding: 3px;
+  /* 页签条自带一层实底（--dialog-surface 打底 + 一点主题色雾）：
+     卡片的「不透明度」调到再低、壁纸再花，标签也读得清；
+     半透明的 --fill-subtle / --layer-3 在花壁纸上等于没有 */
+  background-color: color-mix(in srgb, var(--accent-user) 10%, var(--dialog-surface));
+  background-image: var(--accent-tint, none);
+  border: 1px solid var(--stroke);
+  box-shadow: var(--shadow-1);
 }
 .settings-tabs .segmented__btn {
   display: inline-flex;
@@ -3396,24 +3403,38 @@ html[data-ai="off"] .mascot__act[data-mascot-act="chat"] {
   height: 14px;
   flex: none;
 }
-/* 滑块：底色 .settings 里用的是 --layer-3（深色下 alpha 只有 0.3），
-   页签条上根本看不见「选中块」，也就看不出它在动 —— 这里换成实打实的
-   主题色薄片：底色 + 主题雾 + 描边 + 一点同色投影，深浅主题都立得起来。
-   几何全交给 JS（left/top/宽/高都实测），别在这里猜 padding。 */
+/* 滑块：实心主题色块（主题色 34% 混进 --dialog-surface，不透明），
+   + 主题色描边 + 同色外发光。深浅主题都在任何壁纸上都立得起来，
+   也不吃「卡片不透明度」那个滑块 */
 .settings .settings-tabs .segmented__thumb {
   left: 0;
   top: 0;
   height: auto;
-  border-radius: var(--radius-s);
-  background-color: color-mix(in srgb, var(--accent-user) 16%, var(--layer-3));
+  border-radius: calc(var(--radius-s) - 1px);
+  background-color: color-mix(in srgb, var(--accent-user) 34%, var(--dialog-surface));
   background-image: var(--accent-tint, none);
-  border: 1px solid color-mix(in srgb, var(--accent-user) 26%, transparent);
-  box-shadow: 0 5px 14px -7px color-mix(in srgb, var(--accent-user) 60%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent-user) 62%, transparent);
+  box-shadow: 0 6px 18px -8px color-mix(in srgb, var(--accent-user) 85%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #fff 16%, transparent);
   transition: transform 340ms cubic-bezier(0.22, 1, 0.36, 1), width 260ms var(--ease-fluent),
     height 200ms var(--ease-standard);
 }
 .settings-tabs .segmented__btn.is-active {
   color: var(--text-1);
+  font-weight: 600;
+}
+/* 浅色主题的 --dialog-surface 是纯白，混出来的色块太淡（跟页签底只差一点点），
+   而且浅底上深色字也撑不起「选中」的重量 —— 浅色下压成深紫实底 + 白字，
+   深色下保持「主题色 34% 混进面板色 + 亮字」，两边都够对比度 */
+:root[data-theme="light"] .settings .settings-tabs .segmented__thumb {
+  background-color: color-mix(in srgb, var(--accent-user) 52%, #2c2140);
+  background-image: none;
+  border-color: color-mix(in srgb, var(--accent-user) 48%, transparent);
+  box-shadow: 0 6px 18px -8px color-mix(in srgb, #2c2140 55%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #fff 22%, transparent);
+}
+:root[data-theme="light"] .settings-tabs .segmented__btn.is-active {
+  color: #fff;
 }
 
 /* 每个页签一层：内部还是原来的卡外标题 + 卡身，间距与整页一致 */

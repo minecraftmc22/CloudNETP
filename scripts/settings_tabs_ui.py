@@ -337,6 +337,112 @@ def main() -> int:
             mpage.screenshot(path=str(OUT / "settings_tabs_mobile.png"))
             mctx.close()
 
+            print("\n[G] 花壁纸 + 卡片不透明度 25%：页签仍要读得清")
+            # 造一张高饱和壁纸塞进 --bg-image，模拟「自定义图片壁纸 + 调低卡片不透明度」
+            import base64
+            import io
+
+            from PIL import Image as PILImage
+
+            buf = io.BytesIO()
+            tile = PILImage.new("RGB", (64, 64))
+            for ty_ in range(64):
+                for tx_ in range(64):
+                    tile.putpixel((tx_, ty_), ((tx_ * 7) % 256, (ty_ * 11) % 256, (tx_ * ty_ * 3) % 256))
+            tile.save(buf, format="PNG")
+            data_uri = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+
+            def rel_lum(c):
+                def f(v):
+                    v /= 255
+                    return v / 12.92 if v <= 0.04045 else ((v + 0.055) / 1.055) ** 2.4
+
+                r, g, b = (f(v) for v in c)
+                return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+            def contrast(c1, c2):
+                l1, l2 = rel_lum(c1), rel_lum(c2)
+                hi, lo = max(l1, l2), min(l1, l2)
+                return round((hi + 0.05) / (lo + 0.05), 2)
+
+            for scheme in ("dark", "light"):
+                wctx = browser.new_context(
+                    viewport={"width": 1440, "height": 1000},
+                    device_scale_factor=2,
+                    color_scheme=scheme,
+                )
+                wctx.add_cookies(
+                    [{"name": "cloudnetp_session", "value": create_token(uid, ver), "url": base}]
+                )
+                wpage = wctx.new_page()
+                wpage.goto(f"{base}/#/settings", wait_until="domcontentloaded")
+                wpage.wait_for_selector("[data-settings-tabs] .segmented__btn", timeout=20000)
+                wpage.evaluate(
+                    """(img) => {
+                      document.documentElement.dataset.wallpaper = 'custom';
+                      document.documentElement.style.setProperty('--bg-image', `url("${img}")`);
+                      document.documentElement.style.setProperty('--op-card', '0.25');
+                    }""",
+                    data_uri,
+                )
+                wpage.click('[data-settings-tab="files"]')
+                wpage.wait_for_timeout(700)
+
+                geo = wpage.evaluate(
+                    """() => {
+                      const seg = document.querySelector('[data-settings-tabs]');
+                      const thumb = document.querySelector('[data-tab-thumb]');
+                      const btn = document.querySelector('[data-settings-tab="files"]');
+                      const tr = thumb.getBoundingClientRect();
+                      const br = btn.getBoundingClientRect();
+                      const btns = [...seg.querySelectorAll('[data-settings-tab]')];
+                      const next = btns[btns.indexOf(btn) + 1];
+                      return {
+                        pill: { x: tr.left, y: tr.top, w: tr.width, h: tr.height },
+                        text: { x: br.left, y: br.top, w: br.width, h: br.height },
+                        gapX: next ? (br.right + next.getBoundingClientRect().left) / 2 : br.right + 4,
+                        midY: br.top + br.height / 2,
+                      };
+                    }"""
+                )
+                shot = OUT / f"settings_tabs_wallpaper_{scheme}.png"
+                wpage.screenshot(path=str(shot))
+                wctx.close()
+
+                im = PILImage.open(shot).convert("RGB")
+                S = 2  # device_scale_factor
+
+                def px(x, y):
+                    return im.getpixel((int(x * S), int(y * S)))
+
+                pill_bg = px(geo["pill"]["x"] + 6, geo["midY"])
+                strip_bg = px(geo["gapX"], geo["midY"])
+                tx, ty = geo["text"]["x"], geo["text"]["y"]
+                tw, th = geo["text"]["w"], geo["text"]["h"]
+                samples = [
+                    im.getpixel((int((tx + dx) * S), int((ty + dy) * S)))
+                    for dx in range(2, max(3, int(tw) - 2), 2)
+                    for dy in range(5, max(6, int(th) - 5), 2)
+                ]
+                brightest = max(samples, key=rel_lum)
+                darkest = min(samples, key=rel_lum)
+                # 文字色取「跟色块差得最远」的那个样本（浅色主题下文字比底色暗，
+                # 光看最亮会把色块本身当成文字）
+                text_col = max(
+                    (brightest, darkest), key=lambda c: abs(rel_lum(c) - rel_lum(pill_bg))
+                )
+
+                check(
+                    f"[{scheme}] 选中块与页签底色分得开",
+                    contrast(pill_bg, strip_bg) >= 1.18,
+                    f"pill={pill_bg} strip={strip_bg} → {contrast(pill_bg, strip_bg)}:1",
+                )
+                check(
+                    f"[{scheme}] 选中页签文字在色块上读得清",
+                    contrast(text_col, pill_bg) >= 4.5,
+                    f"text={text_col} pill={pill_bg} → {contrast(text_col, pill_bg)}:1",
+                )
+
             check("没有 JS 报错", not errors and not merrors, str((errors + merrors)[:1]))
             browser.close()
     finally:
