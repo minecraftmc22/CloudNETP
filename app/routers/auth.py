@@ -16,6 +16,7 @@ from .. import admin_service
 from .. import ban_service
 from .. import captcha as cap
 from .. import email_code
+from .. import mail_config
 from .. import profile_service as ps
 from .. import dav_auth as da
 from .. import settings_store, trash_guard
@@ -158,7 +159,7 @@ def meta(db: Session = Depends(get_db)) -> dict:
         # primary = 主库（MySQL）；fallback = 主库不可用，本地 SQLite 接管
         "dbMode": db_failover.mode_label(),
         # 认证相关：前端据此决定要不要显示验证码、找回密码走哪条路
-        "mailReady": settings.mail_ready,
+        "mailReady": mail_config.ready(),
         "contactEmail": settings_store.get_value(db, "contact_email"),
         "contactQq": settings_store.get_value(db, "contact_qq"),
         # 管理员开启后，前端登录时自动查一次新版本（只提示）
@@ -337,7 +338,7 @@ def send_email_code(
     新码覆盖旧码。邮件服务没配好之前直接 503，不消耗任何配额。
     """
     check_origin(request)
-    if not settings.mail_ready:
+    if not mail_config.ready():
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE, "邮件服务尚未配置，暂时无法发送验证码"
         )
@@ -355,7 +356,8 @@ def send_email_code(
     try:
         retry_after = email_code.issue(payload.scene, target, payload.device or client_ip(request))
     except email_code.SendError as exc:
-        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, exc.message) from None
+        # 限流是 429；发信失败是 502，前端按 message 展示即可
+        raise HTTPException(exc.status, exc.message) from None
 
     log_action(db, "email_code_send", None, {"scene": payload.scene}, request)
     db.commit()
@@ -393,7 +395,7 @@ def forgot_start(
     """
     check_origin(request)
     account = payload.account.strip()
-    base = {"mailReady": settings.mail_ready, **_contact(db)}
+    base = {"mailReady": mail_config.ready(), **_contact(db)}
 
     if "@" in account:
         email = normalize_email(account)

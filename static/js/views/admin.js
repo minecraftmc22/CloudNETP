@@ -29,6 +29,8 @@ const TABS = [
   { id: "appeals", label: "申诉审核", icon: "i-shield" },
   { id: "feedback", label: "意见反馈", icon: "i-mail" },
   { id: "logs", label: "审计日志", icon: "i-clock" },
+  { id: "storage", label: "存储", icon: "i-database" },
+  { id: "mail", label: "邮箱服务", icon: "i-mail" },
   { id: "settings", label: "系统设置", icon: "i-settings" },
 ];
 
@@ -2123,6 +2125,324 @@ export function renderAdmin(root) {
   }
 
   /* ---------------------------------------------------------------- */
+  /* 存储空间                                                          */
+  /* ---------------------------------------------------------------- */
+  async function showStorage() {
+    panel.innerHTML = loading();
+    let st = {};
+    let qk = {};
+    let cfg = {};
+
+    try {
+      const data = await api.get("/api/admin/storage");
+      st = data.storage || {};
+      qk = data.quick || {};
+      cfg = data.cleanup || {};
+    } catch (err) {
+      if (state.tab === "storage") panel.innerHTML = errorBlock(err.message);
+      return;
+    }
+    // 用户可能在请求返回前就切走了，别把新标签页覆盖掉
+    if (state.tab !== "storage") return;
+    setSub(t("存储占用、无人引用文件与自动清理"));
+    paint();
+
+    function paint() {
+      const diskPct = percent(st.diskUsed, st.diskTotal || 1);
+      const unref = st.unreferenced || { count: 0, bytes: 0, blocked: 0 };
+      const lastRun = cfg.lastRun ? formatTime(cfg.lastRun) : "";
+      const lastResult = cfg.lastResult || null;
+      const lastOrphans = lastResult?.orphans?.removed || 0;
+      const lastQuick = lastResult?.quick?.files || 0;
+      const hours = Array.from({ length: 24 }, (_, i) => i);
+
+      panel.innerHTML = H`
+        <div class="stat-grid">
+          ${statCard(
+            "i-database",
+            t("物理文件"),
+            `${st.blobs ?? 0}`,
+            t("实际落盘 {size}", { size: formatBytes(st.blobBytes || 0) })
+          )}
+          ${statCard(
+            "i-cloud",
+            t("磁盘占用"),
+            formatBytes(st.diskUsed || 0),
+            t("共 {total} · 已用 {pct}%", {
+              total: formatBytes(st.diskTotal || 0),
+              pct: diskPct,
+            })
+          )}
+          ${statCard(
+            "i-trash",
+            t("无人引用"),
+            `${unref.count || 0}`,
+            t("可释放 {size}", { size: formatBytes(unref.bytes || 0) })
+          )}
+          ${statCard(
+            "i-bolt",
+            t("快传文件"),
+            `${st.quickFiles ?? 0}`,
+            t("{codes} 个取件码 · {alive} 个有效", { codes: qk.codes ?? 0, alive: qk.alive ?? 0 })
+          )}
+        </div>
+
+        <section class="settings-card">
+          <div class="settings-card__head"><svg class="icon icon--s"><use href="#i-cloud"/></svg>${t("存储空间")}</div>
+          <div class="admin-card__pad">
+            <div class="row" style="justify-content:space-between">
+              <span class="muted">${t("逻辑占用 {used} · 回收站 {n} 项（{size}）", {
+                used: formatBytes(st.fileBytes || 0),
+                n: st.trashItems || 0,
+                size: formatBytes(st.trashBytes || 0),
+              })}</span>
+              <span class="muted">${t("去重后节省 {size}", {
+                size: formatBytes(Math.max(0, (st.fileBytes || 0) - (st.blobBytes || 0))),
+              })}</span>
+            </div>
+            <div class="progress" style="margin:8px 0 4px;height:6px">
+              <div class="progress__bar" style="width:${diskPct}%"></div>
+            </div>
+            <div class="admin-facts">
+              <div><span>磁盘</span><b>${formatBytes(st.diskUsed || 0)} / ${formatBytes(st.diskTotal || 0)}</b><small>${diskPct}%</small></div>
+              <div><span>物理文件</span><b>${t("{n} 个", { n: st.blobs || 0 })}</b><small>${formatBytes(st.blobBytes || 0)}</small></div>
+              <div><span>快传占用</span><b>${formatBytes(st.quickBytes || 0)}</b><small>${t("{n} 个文件", { n: st.quickFiles || 0 })}</small></div>
+              <div><span>存储目录</span><b class="mono">${escapeHtml(st.path || "—")}</b></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="settings-card" data-card="cleanup">
+          <div class="settings-card__head"><svg class="icon icon--s"><use href="#i-clock"/></svg>${t("自动清理")}</div>
+          <div class="setting-row">
+            <div class="setting-row__main">
+              <div class="setting-row__label">${t("启用自动清理")}</div>
+              <div class="setting-row__desc">${t("每天到点自动回收一次，跑完记在下面的「上次运行」里；关掉后仍可随时手动执行")}</div>
+            </div>
+            <label class="switch">
+              <input type="checkbox" data-cleanup-enabled ${cfg.enabled ? "checked" : ""}>
+              <span class="switch__track"><span class="switch__knob"></span></span>
+            </label>
+          </div>
+          <div class="admin-form-grid">
+            <label class="field">
+              <span class="field__label">${t("每天执行时间")}</span>
+              <span class="selectbox">
+                <select data-cleanup-hour>
+                  ${hours
+                    .map(
+                      (h) =>
+                        H`<option value="${h}" ${h === (cfg.hour ?? 4) ? "selected" : ""}>${String(h).padStart(2, "0")}:00</option>`
+                    )
+                    .join("")}
+                </select>
+                <svg class="icon icon--s"><use href="#i-chevron-down"/></svg>
+              </span>
+            </label>
+          </div>
+          <div class="setting-row">
+            <div class="setting-row__main">
+              <div class="setting-row__label">${t("清理无人引用的文件")}</div>
+              <div class="setting-row__desc">${t("删掉 blobs 表里没有任何文件引用的记录与磁盘文件，被举报拉黑的原件会保留")}</div>
+            </div>
+            <label class="switch">
+              <input type="checkbox" data-cleanup-orphans ${cfg.orphans ? "checked" : ""}>
+              <span class="switch__track"><span class="switch__knob"></span></span>
+            </label>
+          </div>
+          <div class="setting-row">
+            <div class="setting-row__main">
+              <div class="setting-row__label">${t("清理失效的快传文件")}</div>
+              <div class="setting-row__desc">${t("回收过期 / 撤销超过保留期的取件码文件，只动快传自己存的副本")}</div>
+            </div>
+            <label class="switch">
+              <input type="checkbox" data-cleanup-quick ${cfg.quick ? "checked" : ""}>
+              <span class="switch__track"><span class="switch__knob"></span></span>
+            </label>
+          </div>
+          <div class="admin-hint">
+            ${
+              lastRun
+                ? t("上次运行：{time}，回收无人引用文件 {o} 个、快传文件 {q} 个。", {
+                    time: lastRun,
+                    o: lastOrphans,
+                    q: lastQuick,
+                  })
+                : t("还没有运行过自动清理。")
+            }
+            ${
+              cfg.enabled
+                ? t("当前每天 {hour}:00 执行。", { hour: String(cfg.hour ?? 4).padStart(2, "0") })
+                : t("自动清理未启用，下面的时间与项目只在点「立即执行一次」时生效。")
+            }
+          </div>
+          <div class="admin-card__foot">
+            <button class="btn" type="button" data-act="cleanup-run">${t("立即执行一次")}</button>
+            <button class="btn btn--accent" type="button" data-act="cleanup-save">${t("保存清理设置")}</button>
+          </div>
+        </section>
+
+        <section class="settings-card">
+          <div class="settings-card__head"><svg class="icon icon--s"><use href="#i-trash"/></svg>${t("手动清理")}</div>
+          <div class="setting-row">
+            <div class="setting-row__main">
+              <div class="setting-row__label">${t("清理无人引用的文件")}</div>
+              <div class="setting-row__desc">${t("没有任何文件指向的物理文件，永远用不上却占着磁盘；当前 {n} 个，约 {size}", {
+                n: unref.count || 0,
+                size: formatBytes(unref.bytes || 0),
+              })}</div>
+            </div>
+            <button class="btn" type="button" data-act="orphan-gc">${t("扫描并清理")}</button>
+          </div>
+          <div class="setting-row">
+            <div class="setting-row__main">
+              <div class="setting-row__label">${t("清理失效的快传文件")}</div>
+              <div class="setting-row__desc">${t("按快传的保留天数立即回收，物理文件一并删除；用户网盘里的文件不受影响")}</div>
+            </div>
+            <button class="btn" type="button" data-act="quick-cleanup">${t("立即清理")}</button>
+          </div>
+          <div class="admin-hint">${t("最近 1 小时内新写入的文件不参与「无人引用」清理，避免误删正在上传的内容；自动清理使用 24 小时保护期。")}</div>
+        </section>`;
+
+      bind();
+    }
+
+    function bind() {
+      panel
+        .querySelector('[data-act="cleanup-save"]')
+        ?.addEventListener("click", (event) => saveCleanup(event.currentTarget));
+      panel.querySelector('[data-act="cleanup-run"]')?.addEventListener("click", runCleanup);
+      panel.querySelector('[data-act="orphan-gc"]')?.addEventListener("click", orphanGc);
+      panel.querySelector('[data-act="quick-cleanup"]')?.addEventListener("click", quickCleanup);
+    }
+
+    function cleanupPayload() {
+      const hour = Number(panel.querySelector("[data-cleanup-hour]")?.value);
+      return {
+        enabled: Boolean(panel.querySelector("[data-cleanup-enabled]")?.checked),
+        hour: Number.isFinite(hour) ? hour : 4,
+        orphans: Boolean(panel.querySelector("[data-cleanup-orphans]")?.checked),
+        quick: Boolean(panel.querySelector("[data-cleanup-quick]")?.checked),
+      };
+    }
+
+    async function saveCleanup(btn) {
+      btn.disabled = true;
+      try {
+        const res = await api.put("/api/admin/storage/cleanup", cleanupPayload());
+        cfg = res.cleanup || cfg;
+        Toast.success(t("清理设置已保存"));
+        if (state.tab === "storage") paint();
+      } catch (err) {
+        Toast.error(err.message);
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    async function runCleanup(event) {
+      const btn = event.currentTarget;
+      btn.disabled = true;
+      try {
+        // 先存下表单里的安排：避免「改了时间没保存就执行」的预期落差
+        await api.put("/api/admin/storage/cleanup", cleanupPayload());
+        const res = await api.post("/api/admin/storage/cleanup/run", {});
+        const result = res.result || {};
+        const orphans = result.orphans || {};
+        const quick = result.quick || {};
+        Toast.success(
+          t("清理完成：无人引用 {o} 个（{osize}），快传 {q} 个文件（{qsize}）", {
+            o: orphans.removed || 0,
+            osize: formatBytes(orphans.freedBytes || 0),
+            q: quick.files || 0,
+            qsize: formatBytes(quick.bytes || 0),
+          })
+        );
+        cfg = res.cleanup || cfg;
+        st = res.storage || st;
+        qk = res.quick || qk;
+        if (state.tab === "storage") paint();
+      } catch (err) {
+        Toast.error(err.message);
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    async function orphanGc(event) {
+      const btn = event.currentTarget;
+      btn.disabled = true;
+      try {
+        const scan = await api.post("/api/admin/storage/orphans", { apply: false });
+        const cand = scan.result || {};
+        if (!cand.candidates) {
+          await Dialog.alert({
+            title: t("扫描完成"),
+            message: t("没有发现无人引用的文件。"),
+          });
+          return;
+        }
+        const ok = await Dialog.confirm({
+          title: t("清理无人引用的文件"),
+          message: t(
+            "将删除 <b>{n}</b> 个没有任何文件引用的物理文件，释放约 <b>{size}</b>。此操作不可撤销，但不会影响任何账号里能看到的文件。",
+            { n: cand.candidates, size: formatBytes(cand.candidatesBytes || 0) }
+          ),
+          confirmText: t("确认清理"),
+          danger: true,
+        });
+        if (!ok) return;
+        const res = await api.post("/api/admin/storage/orphans", { apply: true });
+        const done = res.result || {};
+        Toast.success(
+          t("已清理 {n} 个文件，释放 {size}", {
+            n: done.removed || 0,
+            size: formatBytes(done.freedBytes || 0),
+          })
+        );
+        st = res.storage || st;
+        if (state.tab === "storage") paint();
+      } catch (err) {
+        Toast.error(err.message);
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    async function quickCleanup(event) {
+      const btn = event.currentTarget;
+      const ok = await Dialog.confirm({
+        title: t("清理失效的快传文件"),
+        message: t("将删除超过保留期的取件码记录与它们的物理文件；用户网盘里的文件不受影响。"),
+        confirmText: t("立即清理"),
+        danger: true,
+      });
+      if (!ok) return;
+      btn.disabled = true;
+      try {
+        const res = await api.post("/api/admin/quick/cleanup", {});
+        const cleaned = res.cleaned || {};
+        Toast.success(
+          t("已清理 {codes} 个取件码、{files} 个文件，释放 {size}", {
+            codes: cleaned.codes || 0,
+            files: cleaned.files || 0,
+            size: formatBytes(cleaned.bytes || 0),
+          })
+        );
+        qk = res.quick || qk;
+        const fresh = await api.get("/api/admin/storage");
+        st = fresh.storage || st;
+        cfg = fresh.cleanup || cfg;
+        if (state.tab === "storage") paint();
+      } catch (err) {
+        Toast.error(err.message);
+      } finally {
+        btn.disabled = false;
+      }
+    }
+  }
+
+  /* ---------------------------------------------------------------- */
   /* 系统设置                                                          */
   /* ---------------------------------------------------------------- */
   async function showSettings() {
@@ -2925,7 +3245,7 @@ export function renderAdmin(root) {
         button.disabled = true;
         setStatus("");
         try {
-          const data = await api.delete("/api/admin/ai");
+          const data = await api.del("/api/admin/ai", {});
           card.outerHTML = aiCardMarkup(data.config);
           bindAiCard();
           Toast.success(t("已回到 .env 的默认接口"));
@@ -3136,6 +3456,452 @@ export function renderAdmin(root) {
   }
 
   /* ---------------------------------------------------------------- */
+  /* 邮箱服务                                                          */
+  /* ---------------------------------------------------------------- */
+  async function showMail() {
+    panel.innerHTML = loading();
+    let cfg = null;
+    try {
+      const data = await api.get("/api/admin/mail");
+      cfg = data?.config || null;
+    } catch (err) {
+      panel.innerHTML = errorBlock(err.message);
+      return;
+    }
+    setSub(t("验证码邮件的发件通道"));
+    panel.innerHTML = H`${mailCardMarkup(cfg)}`;
+    bindMailCard();
+  }
+
+  /** 整卡重绘 + 重绑：保存后掩码与「来源」文案会变 */
+  function paintMailCard(config) {
+    const card = panel.querySelector('[data-card="mail"]');
+    if (!card) return;
+    card.outerHTML = mailCardMarkup(config);
+    bindMailCard();
+  }
+
+  function mailCardMarkup(cfg) {
+    const head = `<div class="settings-card__head"><svg class="icon icon--s"><use href="#i-mail"/></svg>${t(
+      "邮箱服务"
+    )}</div>`;
+    if (!cfg) {
+      return H`<section class="settings-card" data-card="mail">${head}
+        <div class="admin-hint">${t("邮箱配置读取失败，刷新页面重试")}</div>
+      </section>`;
+    }
+
+    const bm = cfg.billionmail || {};
+    const smtp = cfg.smtp || {};
+    const env = cfg.env || {};
+    const provider = cfg.provider === "smtp" ? "smtp" : "billionmail";
+    // 只有「后台保存过」的值才回填输入框；来自 .env / 默认值的一律走 placeholder
+    const val = (text, source) => (source === "admin" ? escapeHtml(text || "") : "");
+
+    const bmKeyPlaceholder = bm.hasKey
+      ? bm.keySource === "env"
+        ? t("沿用 .env 的密钥 {mask}，留空不改", { mask: bm.keyMask || "••••" })
+        : t("已保存 {mask}，留空不改", { mask: bm.keyMask || "••••" })
+      : t("BillionMail 后台「API」里生成的 Key");
+    const passPlaceholder = smtp.hasPassword
+      ? smtp.passwordSource === "env"
+        ? t("沿用 .env 的密码 {mask}，留空不改", { mask: smtp.passwordMask || "••••" })
+        : t("已保存 {mask}，留空不改", { mask: smtp.passwordMask || "••••" })
+      : t("邮箱授权码（多数邮箱不能用登录密码）");
+
+    const chip = (id, label) => `<button class="ai-chip ${
+      provider === id ? "is-active" : ""
+    }" type="button" data-mail-provider="${id}" aria-pressed="${
+      provider === id
+    }">${t(label)}</button>`;
+
+    return H`<section class="settings-card" data-card="mail">
+      ${head}
+
+      <div class="setting-row">
+        <div class="setting-row__main">
+          <div class="setting-row__label">${t("启用邮箱服务")}</div>
+          <div class="setting-row__desc">${t(
+            "关闭后「获取验证码」直接返回未配置，注册与绑定邮箱都走不通"
+          )}</div>
+        </div>
+        <div class="ai-actions">
+          <span class="ai-status" data-state="${cfg.ready ? "ok" : "bad"}">${
+      cfg.ready ? t("已就绪") : t("未配置")
+    }</span>
+          <label class="switch">
+            <input type="checkbox" data-mail-enabled ${cfg.enabled ? "checked" : ""}>
+            <span class="switch__track"><span class="switch__knob"></span></span>
+          </label>
+        </div>
+      </div>
+
+      <div class="setting-row">
+        <div class="setting-row__main">
+          <div class="setting-row__label">${t("发件通道")}</div>
+          <div class="setting-row__desc">${t(
+            "BillionMail 走它自己的发信 API；SMTP 直接连邮箱服务器"
+          )}</div>
+        </div>
+        <div class="ai-chips">${chip("billionmail", "BillionMail")}${chip("smtp", "SMTP")}</div>
+      </div>
+
+      <div class="admin-form-grid">
+        <label class="field">
+          <span class="field__label">${t("发件人名称")}</span>
+          <span class="textbox"><input data-mail-from-name maxlength="80" spellcheck="false"
+            placeholder="${escapeHtml(cfg.fromName || "")}"
+            value="${val(cfg.fromName, cfg.fromNameSource)}"></span>
+        </label>
+        <label class="field">
+          <span class="field__label">${t("发件地址")}</span>
+          <span class="textbox"><input data-mail-from-addr maxlength="254" spellcheck="false"
+            placeholder="${escapeHtml(cfg.fromAddr || env.fromAddr || "no-reply@example.com")}"
+            value="${val(cfg.fromAddr, cfg.fromAddrSource)}"></span>
+        </label>
+      </div>
+
+      <div data-mail-group="billionmail" ${provider === "billionmail" ? "" : "hidden"}>
+        <div class="admin-form-grid">
+          <label class="field field--wide">
+            <span class="field__label">${t("BillionMail 地址")}</span>
+            <span class="textbox"><input data-mail-bm-base spellcheck="false"
+              placeholder="${escapeHtml(
+                env.bmBase ? t("跟随 .env：{value}", { value: env.bmBase }) : "https://mail.example.com"
+              )}" value="${val(bm.base, bm.baseSource)}"></span>
+          </label>
+          <label class="field">
+            <span class="field__label">${t("调用方式")}</span>
+            <span class="selectbox">
+              <select data-mail-bm-mode>
+                <option value="template" ${bm.mode === "template" ? "selected" : ""}>${t(
+      "模板 API（主题在 BillionMail 后台）"
+    )}</option>
+                <option value="direct" ${bm.mode === "direct" ? "selected" : ""}>${t(
+      "直传 subject + html"
+    )}</option>
+              </select>
+              <svg class="icon icon--s"><use href="#i-chevron-down"/></svg>
+            </span>
+          </label>
+          <label class="field">
+            <span class="field__label">${t("模板接口路径")}</span>
+            <span class="textbox"><input data-mail-bm-template-path spellcheck="false"
+              placeholder="${escapeHtml(bm.templatePath || "/api/batch_mail/api/send")}"
+              value="${val(bm.templatePath, bm.templatePathSource)}"></span>
+          </label>
+          <label class="field">
+            <span class="field__label">${t("直传接口路径")}</span>
+            <span class="textbox"><input data-mail-bm-direct-path spellcheck="false"
+              placeholder="${escapeHtml(bm.directPath || "/api/send")}"
+              value="${val(bm.directPath, bm.directPathSource)}"></span>
+          </label>
+          <label class="field">
+            <span class="field__label">${t("API Key")}</span>
+            <span class="textbox">
+              <input data-mail-bm-key type="password" autocomplete="off" maxlength="500"
+                placeholder="${escapeHtml(bmKeyPlaceholder)}">
+              <button class="pwd-eye" type="button" data-eye aria-label="${t(
+                "显示密码"
+              )}" title="${t("显示密码")}" aria-pressed="false">
+                <svg class="icon"><use href="#i-eye"/></svg>
+              </button>
+            </span>
+            ${
+              bm.keySource === "admin"
+                ? H`<label class="lyr-clear"><input type="checkbox" data-mail-clear-bm-key>${t(
+                    "清除已保存的 API Key"
+                  )}</label>`
+                : ""
+            }
+          </label>
+          <label class="field">
+            <span class="field__label">${t("addresser 覆盖")}</span>
+            <span class="textbox"><input data-mail-bm-addresser maxlength="254" spellcheck="false"
+              placeholder="${t("留空则用发件地址")}" value="${escapeHtml(bm.addresser || "")}"></span>
+          </label>
+          <label class="field">
+            <span class="field__label">${t("验证码变量名")}</span>
+            <span class="textbox"><input data-mail-bm-code-var maxlength="40" spellcheck="false"
+              placeholder="${escapeHtml(bm.codeVar || "code")}" value="${escapeHtml(
+      bm.codeVar || ""
+    )}"></span>
+          </label>
+        </div>
+        <div class="setting-row">
+          <div class="setting-row__main">
+            <div class="setting-row__label">${t("验证码邮件模板")}</div>
+            <div class="setting-row__desc">${t(
+              "下载一份现成 HTML，粘到 BillionMail 后台「API」的模板里就能用；改过变量名要重新下载"
+            )}</div>
+          </div>
+          <div class="ai-actions">
+            <button class="btn btn--subtle" type="button" data-mail-template>${t("下载模板")}</button>
+          </div>
+        </div>
+        <p class="admin-hint">${t(
+          "模板模式下主题、正文和发件人都由 BillionMail 后台的「API」模板决定，这里只传验证码变量（模板里写 {{.API.code}}）；想自己控制主题就切到「直传」。"
+        )}</p>
+      </div>
+
+      <div data-mail-group="smtp" ${provider === "smtp" ? "" : "hidden"}>
+        <div class="admin-form-grid">
+          <label class="field">
+            <span class="field__label">${t("SMTP 主机")}</span>
+            <span class="textbox"><input data-mail-smtp-host spellcheck="false"
+              placeholder="${escapeHtml(env.smtpHost || "smtp.example.com")}"
+              value="${val(smtp.host, smtp.hostSource)}"></span>
+          </label>
+          <label class="field">
+            <span class="field__label">${t("端口")}</span>
+            <span class="textbox"><input data-mail-smtp-port type="number" min="1" max="65535"
+              placeholder="${smtp.port || 465}" value="${smtp.portSource === "admin" ? smtp.port : ""}"></span>
+          </label>
+          <label class="field">
+            <span class="field__label">${t("账号")}</span>
+            <span class="textbox"><input data-mail-smtp-user spellcheck="false" maxlength="254"
+              placeholder="${escapeHtml(env.smtpUser || "no-reply@example.com")}"
+              value="${val(smtp.user, smtp.userSource)}"></span>
+          </label>
+          <label class="field">
+            <span class="field__label">${t("密码 / 授权码")}</span>
+            <span class="textbox">
+              <input data-mail-smtp-pass type="password" autocomplete="off" maxlength="500"
+                placeholder="${escapeHtml(passPlaceholder)}">
+              <button class="pwd-eye" type="button" data-eye aria-label="${t(
+                "显示密码"
+              )}" title="${t("显示密码")}" aria-pressed="false">
+                <svg class="icon"><use href="#i-eye"/></svg>
+              </button>
+            </span>
+            ${
+              smtp.passwordSource === "admin"
+                ? H`<label class="lyr-clear"><input type="checkbox" data-mail-clear-smtp-pass>${t(
+                    "清除已保存的密码"
+                  )}</label>`
+                : ""
+            }
+          </label>
+          <label class="field">
+            <span class="field__label">${t("加密方式")}</span>
+            <span class="selectbox">
+              <select data-mail-smtp-security>
+                <option value="ssl" ${smtp.security === "ssl" ? "selected" : ""}>${t("SSL（465）")}</option>
+                <option value="starttls" ${smtp.security === "starttls" ? "selected" : ""}>${t(
+      "STARTTLS（587）"
+    )}</option>
+                <option value="none" ${smtp.security === "none" ? "selected" : ""}>${t(
+      "不加密（仅内网中继）"
+    )}</option>
+              </select>
+              <svg class="icon icon--s"><use href="#i-chevron-down"/></svg>
+            </span>
+          </label>
+        </div>
+        <p class="admin-hint">${t(
+          "465 是隐式 SSL，587 是明文起手再 STARTTLS，两者不能互换；25 端口的明文只建议内网中继使用。"
+        )}</p>
+      </div>
+
+      <div class="admin-form-grid">
+        <label class="field field--wide">
+          <span class="field__label">${t("测试收件地址")}</span>
+          <span class="textbox"><input data-mail-test-to type="email" maxlength="254"
+            placeholder="${t("留空则发给发件地址")}"
+            value="${escapeHtml(cfg.fromAddr || env.fromAddr || "")}"></span>
+        </label>
+      </div>
+      <div class="setting-row">
+        <div class="setting-row__main">
+          <div class="setting-row__label">${t("发送测试邮件")}</div>
+          <div class="setting-row__desc">${t(
+            "用上面填的值发一封；测试不会保存配置"
+          )}</div>
+        </div>
+        <div class="ai-actions">
+          <span class="ai-status" data-mail-status></span>
+          <button class="btn btn--subtle" type="button" data-mail-test>${t("发送测试")}</button>
+        </div>
+      </div>
+
+      <div class="admin-card__foot">
+        <button class="btn btn--accent" type="button" data-mail-save>${t("保存邮箱设置")}</button>
+        <button class="btn btn--subtle" type="button" data-mail-reset>${t("恢复 .env 配置")}</button>
+      </div>
+      <p class="admin-hint">${t(
+        "API Key 与 SMTP 密码加密存在服务端，接口只回掩码；留空表示沿用 .env。保存后「绑定邮箱」立刻能收到验证码。"
+      )}</p>
+    </section>`;
+  }
+
+  function bindMailCard() {
+    const card = panel.querySelector('[data-card="mail"]');
+    if (!card || !card.querySelector("[data-mail-save]")) return;
+
+    const status = card.querySelector("[data-mail-status]");
+    const setStatus = (text, state = "") => {
+      if (!status) return;
+      status.textContent = text || "";
+      if (state) status.dataset.state = state;
+      else status.removeAttribute("data-state");
+    };
+
+    // 通道切换只改 hidden 与胶囊态，不重建 DOM —— 否则正在输入的内容全丢
+    card.querySelectorAll("[data-mail-provider]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const id = btn.dataset.mailProvider;
+        card.querySelectorAll("[data-mail-provider]").forEach((other) => {
+          const on = other === btn;
+          other.classList.toggle("is-active", on);
+          other.setAttribute("aria-pressed", on ? "true" : "false");
+        });
+        card.querySelectorAll("[data-mail-group]").forEach((group) => {
+          group.hidden = group.dataset.mailGroup !== id;
+        });
+      });
+    });
+
+    // 密码显隐：后台页没有全局 data-eye 绑定，这里自己接一份
+    card.querySelectorAll("[data-eye]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const input = btn.closest(".textbox")?.querySelector("input");
+        if (!input) return;
+        const show = input.type === "password";
+        input.type = show ? "text" : "password";
+        btn.classList.toggle("is-on", show);
+        btn.setAttribute("aria-pressed", show ? "true" : "false");
+        const label = t(show ? "隐藏密码" : "显示密码");
+        btn.title = label;
+        btn.setAttribute("aria-label", label);
+        btn.querySelector("use")?.setAttribute("href", show ? "#i-eye-off" : "#i-eye");
+        input.focus({ preventScroll: true });
+      });
+    });
+
+    const pick = (selector) => card.querySelector(selector);
+    const text = (selector) => pick(selector)?.value.trim() || "";
+    // 端口留空 = 不改（后端按 465 默认），别传 0 去撞 ge=1
+    const port = () => {
+      const raw = text("[data-mail-smtp-port]");
+      const number = Number(raw);
+      return raw && Number.isFinite(number) ? number : null;
+    };
+
+    function collect() {
+      return {
+        enabled: Boolean(pick("[data-mail-enabled]")?.checked),
+        provider:
+          card.querySelector("[data-mail-provider].is-active")?.dataset.mailProvider || "billionmail",
+        fromName: text("[data-mail-from-name]"),
+        fromAddr: text("[data-mail-from-addr]"),
+        bmBase: text("[data-mail-bm-base]"),
+        bmTemplatePath: text("[data-mail-bm-template-path]"),
+        bmDirectPath: text("[data-mail-bm-direct-path]"),
+        bmMode: pick("[data-mail-bm-mode]")?.value || "template",
+        bmKey: text("[data-mail-bm-key]"),
+        bmAddresser: text("[data-mail-bm-addresser]"),
+        bmCodeVar: text("[data-mail-bm-code-var]"),
+        smtpHost: text("[data-mail-smtp-host]"),
+        smtpPort: port(),
+        smtpUser: text("[data-mail-smtp-user]"),
+        smtpPass: text("[data-mail-smtp-pass]"),
+        smtpSecurity: pick("[data-mail-smtp-security]")?.value || "ssl",
+        clearBmKey: Boolean(pick("[data-mail-clear-bm-key]")?.checked),
+        clearSmtpPass: Boolean(pick("[data-mail-clear-smtp-pass]")?.checked),
+      };
+    }
+
+    // 下载 BillionMail 模板：变量位跟着「验证码变量名」走，没保存的值也算
+    pick("[data-mail-template]")?.addEventListener("click", async (event) => {
+      event.preventDefault();
+      const btn = event.currentTarget;
+      const codeVar = text("[data-mail-bm-code-var]") || "code";
+      if (!/^[A-Za-z_][A-Za-z0-9_]{0,39}$/.test(codeVar)) {
+        Toast.error(t("变量名只能包含字母、数字和下划线，且不能以数字开头"));
+        return;
+      }
+      btn.disabled = true;
+      try {
+        const res = await fetch(`/api/admin/mail/template?codeVar=${encodeURIComponent(codeVar)}`, {
+          credentials: "same-origin",
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => null);
+          throw new Error(typeof data?.detail === "string" ? data.detail : t("下载失败"));
+        }
+        const url = URL.createObjectURL(await res.blob());
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = "cloudnetp-billionmail-template.html";
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 2000);
+        Toast.success(t("模板已下载"));
+      } catch (err) {
+        Toast.error(err.message || t("下载失败"));
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    pick("[data-mail-test]")?.addEventListener("click", async (event) => {
+      // currentTarget 在 await 之后会丢，先把按钮存下来
+      const button = event.currentTarget;
+      const label = button.textContent;
+      const to = text("[data-mail-test-to]");
+      button.disabled = true;
+      button.textContent = t("发送中…");
+      setStatus("");
+      try {
+        const data = await api.post("/api/admin/mail/test", { to, ...collect() });
+        setStatus(
+          t("{provider} · 用时 {ms}ms", { provider: data.provider, ms: data.elapsedMs }),
+          "ok"
+        );
+        Toast.success(t("测试邮件已发出，请检查收件箱"));
+      } catch (err) {
+        setStatus(err.message || t("发送失败"), "bad");
+        Toast.error(err.message || t("发送失败"));
+      } finally {
+        button.disabled = false;
+        button.textContent = label;
+      }
+    });
+
+    pick("[data-mail-save]")?.addEventListener("click", async (event) => {
+      const button = event.currentTarget;
+      button.disabled = true;
+      try {
+        const data = await api.put("/api/admin/mail", collect());
+        Toast.success(t("邮箱设置已保存"));
+        paintMailCard(data.config);
+      } catch (err) {
+        Toast.error(err.message || t("保存失败"));
+      } finally {
+        button.disabled = false;
+      }
+    });
+
+    pick("[data-mail-reset]")?.addEventListener("click", async () => {
+      const ok = await Dialog.confirm({
+        title: t("恢复 .env 配置"),
+        message: t("会清掉后台保存的邮箱配置，之后按 .env 的 MAIL_* 发信。"),
+        confirmText: t("恢复"),
+        danger: true,
+      });
+      if (!ok) return;
+      try {
+        const data = await api.del("/api/admin/mail", {});
+        Toast.success(t("已恢复为 .env 配置"));
+        paintMailCard(data.config);
+      } catch (err) {
+        Toast.error(err.message || t("操作失败"));
+      }
+    });
+  }
+
+  /* ---------------------------------------------------------------- */
   /* 切换                                                              */
   /* ---------------------------------------------------------------- */
   function switchTab(name) {
@@ -3148,6 +3914,8 @@ export function renderAdmin(root) {
     else if (name === "appeals") showAppeals();
     else if (name === "feedback") showFeedback();
     else if (name === "logs") showLogs();
+    else if (name === "storage") showStorage();
+    else if (name === "mail") showMail();
     else showSettings();
   }
 

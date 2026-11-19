@@ -111,7 +111,7 @@ def _compose_database_url() -> str:
 class Settings:
     # ---- 应用 ----
     APP_NAME: str = _get("APP_NAME", "CloudNETP")
-    VERSION: str = "0.4.14"
+    VERSION: str = "0.4.16"
     DEBUG: bool = _get_bool("DEBUG", True)
 
     # ---- 监听与对外地址 ----
@@ -227,20 +227,42 @@ class Settings:
     AI_DEFAULT_MAX_INPUT: int = _get_int("AI_DEFAULT_MAX_INPUT", 0)
     AI_DEFAULT_MAX_OUTPUT: int = _get_int("AI_DEFAULT_MAX_OUTPUT", 0)
 
-    # ---- 邮件服务（暂未接入：留空时所有发信接口返回「未配置」）----
-    # 目前验证码只落服务端内存、不发信，接口与限流逻辑已经就绪，
-    # 之后填上 SMTP 参数就能直接启用，前端不用改。
+    # ---- 邮件服务（验证码发信）----
+    # 实际配置以「管理后台 → 邮箱服务」为准（存 system_settings，热生效）；
+    # 这里只是 .env 兜底，两者都没配时发码接口返回「未配置」。
+    # 总开关：true/false；留空 = 自动（SMTP 账号密码配全就算开启，老 .env 不用改）
+    MAIL_ENABLED: str = _get("MAIL_ENABLED", "").strip().lower()
+    # 发件通道：smtp / billionmail；留空 = 自动（SMTP 配了账号就 smtp，否则 billionmail）
+    MAIL_PROVIDER: str = _get("MAIL_PROVIDER", "").strip().lower()
+    # 发件人（MAIL_FROM 留空则用 MAIL_USER）
+    MAIL_FROM: str = _get("MAIL_FROM") or _get("MAIL_USER")
+    MAIL_FROM_NAME: str = _get("MAIL_FROM_NAME", "CloudNETP")
+    # ---- SMTP ----
     MAIL_HOST: str = _get("MAIL_HOST")
     MAIL_PORT: int = _get_int("MAIL_PORT", 465)
     MAIL_USER: str = _get("MAIL_USER")
     MAIL_PASSWORD: str = _get("MAIL_PASSWORD")
-    MAIL_FROM: str = _get("MAIL_FROM") or _get("MAIL_USER")
-    MAIL_FROM_NAME: str = _get("MAIL_FROM_NAME", "CloudNETP")
+    # ssl / starttls / none；留空则由老开关 MAIL_SSL 推断（true=ssl，false=starttls）
+    MAIL_SMTP_SECURITY: str = _get("MAIL_SMTP_SECURITY", "").strip().lower()
     MAIL_SSL: bool = _get_bool("MAIL_SSL", True)
+    # ---- BillionMail（自建发件网关）----
+    MAIL_BM_BASE: str = _get("MAIL_BM_BASE", "").strip().rstrip("/")
+    MAIL_BM_TEMPLATE_PATH: str = _get("MAIL_BM_TEMPLATE_PATH", "/api/batch_mail/api/send").strip()
+    MAIL_BM_DIRECT_PATH: str = _get("MAIL_BM_DIRECT_PATH", "/api/send").strip()
+    # template = 主题/正文/发件人由 BillionMail 后台的 API 模板决定，只传变量
+    # direct   = 直接 POST subject + html
+    MAIL_BM_MODE: str = _get("MAIL_BM_MODE", "template").strip().lower()
+    MAIL_BM_KEY: str = _get("MAIL_BM_KEY", "").strip()
+    MAIL_BM_ADDRESSER: str = _get("MAIL_BM_ADDRESSER", "").strip()
+    # 模板里引用验证码的变量名（对应 {{.API.code}}）
+    MAIL_BM_CODE_VAR: str = _get("MAIL_BM_CODE_VAR", "code").strip()
 
     @property
     def mail_ready(self) -> bool:
-        return bool(self.MAIL_HOST and self.MAIL_USER and self.MAIL_PASSWORD)
+        """老名字保留：统一问 `mail_config.ready()`，后台配置优先于 .env。"""
+        from . import mail_config
+
+        return mail_config.ready()
 
     # ---- 存储 ----
     STORAGE_DIR: Path = Path(_get("STORAGE_DIR") or str(BASE_DIR / "storage")).resolve()

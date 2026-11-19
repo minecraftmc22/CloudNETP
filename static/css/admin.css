@@ -1053,6 +1053,25 @@
   }
 }
 
+/* 邮箱服务卡片：手机上通道胶囊与操作区单独占行 */
+@media (max-width: 560px) {
+  .settings-card[data-card="mail"] .setting-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .settings-card[data-card="mail"] .setting-row__main {
+    flex: 0 0 auto;
+  }
+  .settings-card[data-card="mail"] .ai-chips,
+  .settings-card[data-card="mail"] .ai-actions {
+    margin-top: 8px;
+  }
+  .settings-card[data-card="mail"] .ai-chips .ai-chip {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+}
+
 /* ---------------- 申诉审核 ---------------- */
 .appeal-list {
   display: grid;

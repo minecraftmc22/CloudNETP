@@ -17,31 +17,40 @@ from sqlalchemy.orm import Session
 from .. import admin_service as admin
 from .. import ai_defaults
 from .. import ban_service
+from .. import cleanup_service as cs
 from .. import dav_auth as da
 from .. import db_failover
+from .. import email_code
 from .. import lyrics_config
 from .. import lyrics_service
+from .. import mail_config
+from .. import mail_service
 from .. import netease_auth as ng
 from .. import node_service as ns
 from .. import profile_service as ps
 from .. import quick_service as qs
 from .. import storage
+from ..config import settings
 from ..db import get_db
 from ..deps import require_admin
 from ..models import User, utcnow
 from ..schemas import (
     AdminAiDefaultIn,
+    AdminCleanupIn,
     AdminDbReconnectIn,
     AdminDbRolesIn,
     AdminGcIn,
     AdminLogPurgeIn,
     AdminLyricsIn,
+    AdminMailIn,
+    AdminMailTestIn,
+    AdminOrphanGcIn,
     AdminQuickCleanupIn,
     AdminLyricsTestIn,
     AdminSettingsIn,
     AdminUserPatchIn,
 )
-from ..security import check_origin, hash_password
+from ..security import check_origin, email_problem, hash_password
 from ..settings_store import set_value
 from ..user_service import log_action
 
@@ -727,6 +736,141 @@ def lyrics_test(payload: AdminLyricsTestIn, request: Request, _: AdminUser) -> d
 
 
 # --------------------------------------------------------------------------- #
+# 邮箱服务（验证码发信：BillionMail 发件 API / SMTP）
+# --------------------------------------------------------------------------- #
+@router.get("/mail")
+def mail_status(_: AdminUser) -> dict:
+    """生效配置。API Key 与 SMTP 密码只回掩码，原文不出服务端。"""
+    return {"config": mail_config.snapshot()}
+
+
+@router.get("/mail/template")
+def mail_template_export(
+    _: AdminUser, codeVar: str = Query("code", max_length=40)
+) -> Response:
+    """下载 BillionMail 模板 API 用的 HTML 正文（变量位跟着「验证码变量名」走）。
+
+    只是导出静态模板，不改任何配置，所以不写审计。
+    """
+    try:
+        html = email_code.billionmail_template(codeVar)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from None
+    return Response(
+        content=html,
+        media_type="text/html; charset=utf-8",
+        headers={
+            "Content-Disposition": 'attachment; filename="cloudnetp-billionmail-template.html"',
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+@router.put("/mail")
+def mail_save(payload: AdminMailIn, request: Request, db: DbSession, me: AdminUser) -> dict:
+    """保存邮箱服务配置（存 system_settings，立即生效）。"""
+    check_origin(request)
+    try:
+        config = mail_config.save(db, payload.model_dump(exclude_none=True, by_alias=True))
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from None
+    log_action(
+        db,
+        "admin_mail_save",
+        me.id,
+        {
+            "enabled": config["enabled"],
+            "provider": config["provider"],
+            "fromAddr": config["fromAddr"],
+            "bmMode": config["billionmail"]["mode"],
+            "hasBmKey": config["billionmail"]["hasKey"],
+            "smtpHost": config["smtp"]["host"],
+            "hasSmtpPass": config["smtp"]["hasPassword"],
+            "ready": config["ready"],
+        },
+        request,
+    )
+    db.commit()
+    return {"config": config}
+
+
+@router.delete("/mail")
+def mail_clear(request: Request, db: DbSession, me: AdminUser) -> dict:
+    """清掉后台覆盖，全部回到 .env。"""
+    check_origin(request)
+    config = mail_config.clear(db)
+    log_action(db, "admin_mail_clear", me.id, {}, request)
+    db.commit()
+    return {"config": config}
+
+
+@router.post("/mail/test")
+def mail_test(payload: AdminMailTestIn, request: Request, db: DbSession, me: AdminUser) -> dict:
+    """用「还没保存」的表单值发一封测试邮件。
+
+    会产生真实外发，所以同样过 Origin 校验并留审计。
+    """
+    check_origin(request)
+    to = payload.to.strip()
+    problem = email_problem(to)
+    if problem:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, problem)
+
+    patch = payload.model_dump(exclude_none=True, by_alias=True)
+    patch.pop("to", None)
+    try:
+        cfg = mail_config.merge_preview(patch)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from None
+    # 测试只验证「这套参数能不能发出去」，不受总开关影响：
+    # 管理员常常是先试通再打开开关，这里卡住会很反直觉。
+    cfg["enabled"] = True
+
+    started = time.perf_counter()
+    site = settings.APP_NAME
+    html = (
+        f"<p>这是一封来自 {site} 的测试邮件。</p>"
+        f"<p>通道：{cfg['provider']}；发件人：{cfg['fromName']} &lt;{cfg['fromAddr']}&gt;</p>"
+        "<p>收到这封邮件说明验证码发信已经打通。</p>"
+    )
+    try:
+        mail_service.send(
+            to,
+            f"【{site}】邮件服务测试",
+            html,
+            "这是一封测试邮件，收到即表示发信通道可用。",
+            config=cfg,
+        )
+    except mail_service.MailError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, exc.message) from None
+
+    elapsed = int((time.perf_counter() - started) * 1000)
+    log_action(
+        db,
+        "admin_mail_test",
+        me.id,
+        {"provider": cfg["provider"], "to": _mask_addr(to), "elapsedMs": elapsed},
+        request,
+    )
+    db.commit()
+    return {
+        "ok": True,
+        "elapsedMs": elapsed,
+        "provider": cfg["provider"],
+        "message": "测试邮件已发送",
+    }
+
+
+def _mask_addr(addr: str) -> str:
+    """审计/日志里的收件地址脱敏。"""
+    name, _, domain = (addr or "").partition("@")
+    if not domain:
+        return "***"
+    head = name[:2] if len(name) > 2 else name[:1]
+    return f"{head}***@{domain}"
+
+
+# --------------------------------------------------------------------------- #
 # 磁盘维护
 # --------------------------------------------------------------------------- #
 @router.post("/maintenance/blob-gc")
@@ -737,3 +881,87 @@ def blob_gc(payload: AdminGcIn, request: Request, db: DbSession, me: AdminUser) 
         log_action(db, "admin_blob_gc", me.id, result, request)
         db.commit()
     return result
+
+
+# --------------------------------------------------------------------------- #
+# 存储空间：概况 / 无人引用 / 自动清理
+# --------------------------------------------------------------------------- #
+@router.get("/storage")
+def storage_state(db: DbSession, _: AdminUser) -> dict:
+    """存储页一次取齐：物理占用、快传占用、无人引用规模、自动清理配置。"""
+    return {
+        "storage": cs.storage_snapshot(db),
+        "quick": qs.overview(db),
+        "cleanup": cs.config(db),
+    }
+
+
+@router.post("/storage/orphans")
+def orphan_gc(
+    payload: AdminOrphanGcIn, request: Request, db: DbSession, me: AdminUser
+) -> dict:
+    """清理 blobs 表里没有任何节点引用的记录与物理文件；apply=false 只扫描。"""
+    check_origin(request)
+    result = cs.scan_unreferenced(db, apply=payload.apply)
+    if payload.apply and result["removed"]:
+        log_action(db, "admin_orphan_gc", me.id, result, request)
+        db.commit()
+    return {"result": result, "storage": cs.storage_snapshot(db)}
+
+
+@router.put("/storage/cleanup")
+def save_cleanup(
+    payload: AdminCleanupIn, request: Request, db: DbSession, me: AdminUser
+) -> dict:
+    """保存自动清理安排：开关、每天几点、清哪些项目。"""
+    check_origin(request)
+    cs.save(
+        db,
+        enabled=payload.enabled,
+        hour=payload.hour,
+        orphans=payload.orphans,
+        quick=payload.quick,
+    )
+    log_action(
+        db,
+        "admin_cleanup_save",
+        me.id,
+        {
+            "enabled": payload.enabled,
+            "hour": payload.hour,
+            "orphans": payload.orphans,
+            "quick": payload.quick,
+        },
+        request,
+    )
+    db.commit()
+    return {"cleanup": cs.config(db)}
+
+
+@router.post("/storage/cleanup/run")
+def run_cleanup(request: Request, db: DbSession, me: AdminUser) -> dict:
+    """按当前配置立即执行一次自动清理（不影响下次定时）。"""
+    check_origin(request)
+    result = cs.run(db)
+    orphans = result.get("orphans") or {}
+    quick = result.get("quick") or {}
+    log_action(
+        db,
+        "admin_cleanup_run",
+        me.id,
+        {
+            "at": result["at"],
+            "orphans": orphans.get("removed", 0),
+            "orphanBytes": orphans.get("freedBytes", 0),
+            "quickFiles": quick.get("files", 0),
+            "quickBytes": quick.get("bytes", 0),
+        },
+        request,
+    )
+    db.commit()
+    return {
+        "result": result,
+        "cleanup": cs.config(db),
+        "storage": cs.storage_snapshot(db),
+        "quick": qs.overview(db),
+    }

@@ -39,6 +39,13 @@ DEFAULTS: dict[str, str] = {
     # 取件码生成后把分享文案写进剪贴板（默认开）与那段文案本身
     "quick_auto_copy": "1",
     "quick_copy_template": QUICK_COPY_TEMPLATE_DEFAULT,
+    # 存储空间自动清理（后台「存储」页）：每天几点跑、清哪些、上次跑的结果
+    "auto_cleanup_enabled": "0",
+    "auto_cleanup_hour": "4",
+    "auto_cleanup_orphans": "1",
+    "auto_cleanup_quick": "1",
+    "auto_cleanup_last_run": "",
+    "auto_cleanup_last_result": "",
     # SEO：标题 / 描述 / 关键词 / 分享图 / canonical 基址，以及是否允许搜索引擎收录
     # 默认不收录：个人网盘不该被搜索引擎意外抓进索引，管理员自己去后台打开
     "seo_index": "0",

@@ -103,7 +103,15 @@ async def lifespan(app: FastAPI):
     from . import ai_defaults
 
     ai_defaults.hydrate()
+    # 邮箱服务（后台可覆盖 .env）同样读进内存：/api/meta 每次都要问它能不能发码
+    from . import mail_config
+
+    mail_config.hydrate()
     _startup_maintenance()
+    # 存储空间的自动清理：管理员在后台设了整点才真正执行，没开时线程只是空转
+    from . import cleanup_service
+
+    cleanup_service.start_scheduler()
     # 自动更新看门狗：默认关闭，管理员在后台开启后每 6 小时检查一次
     from . import update_service
 

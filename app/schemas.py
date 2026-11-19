@@ -458,6 +458,21 @@ class AdminGcIn(CamelModel):
     apply: bool = False
 
 
+class AdminOrphanGcIn(CamelModel):
+    """清理无人引用的 blob：``apply=False`` 只扫描，不删任何东西。"""
+
+    apply: bool = False
+
+
+class AdminCleanupIn(CamelModel):
+    """存储空间的自动清理安排。``hour`` 是服务器本地时间的整点（0-23）。"""
+
+    enabled: bool = False
+    hour: int = Field(default=4, ge=0, le=23)
+    orphans: bool = True
+    quick: bool = True
+
+
 class AdminDbReconnectIn(CamelModel):
     """管理页手动重连：切到主库还是次库。"""
 
@@ -512,3 +527,57 @@ class AdminLyricsTestIn(CamelModel):
     api_key: str = Field(default="", max_length=500)
     api_cookie: str = Field(default="", max_length=4000)
     query: str = Field(default="晴天", max_length=80)
+
+
+class AdminMailIn(CamelModel):
+    """后台保存邮箱服务配置。
+
+    ``None``（省略）= 不改；普通文本字段传空串 = 删掉后台覆盖、回落 .env；
+    ``bmKey`` / ``smtpPass`` 留空 = **不改**，要清空请用 clearBmKey / clearSmtpPass。
+    """
+
+    enabled: bool | None = None
+    provider: Literal["billionmail", "smtp"] | None = None
+    from_name: str | None = Field(default=None, max_length=80)
+    from_addr: str | None = Field(default=None, max_length=254)
+
+    bm_base: str | None = Field(default=None, max_length=300)
+    bm_template_path: str | None = Field(default=None, max_length=200)
+    bm_direct_path: str | None = Field(default=None, max_length=200)
+    bm_mode: Literal["template", "direct"] | None = None
+    bm_key: str | None = Field(default=None, max_length=500)
+    bm_addresser: str | None = Field(default=None, max_length=254)
+    bm_code_var: str | None = Field(default=None, max_length=40)
+
+    smtp_host: str | None = Field(default=None, max_length=200)
+    smtp_port: int | None = Field(default=None, ge=1, le=65535)
+    smtp_user: str | None = Field(default=None, max_length=254)
+    smtp_pass: str | None = Field(default=None, max_length=500)
+    smtp_security: Literal["ssl", "starttls", "none"] | None = None
+
+    clear_bm_key: bool = False
+    clear_smtp_pass: bool = False
+
+
+class AdminMailTestIn(CamelModel):
+    """测试发信：可以带上还没保存的表单值先试一次。"""
+
+    to: str = Field(min_length=3, max_length=254)
+    enabled: bool | None = None
+    provider: Literal["billionmail", "smtp"] | None = None
+    from_name: str = Field(default="", max_length=80)
+    from_addr: str = Field(default="", max_length=254)
+
+    bm_base: str = Field(default="", max_length=300)
+    bm_template_path: str = Field(default="", max_length=200)
+    bm_direct_path: str = Field(default="", max_length=200)
+    bm_mode: Literal["template", "direct"] | None = None
+    bm_key: str = Field(default="", max_length=500)
+    bm_addresser: str = Field(default="", max_length=254)
+    bm_code_var: str = Field(default="", max_length=40)
+
+    smtp_host: str = Field(default="", max_length=200)
+    smtp_port: int | None = Field(default=None, ge=1, le=65535)
+    smtp_user: str = Field(default="", max_length=254)
+    smtp_pass: str = Field(default="", max_length=500)
+    smtp_security: Literal["ssl", "starttls", "none"] | None = None
