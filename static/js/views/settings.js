@@ -57,6 +57,21 @@ function trashDesc(s) {
 
 /* 各模块背景的默认浓度：直接读主题 CSS 变量，换主题/壁纸后默认值自然跟着走
    卡片没有固定 alpha（设置卡、关于卡、统计卡底色各不相同），滑块是倍数，默认 1 = 100% */
+/** 邮箱行描述：未验证时只留地址，红字提醒交给 emailWarnText */
+function emailDescText(user) {
+  const mail = String(user?.email || "");
+  if (!mail) return t("还没有绑定 · 忘记密码时只能联系管理员");
+  return user.emailVerified ? `${escapeHtml(mail)} · ${t("可用于登录和找回密码")}` : escapeHtml(mail);
+}
+
+/** 未验证邮箱的红字提醒；已验证 / 未绑定返回空串（调用方据此隐藏） */
+function emailWarnText(user) {
+  if (!user?.email || user.emailVerified) return "";
+  return store.get().meta?.mailReady
+    ? t("邮箱尚未验证，暂时不能用于找回密码和两步验证")
+    : t("邮箱尚未验证，暂时不能用于找回密码和两步验证 · 站点未配置邮箱服务，无法发送验证码");
+}
+
 const SURFACE_FALLBACK = { nav: 42, titlebar: 46, panel: 62, dialog: 82, card: 100 };
 const SURFACE_VARS = {
   nav: "--nav-a",
@@ -658,13 +673,15 @@ export function renderSettings(root) {
             <div class="setting-row">
               <div class="setting-row__main">
                 <div class="setting-row__label">邮箱</div>
-                <div class="setting-row__desc" data-email-desc>${
-                  user?.email
-                    ? `${escapeHtml(user.email)}${
-                        user.emailVerified ? "" : t("（未验证）")
-                      } · ${t("可用于登录和找回密码")}`
-                    : t("还没有绑定 · 忘记密码时只能联系管理员")
-                }</div>
+                <div class="setting-row__desc" data-email-desc>${emailDescText(user)}</div>
+                <div class="setting-row__warn" data-email-warn ${emailWarnText(user) ? "" : "hidden"}>
+                  <span class="setting-row__warn-main">
+                    <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-alert"/></svg>
+                    <span data-email-warn-text>${escapeHtml(emailWarnText(user))}</span>
+                  </span>
+                  <button class="btn btn--subtle setting-row__warn-btn" type="button"
+                          data-act="email-verify" ${store.get().meta?.mailReady ? "" : "hidden"}>去验证</button>
+                </div>
               </div>
               <button class="btn" type="button" data-act="email">${user?.email ? t("换绑") : t("绑定邮箱")}</button>
             </div>
@@ -995,20 +1012,22 @@ export function renderSettings(root) {
 
   function updateEmailDesc(next) {
     const desc = q("[data-email-desc]");
-    if (!desc) return;
-    desc.textContent = next?.email
-      ? `${next.email}${next.emailVerified ? "" : t("（未验证）")} · ${t("可用于登录和找回密码")}`
-      : t("还没有绑定 · 忘记密码时只能联系管理员");
+    if (desc) desc.innerHTML = emailDescText(next);
+    const warn = q("[data-email-warn]");
+    const warnText = emailWarnText(next);
+    if (warn) {
+      warn.hidden = !warnText;
+      const span = warn.querySelector("[data-email-warn-text]");
+      if (span) span.textContent = warnText;
+    }
     const btn = q('[data-act="email"]');
     if (btn) btn.textContent = next?.email ? t("换绑") : t("绑定邮箱");
   }
 
-  /* 邮箱：先验证密码，再填新邮箱 + 验证码 */
-  q('[data-act="email"]')?.addEventListener("click", () => {
+  /* 邮箱：先验证密码，再填新邮箱 + 验证码（「换绑」与红字旁的「去验证」共用） */
+  function openEmailPanel() {
     if (!emailPanel) return;
-    const opening = emailPanel.hidden;
-    emailPanel.hidden = !opening;
-    if (!opening) return;
+    emailPanel.hidden = false;
     setEmailStep("password");
     q("[data-email-password]").value = "";
     q("[data-email-address]").value = currentUser().email || "";
@@ -1016,7 +1035,19 @@ export function renderSettings(root) {
     const hint = q("[data-email-hint]");
     if (hint) hint.hidden = true;
     q("[data-email-password]")?.focus();
+  }
+
+  q('[data-act="email"]')?.addEventListener("click", () => {
+    if (!emailPanel) return;
+    if (!emailPanel.hidden) {
+      emailPanel.hidden = true;
+      return;
+    }
+    openEmailPanel();
   });
+
+  /* 未验证邮箱旁的「去验证」：直接展开面板，邮箱已预填，走完流程即完成验证 */
+  q('[data-act="email-verify"]')?.addEventListener("click", openEmailPanel);
 
   q('[data-act="email-cancel"]')?.addEventListener("click", () => {
     if (emailPanel) emailPanel.hidden = true;

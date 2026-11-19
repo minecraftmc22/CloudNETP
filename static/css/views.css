@@ -798,6 +798,49 @@
   margin-top: 2px;
   line-height: 1.6;
 }
+/* 未验证邮箱的红字提醒（账号-邮箱） */
+.setting-row__warn {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 4px 6px;
+  margin-top: 3px;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--danger);
+}
+/* 图标 + 文案成组，窄屏时整体换行，别让图标自己掉到上一行 */
+.setting-row__warn-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.setting-row__warn[hidden] {
+  display: none;
+}
+.setting-row__warn .icon {
+  width: 13px;
+  height: 13px;
+  margin-top: 2px;
+}
+/* 红字行里的「去验证」小按钮：跟着正文走，别把行撑高 */
+.setting-row__warn-btn {
+  flex: none;
+  height: 22px;
+  min-height: 0;
+  padding: 0 8px;
+  font-size: 11.5px;
+  align-self: flex-start;
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 42%, var(--stroke-strong));
+}
+.setting-row__warn-btn:hover {
+  background: var(--danger-soft);
+  border-color: var(--danger);
+  color: var(--danger);
+}
 /* 可跳转的设置行（整行点击） */
 a.setting-row--link {
   color: inherit;
@@ -3534,6 +3577,11 @@ html[data-ai="off"] .mascot__act[data-mascot-act="chat"] {
 }
 .settings .setting-row__desc {
   margin-top: 3px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.settings .setting-row__warn {
+  margin-top: 4px;
   font-size: 12px;
   line-height: 1.5;
 }
