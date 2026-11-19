@@ -6,6 +6,7 @@
  *  - 关闭走用户设置（showMascot），跟右上角菜单里的开关是同一份数据
  */
 
+import { t } from "../i18n.js";
 import { Toast } from "./toast.js";
 
 const LOCK_KEY = "mascot-lock";
@@ -31,8 +32,8 @@ export function setMascotLocked(locked, { silent = false } = {}) {
   if (!silent) {
     Toast.info(
       value
-        ? "看板娘已锁定，鼠标可以穿透了；在「设置 → 装饰」里可以解锁"
-        : "已解锁，看板娘又能拖动和戳一戳了"
+        ? t("看板娘已锁定，鼠标可以穿透了；在「设置 → 看板娘」里可以解锁")
+        : t("已解锁，看板娘又能拖动和戳一戳了")
     );
   }
   return value;

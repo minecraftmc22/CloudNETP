@@ -145,6 +145,8 @@ class AiConfigIn(CamelModel):
     move_files: bool | None = None
     # quick_transfer = 允许生成取件码 / 用取件码取件
     quick_transfer: bool | None = None
+    # theme_color = 允许按用户要求改界面主题色（单色 / 渐变 / 从背景图取色）
+    theme_color: bool | None = None
     vision: bool | None = None
     thinking: bool | None = None
     # auto = 按地址自动判断；openai / anthropic 为手动指定（给非标准地址用）
@@ -405,6 +407,16 @@ class AdminSettingsIn(CamelModel):
     quick_max_days: int | None = Field(default=None, ge=1, le=365)
     quick_max_uses: int | None = Field(default=None, ge=0, le=10000)
     quick_retention_days: int | None = Field(default=None, ge=0, le=365)
+    # 生成取件码后自动复制分享文案；模板占位符：{site} {file} {code} {link}
+    quick_auto_copy: bool | None = None
+    quick_copy_template: str | None = Field(default=None, max_length=1000)
+    # SEO：是否允许搜索引擎收录，以及标题/描述/关键词/分享图/公开地址
+    seo_index: bool | None = None
+    seo_title: str | None = Field(default=None, max_length=120)
+    seo_description: str | None = Field(default=None, max_length=300)
+    seo_keywords: str | None = Field(default=None, max_length=200)
+    seo_image: str | None = Field(default=None, max_length=500)
+    seo_base_url: str | None = Field(default=None, max_length=200)
 
 
 class AdminQuickCleanupIn(CamelModel):

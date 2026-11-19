@@ -36,7 +36,16 @@ from PIL import Image, ImageOps
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from . import ai_defaults, media_tags, node_service, secret_box, settings_store, storage
+from . import (
+    ai_defaults,
+    media_tags,
+    node_service,
+    profile_service,
+    secret_box,
+    settings_store,
+    storage,
+    theme_color,
+)
 from .config import settings
 from .models import Node, User, utcnow
 from .user_service import ensure_settings, log_action
@@ -126,6 +135,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "moveFiles": False,
     # 快传：生成取件码 / 用取件码取件（会把文件暴露给拿到码的人，默认关闭）
     "quickTransfer": False,
+    # 主题色：按用户要求改界面强调色（只动自己的配色，不碰文件），默认关闭
+    "themeColor": False,
     "vision": False,
     "thinking": False,
     "protocol": "auto",
@@ -216,6 +227,7 @@ def load_config(db: Session, user_id: int) -> dict:
     cfg["writeFiles"] = bool(cfg.get("writeFiles", False))
     cfg["moveFiles"] = bool(cfg.get("moveFiles", False))
     cfg["quickTransfer"] = bool(cfg.get("quickTransfer", False))
+    cfg["themeColor"] = bool(cfg.get("themeColor", False))
     cfg["vision"] = bool(cfg.get("vision", False))
     cfg["thinking"] = bool(cfg.get("thinking", False))
     cfg["maxInput"] = _clamp_int(cfg.get("maxInput"))
@@ -296,6 +308,7 @@ def effective_config(db: Session, user_id: int) -> tuple[dict, str]:
         merged["writeFiles"] = cfg["writeFiles"]
         merged["moveFiles"] = cfg["moveFiles"]
         merged["quickTransfer"] = cfg["quickTransfer"]
+        merged["themeColor"] = cfg["themeColor"]
         merged["maxRounds"] = cfg["maxRounds"]
         return merged, "default"
     return cfg, "none"
@@ -338,6 +351,7 @@ def save_config(db: Session, user_id: int, patch: dict) -> dict:
         "writeFiles",
         "moveFiles",
         "quickTransfer",
+        "themeColor",
         "vision",
         "thinking",
         "protocol",
@@ -640,6 +654,9 @@ class ToolResult:
 
     text: str
     images: list[dict] = field(default_factory=list)  # {media_type, data, width, height}
+    # 改动了界面偏好的工具（目前只有主题色）把新值带出来，前端据此即时换色，
+    # 不用等用户刷新页面才看到效果。
+    settings: dict | None = None
 
 
 # 看图的天花板：再大既费 token 又容易被上游拒，先本地缩到模型推荐的长边
@@ -886,6 +903,7 @@ TOOL_LABELS = {
     "move_item": "移动",
     "create_pickup_code": "生成取件码",
     "pickup_files": "取件",
+    "set_theme_color": "改主题色",
 }
 
 # 会真正改动网盘的工具：默认不开放，必须在设置里勾选同意
@@ -1025,12 +1043,59 @@ QUICK_TOOL_SPECS: list[dict] = [
     },
 ]
 
+# 主题色：单色 / 渐变，也可以直接按用户当前的背景图取色。
+# 只改用户自己的界面配色，不碰文件，但同样要用户勾选后才交给模型。
+THEME_TOOL_SPECS: list[dict] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "set_theme_color",
+            "description": (
+                "改界面主题色（按钮、开关、选中态的强调色）。"
+                "用户说「换个主题色 / 改成蓝色 / 要渐变的」时用它："
+                "单色传 mode=solid + color；渐变传 mode=gradient + colors（2–5 个）。"
+                "用户说「从背景图取色 / 按壁纸配色」时只传 from_background=true，"
+                "不要自己编颜色 —— 服务端会从当前背景图里采样。"
+                "用户说「恢复默认主题色」时传 reset=true。"
+                "颜色一律 #rrggbb；不确定具体色值就先问用户，或者按背景图取色。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "mode": {
+                        "type": "string",
+                        "enum": ["solid", "gradient"],
+                        "description": "solid 单色（默认）；gradient 渐变",
+                    },
+                    "color": {
+                        "type": "string",
+                        "description": "单色模式的颜色，例如 #60a5fa",
+                    },
+                    "colors": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "渐变模式的 2–5 个颜色，按渐变方向排，例如 ['#60a5fa', '#34d399']",
+                    },
+                    "from_background": {
+                        "type": "boolean",
+                        "description": "true = 从用户当前的自定义背景图里取色（配合 mode 决定单色还是渐变）",
+                    },
+                    "reset": {
+                        "type": "boolean",
+                        "description": "true = 恢复默认主题色（樱紫 #c084fc 单色）",
+                    },
+                },
+            },
+        },
+    },
+]
+
 WRITE_TOOL_NAMES = {
     spec["function"]["name"]
-    for spec in WRITE_TOOL_SPECS + MOVE_TOOL_SPECS + QUICK_TOOL_SPECS
+    for spec in WRITE_TOOL_SPECS + MOVE_TOOL_SPECS + QUICK_TOOL_SPECS + THEME_TOOL_SPECS
 }
 
-# 工具需要的权限：read 需要「查看文件内容」，write/move 各自要用户勾选
+# 工具需要的权限：read 需要「查看文件内容」，write/move/quick/theme 各自要用户勾选
 TOOL_PERMISSION = {
     "read_text": "read",
     "read_image": "read",
@@ -1042,6 +1107,7 @@ TOOL_PERMISSION = {
     "move_item": "move",
     "create_pickup_code": "quick",
     "pickup_files": "quick",
+    "set_theme_color": "theme",
 }
 
 
@@ -1063,6 +1129,8 @@ def tool_specs(cfg: dict) -> list[dict]:
         specs.extend(MOVE_TOOL_SPECS)
     if cfg.get("quickTransfer"):
         specs.extend(QUICK_TOOL_SPECS)
+    if cfg.get("themeColor"):
+        specs.extend(THEME_TOOL_SPECS)
     return specs
 
 
@@ -1179,6 +1247,10 @@ def _run_tool(
         raise ToolError(
             "管理员没有开启「快传取件码」权限，请先到 设置 → 看板娘 → 对话设置 里勾选"
         )
+    if need == "theme" and not perms.get("theme"):
+        raise ToolError(
+            "管理员没有开启「修改界面主题色」权限，请先到 设置 → 看板娘 → 对话设置 里勾选"
+        )
 
     if name == "list_files":
         folder = _resolve_path(db, user.id, str(args.get("path") or ""))
@@ -1294,6 +1366,66 @@ def _run_tool(
         quota = user.quota_bytes or 0
         percent = f"{used / quota * 100:.1f}%" if quota else "—"
         return f"已用 {_fmt_size(used)} / 总容量 {_fmt_size(quota)}（{percent}）"
+
+    # ---------------- 界面主题色（需用户勾选「修改界面主题色」） ----------------
+    if name == "set_theme_color":
+        row = ensure_settings(db, user.id)
+        reset = bool(args.get("reset"))
+        from_bg = bool(args.get("from_background"))
+        wanted = str(args.get("mode") or "").strip().lower()
+        if wanted in {"solid", "gradient"}:
+            mode = wanted
+        else:
+            # 没说模式时：按背景图取色走渐变（和设置页那个按钮一致），否则单色
+            mode = "gradient" if from_bg else "solid"
+
+        if reset:
+            mode = "solid"
+            colors = [theme_color.DEFAULT_ACCENT]
+        else:
+            colors: list[str] = []
+            if from_bg:
+                path = profile_service.background_path(row.background_image)
+                if path is None:
+                    raise ToolError(
+                        "你还没有自定义背景图，取不了色；可以先到 设置 → 外观 换一张，"
+                        "或者直接告诉我用哪个颜色（#rrggbb）"
+                    )
+                colors = theme_color.image_colors(path, 3 if mode == "gradient" else 1)
+                if not colors:
+                    raise ToolError("这张背景图里没挑出能用的颜色，直接给我一个色值吧")
+            if not colors:
+                raw = args.get("colors")
+                values = list(raw) if isinstance(raw, list) else []
+                single = args.get("color")
+                if single:
+                    values.insert(0, single)
+                colors = theme_color.clean_colors(values)
+            if not colors:
+                raise ToolError("要给出颜色（#rrggbb），或者说「从背景图取色」")
+            if mode == "gradient":
+                if len(colors) < 2:
+                    colors = [colors[0], theme_color.companion(colors[0])]
+                colors = colors[:5]
+            else:
+                colors = [colors[0]]
+
+        row.accent_color = colors[0]
+        row.accent_style = {"mode": mode, "colors": colors}
+        log_action(db, "ai_tool", user.id, {"tool": name, "mode": mode, "colors": colors})
+        db.commit()
+
+        settings_patch = {
+            "accentColor": colors[0],
+            "accentStyle": {"mode": mode, "colors": colors},
+        }
+        if reset:
+            text = f"已恢复默认主题色 {colors[0]}（界面已经生效）。"
+        elif mode == "gradient":
+            text = f"已把主题色改成渐变：{' → '.join(colors)}（界面已经生效，不满意可以让我再换）。"
+        else:
+            text = f"已把主题色改成 {colors[0]}（界面已经生效，不满意可以让我再换）。"
+        return ToolResult(text, settings=settings_patch)
 
     # ---------------- 写操作（需用户在设置里勾选同意） ----------------
     if name == "create_folder":
@@ -1438,12 +1570,22 @@ def _run_tool(
         )
         db.commit()
         names = "、".join(picked[:5]) + ("…" if len(picked) > 5 else "")
+        # 顺手把分享文案也拼好：用户可以直接复制这段粘到聊天窗口
+        site = settings_store.get_value(db, "site_name") or settings.APP_NAME
+        message = qs.render_copy(
+            qs.copy_template(db),
+            site=site,
+            file=qt.name,
+            code=qt.code,
+            link=f"{settings.public_base}/pickup?code={qt.code}",
+        )
         return (
             f"已生成取件码：{qt.code}\n"
             f"文件：{names}（共 {qt.count} 个）\n"
             f"有效期：{expires}；每个文件下载次数："
             f"{entries[0]['maxUses'] if entries and entries[0].get('maxUses') else '不限'}\n"
-            f"取件页：/pickup?code={qt.code}（拿到码的人都能下载，用完可以随时撤销）"
+            f"取件页：/pickup?code={qt.code}（拿到码的人都能下载，用完可以随时撤销）\n"
+            f"分享文案：\n{message}"
         )
 
     if name == "pickup_files":
@@ -1699,6 +1841,7 @@ def _stream_openai(
         "write": bool(cfg.get("writeFiles")),
         "move": bool(cfg.get("moveFiles")),
         "quick": bool(cfg.get("quickTransfer")),
+        "theme": bool(cfg.get("themeColor")),
         "vision": bool(cfg.get("vision")),
     }
     # 一轮对话里模型可能来回调几次工具，每次都是一次真实请求，用量要跨轮累加
@@ -1864,6 +2007,8 @@ def _stream_openai(
                     "status": "done",
                     "result": result.text[:400],
                     "images": len(result.images),
+                    # 改了界面偏好（主题色）时把新值带给前端，即时生效
+                    "settings": result.settings,
                     "write": touch,
                 },
             )
@@ -1936,6 +2081,7 @@ def _stream_anthropic(
         "write": bool(cfg.get("writeFiles")),
         "move": bool(cfg.get("moveFiles")),
         "quick": bool(cfg.get("quickTransfer")),
+        "theme": bool(cfg.get("themeColor")),
         "vision": bool(cfg.get("vision")),
     }
     # 与 OpenAI 分支一样按轮累加：每次工具往返都是独立计费的一次请求
@@ -2098,6 +2244,8 @@ def _stream_anthropic(
                     "status": "done",
                     "result": result.text[:400],
                     "images": len(result.images),
+                    # 改了界面偏好（主题色）时把新值带给前端，即时生效
+                    "settings": result.settings,
                     "write": touch,
                 },
             )

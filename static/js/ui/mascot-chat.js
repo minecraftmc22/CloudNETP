@@ -11,6 +11,7 @@
 
 import { api, escapeHtml } from "../api.js";
 import { H, getLang, t } from "../i18n.js";
+import { patchSettingsLocal } from "../theme.js";
 import { renderMarkdown } from "./markdown.js";
 import { Toast } from "./toast.js";
 
@@ -1054,6 +1055,22 @@ function toolEntry(container, data) {
   return node;
 }
 
+/**
+ * 工具改了界面偏好（目前只有主题色）：写进本地 store 并立即套用外观，
+ * 再通知设置页把取色控件同步过去，免得两处显示的颜色不一致。
+ */
+function applyToolSettings(patch) {
+  if (!patch || typeof patch !== "object") return;
+  if (!patchSettingsLocal(patch)) return;
+  window.dispatchEvent(new CustomEvent("accent:change", { detail: patch }));
+  const colors = Array.isArray(patch.accentStyle?.colors) ? patch.accentStyle.colors : [];
+  if (colors.length > 1) {
+    Toast.success(t("主题色已换成 {n} 色渐变，不满意可以让我再调", { n: colors.length }));
+  } else if (colors[0]) {
+    Toast.success(t("主题色已换成 {color}，不满意可以让我再调", { color: colors[0] }));
+  }
+}
+
 /* ------------------------------------------------------------------ */
 /* 图片                                                               */
 /* ------------------------------------------------------------------ */
@@ -1243,6 +1260,8 @@ async function streamReply(item) {
       }
       if (event === "tool") {
         toolEntry(target.toolsBody, data);
+        // 工具顺手改了界面偏好（主题色）：立刻套上，别等刷新页面才变色
+        if (data.status === "done" && data.settings) applyToolSettings(data.settings);
         scrollFeed();
         return;
       }

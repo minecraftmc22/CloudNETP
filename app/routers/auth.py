@@ -146,6 +146,8 @@ def meta(db: Session = Depends(get_db)) -> dict:
 
     return {
         "appName": settings_store.get_value(db, "site_name"),
+        # 后台填了 SEO 标题就用它当浏览器标签页标题，跟服务端注入的 <title> 保持一致
+        "seoTitle": settings_store.get_value(db, "seo_title"),
         "version": settings.VERSION,
         "allowRegister": settings_store.get_flag(db, "allow_register"),
         "announcement": settings_store.get_value(db, "site_announcement"),

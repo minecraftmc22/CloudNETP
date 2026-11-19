@@ -648,6 +648,71 @@
   color: var(--text-3);
   line-height: 1.7;
 }
+
+/* 分享文案模板：等宽字体，换行与占位符看得清 */
+.admin-template textarea {
+  min-height: 88px;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: 12.5px;
+  line-height: 1.7;
+}
+
+/* SEO：搜索结果预览（照着搜索引擎那一条结果做的） */
+.seo-preview {
+  margin: 0 18px 14px;
+  padding: 12px 14px;
+  border-radius: var(--radius-m);
+  border: 1px solid var(--stroke-hair);
+  background: var(--fill-subtle);
+}
+.seo-preview__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.seo-preview__label {
+  font-size: 11px;
+  color: var(--text-3);
+  letter-spacing: 0.04em;
+}
+.seo-preview__tag {
+  padding: 1px 7px;
+  border-radius: var(--radius-pill);
+  font-size: 10.5px;
+  color: var(--text-2);
+  background: var(--layer-3);
+  border: 1px solid var(--stroke);
+}
+.seo-preview__tag[hidden] {
+  display: none;
+}
+.seo-preview__url {
+  font-size: 11.5px;
+  color: var(--text-3);
+  word-break: break-all;
+}
+.seo-preview__title {
+  margin: 3px 0 4px;
+  font-size: 15px;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--accent) 72%, var(--text-1));
+  line-height: 1.4;
+  word-break: break-word;
+}
+.seo-preview__desc {
+  font-size: 12px;
+  color: var(--text-2);
+  line-height: 1.65;
+  word-break: break-word;
+}
+
+@media (max-width: 640px) {
+  .seo-preview {
+    margin-left: var(--sp-3);
+    margin-right: var(--sp-3);
+  }
+}
 .admin-json {
   margin: 10px 0 0;
   padding: 12px;

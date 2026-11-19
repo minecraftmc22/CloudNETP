@@ -77,7 +77,8 @@ export function renderFiles(root) {
       <div class="searchbox">
         <span class="textbox">
           <svg class="icon"><use href="#i-search"/></svg>
-          <input type="search" placeholder="搜索全部文件…" data-search autocomplete="off">
+          <input type="search" placeholder="搜索全部文件…" data-search autocomplete="off"
+                 title="支持多个关键词，用空格分开；不用记得全名">
         </span>
       </div>
       <div class="toolbar__spacer"></div>

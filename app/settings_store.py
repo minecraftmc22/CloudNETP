@@ -7,6 +7,11 @@ from sqlalchemy.orm import Session
 from .config import settings
 from .models import SystemSetting
 
+# 生成取件码后自动复制的分享文案。占位符：{site} 站点名、{file} 文件名（多文件是「N 个项目」）、
+# {code} 取件码、{link} 取件页完整地址；管理员可以整段替换。
+QUICK_COPY_TEMPLATE_DEFAULT = """我在"{site}"分享了 '{file}' 了喵~
+{code} <-复制取件码到{site}或点击链接 {link} 来取件吧喵awa!"""
+
 DEFAULTS: dict[str, str] = {
     "allow_register": "1" if settings.ALLOW_REGISTER else "0",
     "site_name": settings.APP_NAME,
@@ -31,6 +36,17 @@ DEFAULTS: dict[str, str] = {
     "quick_max_uses": "0",
     # 过期 / 撤销后，物理文件再保留多少天；清理任务按这个时间回收
     "quick_retention_days": "7",
+    # 取件码生成后把分享文案写进剪贴板（默认开）与那段文案本身
+    "quick_auto_copy": "1",
+    "quick_copy_template": QUICK_COPY_TEMPLATE_DEFAULT,
+    # SEO：标题 / 描述 / 关键词 / 分享图 / canonical 基址，以及是否允许搜索引擎收录
+    # 默认不收录：个人网盘不该被搜索引擎意外抓进索引，管理员自己去后台打开
+    "seo_index": "0",
+    "seo_title": "",
+    "seo_description": "",
+    "seo_keywords": "",
+    "seo_image": "",
+    "seo_base_url": "",
 }
 
 

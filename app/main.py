@@ -6,13 +6,22 @@ import logging
 import time
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
 from fastapi.openapi.docs import get_swagger_ui_html
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import (
+    FileResponse,
+    HTMLResponse,
+    JSONResponse,
+    PlainTextResponse,
+    RedirectResponse,
+)
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy.orm import Session
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from . import seo
 from .config import STATIC_DIR, settings
+from .db import get_db
 from .deps import require_admin
 from .models import User
 from . import db_failover
@@ -176,8 +185,43 @@ def version() -> dict:
 
 
 @app.get("/", include_in_schema=False)
-def index() -> FileResponse:
+def index(db: Session = Depends(get_db)) -> Response:
+    """首页：返回前把 SEO 元信息（title / description / og:* / canonical）写进 <head>。
+
+    爬虫和 IM 的链接预览不跑 JS，这些标签只能在服务端拼好。
+    读设置失败（比如主库抖了一下）就退回原样的静态页，首页不能因为 SEO 挂掉。
+    """
+    try:
+        html = seo.render_index(db)
+    except Exception:  # pragma: no cover - 兜底，正常不会走到
+        logger.exception("注入 SEO 元信息失败，回退静态首页")
+        html = ""
+    if html:
+        return HTMLResponse(html, headers={"Cache-Control": "no-cache"})
     return FileResponse(STATIC_DIR / "index.html", headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/robots.txt", include_in_schema=False)
+def robots_txt(db: Session = Depends(get_db)) -> PlainTextResponse:
+    """不收录时整站 Disallow；收录时挡掉接口、分享页、取件页这些不该被抓的路径。"""
+    try:
+        text = seo.robots_txt(db)
+    except Exception:  # pragma: no cover - 读不到设置时按最保守的策略来
+        text = "User-agent: *\nDisallow: /\n"
+    return PlainTextResponse(text, headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/sitemap.xml", include_in_schema=False)
+def sitemap(db: Session = Depends(get_db)) -> Response:
+    """只在「允许收录 + 填了公开地址」时给出；否则 404，避免出现指向 localhost 的站点地图。"""
+    xml = seo.sitemap_xml(db)
+    if not xml:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "站点地图未启用")
+    return Response(
+        content=xml,
+        media_type="application/xml",
+        headers={"Cache-Control": "no-cache"},
+    )
 
 
 @app.get("/favicon.ico", include_in_schema=False)

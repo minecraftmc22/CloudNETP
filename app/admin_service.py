@@ -14,6 +14,8 @@ from sqlalchemy.orm import Session
 
 from . import audit, db_failover, node_service as ns, storage
 from .config import settings
+from .fuzzy import matches as fuzzy_matches
+from .fuzzy import split_tokens as fuzzy_tokens
 from .models import (
     AuditLog,
     Blob,
@@ -183,10 +185,23 @@ def list_users(
     text = (query or "").strip()
     conds = []
     if text:
+        # 模糊搜索：多个词分别命中登录名 / 昵称 / 邮箱，词越多越窄；
+        # 纯数字再额外把用户 ID 精确命中一次（搜 12 应该能找到 12 号，而不是只有名字里带 12 的）
+        words = fuzzy_tokens(text) or [text.lower()]
+        name_conds = []
+        for word in words:
+            like = f"%{word}%"
+            name_conds.append(
+                or_(
+                    func.lower(User.username).like(like),
+                    func.lower(func.coalesce(User.display_name, "")).like(like),
+                    func.lower(func.coalesce(User.email, "")).like(like),
+                )
+            )
         if text.isdigit():
-            conds.append(or_(User.username.like(f"%{text}%"), User.id == int(text)))
+            conds.append(or_(User.id == int(text), *name_conds))
         else:
-            conds.append(User.username.like(f"%{text}%"))
+            conds.extend(name_conds)
     if state == "banned":
         conds.append(User.banned.is_(True))
     elif state == "admin":
@@ -329,6 +344,9 @@ def settings_payload(db: Session) -> dict:
         except (TypeError, ValueError):
             return 0
 
+    def flag(key: str) -> bool:
+        return str(values.get(key, "0")).strip() in {"1", "true", "yes", "on"}
+
     return {
         "siteName": values.get("site_name", settings.APP_NAME),
         "siteAnnouncement": values.get("site_announcement", ""),
@@ -349,6 +367,16 @@ def settings_payload(db: Session) -> dict:
         "quickMaxDays": num("quick_max_days"),
         "quickMaxUses": num("quick_max_uses"),
         "quickRetentionDays": num("quick_retention_days"),
+        # 取件码分享文案：生成后自动复制 + 模板本身
+        "quickAutoCopy": flag("quick_auto_copy"),
+        "quickCopyTemplate": values.get("quick_copy_template", ""),
+        # SEO：收录开关与站点元信息
+        "seoIndex": flag("seo_index"),
+        "seoTitle": values.get("seo_title", ""),
+        "seoDescription": values.get("seo_description", ""),
+        "seoKeywords": values.get("seo_keywords", ""),
+        "seoImage": values.get("seo_image", ""),
+        "seoBaseUrl": values.get("seo_base_url", ""),
         "runtime": {
             "version": settings.VERSION,
             "database": "mysql" if settings.DATABASE_URL.startswith("mysql") else "sqlite",
@@ -433,10 +461,27 @@ def list_logs(
         conds.append(AuditLog.user_id == user_id)
     text = (query or "").strip()
     if text:
-        like = f"%{text}%"
-        conds.append(
-            or_(AuditLog.detail.like(like), AuditLog.action.like(like), User.username.like(like))
-        )
+        # 模糊搜索：详情 / action 原始名 / 用户名各来一支，每个词都要命中一支；
+        # 中文动作名（「拒绝快传」）在库里存的是 action 键，所以每个词还要把这支一起 OR 进来
+        # —— 注意是「或」不是「且」，否则中文名永远不会命中
+        words = fuzzy_tokens(text) or [text.lower()]
+        raw_words = [part.strip().lower() for part in text.split() if part.strip()]
+        # action 列里存的是 quick_send_reject 这种带下划线的键，
+        # 而分词会先把下划线吃掉，所以这一支要比归一化后的名字
+        action_norm = func.replace(func.lower(AuditLog.action), "_", "")
+        for index, word in enumerate(words):
+            raw = raw_words[index] if index < len(raw_words) else text.lower()
+            like = f"%{raw}%"
+            branch = or_(
+                func.lower(func.coalesce(AuditLog.detail, "")).like(like),
+                action_norm.like(f"%{word}%"),
+                func.lower(func.coalesce(User.username, "")).like(like),
+            )
+            label_hits = [key for key, meta in audit.ACTIONS.items()
+                          if fuzzy_matches(meta.get("label", ""), word)]
+            if label_hits:
+                branch = or_(branch, AuditLog.action.in_(label_hits))
+            conds.append(branch)
 
     joined = select(AuditLog.id).outerjoin(User, User.id == AuditLog.user_id).where(*conds)
     total = int(db.scalar(select(func.count()).select_from(joined.subquery())) or 0)

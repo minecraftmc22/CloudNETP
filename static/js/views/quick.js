@@ -15,13 +15,37 @@ import { pickFolder } from "../ui/picker.js";
 import { pickNodes } from "../ui/file-browser.js";
 import { openSendBrowser } from "../ui/send-browser.js";
 import { copyText } from "../ui/share.js";
-import { siteOrigin } from "../store.js";
+import { siteOrigin, store } from "../store.js";
 import { uploadFile } from "../uploader.js";
 
 const DROP_MINUTES = [10, 30, 60, 120];
 const PICKUP_USE_CHOICES = [null, 1, 5, 10];
 /** 与后端 quick_service.MAX_ITEMS 一致：一条取件码最多列这么多文件 */
 const MAX_ITEMS = 100;
+
+/**
+ * 填管理后台那套分享文案模板：{site} {file} {code} {link}（大小写不敏感）。
+ * 认不出的占位符原样留着，方便管理员自己发现拼错了。
+ */
+function fillCopyTemplate(template, vars) {
+  return String(template || "").replace(/\{(site|file|code|link)\}/gi, (raw, key) => {
+    const value = vars[key.toLowerCase()];
+    return value === undefined || value === null ? raw : value;
+  });
+}
+
+/** 一条取件码的分享文案——自动复制进剪贴板的就是这句话。 */
+function pickupMessage(pickup, limits) {
+  const url = `${siteOrigin()}${pickup.url || `/pickup?code=${pickup.code}`}`;
+  const template = limits?.copyTemplate;
+  if (!template) return `${pickup.code} ${url}`;
+  return fillCopyTemplate(template, {
+    site: store.get().meta?.appName || "CloudNETP",
+    file: pickup.name || "",
+    code: pickup.code || "",
+    link: url,
+  });
+}
 
 const TABS = [
   { key: "drop", label: "扫码直传", icon: "i-upload", desc: "手机扫码登录后，把相册里的东西直接传进指定目录" },
@@ -1171,7 +1195,12 @@ export function renderQuick(root) {
         paintPickup();
         playIn(panelEl.querySelectorAll(".quick-share"), { typed: "quick-pop" });
         playIn([panelEl.querySelector(".quick-list > .quick-row")], { typed: "quick-pop" });
-        Toast.success(t("取件码已生成"));
+        // 生成后把分享文案送进剪贴板，直接粘到聊天窗口就能发（管理员可以关掉）
+        const copied =
+          state.limits.autoCopy === false
+            ? false
+            : await copyText(pickupMessage(data.pickup, state.limits));
+        Toast.success(copied ? t("取件码已生成，分享文案已复制") : t("取件码已生成"));
       } catch (err) {
         Toast.error(err.message);
       }
@@ -1288,6 +1317,7 @@ export function renderQuick(root) {
             <div class="quick-link">
               <input readonly value="${escapeHtml(url)}" data-url>
               <button class="btn btn--subtle" type="button" data-act="copy-url">${t("复制链接")}</button>
+              <button class="btn btn--subtle" type="button" data-act="copy-msg">${t("复制分享文案")}</button>
             </div>
             <div class="quick-hint">${t("对方也可以直接打开 {url} 输入取件码。", { url: "/pickup" })}</div>
           </div>
@@ -1296,6 +1326,10 @@ export function renderQuick(root) {
       lastBox.querySelector("[data-act='copy-url']").addEventListener("click", async () => {
         const ok = await copyText(url);
         ok ? Toast.success(t("取件链接已复制")) : Toast.error(t("复制失败，请手动选中"));
+      });
+      lastBox.querySelector("[data-act='copy-msg']").addEventListener("click", async () => {
+        const ok = await copyText(pickupMessage(state.lastPickup, state.limits));
+        ok ? Toast.success(t("分享文案已复制")) : Toast.error(t("复制失败，请手动选中"));
       });
     }
 

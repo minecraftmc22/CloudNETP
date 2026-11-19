@@ -118,7 +118,7 @@ function configMarkup() {
         <span class="textbox">
           <svg class="icon icon--s"><use href="#i-key"/></svg>
           <input type="password" data-ai-key autocomplete="off" spellcheck="false"
-                 placeholder="${cfg.hasKey ? `已保存 ${escapeHtml(cfg.keyMask)}，留空表示不改` : "sk-…"}">
+                 placeholder="${cfg.hasKey ? escapeHtml(t("已保存 {key}，留空表示不改", { key: cfg.keyMask })) : "sk-…"}">
         </span>
       </label>
       <div class="ai-actions">
@@ -313,6 +313,16 @@ function configMarkup() {
           <span class="ai-line__text">
             <b>快传取件码</b>
             <small>让 CDP娘 按你的确认生成取件码，或用取件码把文件转存进网盘 / 给出下载链接；开了它，对话里会先问你「是不是这个文件」</small>
+          </span>
+        </label>
+        <label class="ai-line">
+          <span class="switch">
+            <input type="checkbox" data-ai-flag="themeColor" ${cfg.themeColor ? "checked" : ""}>
+            <span class="switch__track"><span class="switch__knob"></span></span>
+          </span>
+          <span class="ai-line__text">
+            <b>修改界面主题色</b>
+            <small>按你的要求换主题色：单色指定色值，渐变给 2–5 个颜色；说「按背景图取色」就从当前自定义背景图里采样。只改你自己的界面配色，不动任何文件</small>
           </span>
         </label>
       </div>
@@ -706,7 +716,7 @@ async function save(patch, { quiet = false } = {}) {
       state.keyDirty = false;
       const input = document.querySelector("[data-ai-key]");
       if (input && state.cfg?.hasKey) {
-        input.placeholder = `已保存 ${state.cfg.keyMask}，留空表示不改`;
+        input.placeholder = t("已保存 {key}，留空表示不改", { key: state.cfg.keyMask });
       }
       const clear = document.querySelector("[data-ai-clear]");
       if (clear) clear.hidden = !state.cfg?.hasKey;

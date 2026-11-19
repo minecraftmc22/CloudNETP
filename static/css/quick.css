@@ -352,10 +352,16 @@
   gap: 6px;
   align-items: center;
   margin-top: 10px;
+  /* 取件码卡片里有「复制链接 / 复制分享文案」两个按钮，窄屏换行而不是把输入框挤没 */
+  flex-wrap: wrap;
+}
+
+.quick-link .btn {
+  white-space: nowrap;
 }
 
 .quick-link input {
-  flex: 1;
+  flex: 1 1 150px;
   min-width: 0;
   height: 34px;
   padding: 0 10px;
@@ -365,6 +371,13 @@
   color: var(--text-2);
   font: inherit;
   font-size: 12.5px;
+}
+
+/* 手机窄屏：输入框独占一行，两个复制按钮并排到下一行 */
+@media (max-width: 480px) {
+  .quick-link input {
+    flex: 1 1 100%;
+  }
 }
 
 /* ------------------------------------------------------------------ */

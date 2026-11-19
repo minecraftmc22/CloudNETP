@@ -17,6 +17,10 @@ from sqlalchemy.orm import Session
 
 from .models import Blob, Node, QuickTransfer, User, utcnow
 from .storage import blob_exists, delete_blob
+from .fuzzy import matches as fuzzy_match
+from .fuzzy import normalize as fuzzy_normalize
+from .fuzzy import rank as fuzzy_rank
+from .fuzzy import split_tokens as fuzzy_tokens
 
 MAX_DEPTH = 64  # 目录层级保护，同时防止异常数据造成死循环
 
@@ -314,22 +318,54 @@ def child_counts(db: Session, user_id: int, folder_ids: Iterable[int]) -> dict[i
     return {int(pid): int(count) for pid, count in rows if pid is not None}
 
 
+def _norm_name_column():
+    """把 name 变成「小写 + 去掉分隔符」的 SQL 表达式。
+
+    跟 fuzzy.normalize 的口径保持一致，这样「年度报告」能匹配「2024-年度_报告.pdf」。
+    SQLite 与 MySQL 都有 replace()，不用为此分家。
+    """
+    col = func.lower(Node.name)
+    for ch in (" ", "-", "_", ".", "·", "・"):
+        col = func.replace(col, ch, "")
+    return col
+
+
+# 子序列兜底时最多扫这么多行：个人网盘够用，也挡住超大库把搜索拖死
+FUZZY_SCAN_LIMIT = 3000
+
+
 def search(db: Session, user_id: int, keyword: str, limit: int = 200, *, is_admin: bool = False) -> list[dict]:
     text = (keyword or "").strip()
-    if not text:
+    tokens = fuzzy_tokens(text)
+    if not tokens:
         return []
-    pattern = f"%{text.lower()}%"
+
+    base = [
+        Node.user_id == user_id,
+        Node.deleted_at.is_(None),
+        Node.quick_owned.is_(False),
+    ]
+    norm_name = _norm_name_column()
+    # 每个词都要命中（AND），词之间用归一化后的名字做 LIKE
+    conds = base + [norm_name.like(f"%{word}%") for word in tokens]
     rows = db.scalars(
         select(Node)
-        .where(
-            Node.user_id == user_id,
-            Node.deleted_at.is_(None),
-            Node.quick_owned.is_(False),
-            func.lower(Node.name).like(pattern),
-        )
+        .where(*conds)
         .order_by(Node.type.desc(), Node.updated_at.desc())
-        .limit(limit)
+        .limit(limit * 2)
     ).all()
+
+    # 一个都没命中时补一次「子序列」兜底：把整库名字扫一遍，让 rpt 也能找到 report.txt
+    if not rows and len(fuzzy_normalize(text)) <= 10:
+        candidates = db.scalars(
+            select(Node)
+            .where(*base)
+            .order_by(Node.updated_at.desc())
+            .limit(FUZZY_SCAN_LIMIT)
+        ).all()
+        rows = [node for node in candidates if fuzzy_match(node.name, text)]
+
+    rows = fuzzy_rank(rows, text, key=lambda node: node.name)[:limit]
 
     # 补上面包屑，搜索结果也能看出文件在哪
     paths: dict[int, str] = {}

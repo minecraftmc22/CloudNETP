@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import json
+import re
 import secrets
 import time
 from collections import defaultdict, deque
@@ -33,7 +34,7 @@ from .models import (
     UserSetting,
     utcnow,
 )
-from .settings_store import get_int, get_value
+from .settings_store import QUICK_COPY_TEMPLATE_DEFAULT, get_flag, get_int, get_value
 from .share_service import CODE_ALPHABET, is_blocked
 
 DROP_MINUTES = (10, 30, 60, 120)
@@ -819,7 +820,30 @@ def limits(db: Session) -> dict:
         "maxDays": max(1, min(365, max_days)),
         "maxUses": max(0, min(10000, max_uses)),
         "retentionDays": max(0, min(365, retention)),
+        # 生成后自动复制分享文案 + 文案模板（占位符 {site} {file} {code} {link}）
+        "autoCopy": get_flag(db, "quick_auto_copy"),
+        "copyTemplate": copy_template(db),
     }
+
+
+def copy_template(db: Session) -> str:
+    """管理员改过的分享文案；清空就回落到默认那段。"""
+    text = get_value(db, "quick_copy_template")
+    return text if text.strip() else QUICK_COPY_TEMPLATE_DEFAULT
+
+
+def render_copy(template: str, *, site: str, file: str, code: str, link: str) -> str:
+    """把 {site} {file} {code} {link} 换掉；占位符大小写不敏感（{File} 也认）。"""
+    values = {"site": site, "file": file, "code": code, "link": link}
+    out = template
+    for key, value in values.items():
+        out = re.sub(
+            r"\{" + key + r"\}",
+            lambda _match, text=value: text,
+            out,
+            flags=re.IGNORECASE,
+        )
+    return out
 
 
 def clamp_days(db: Session, days: int | None) -> int:

@@ -23,6 +23,7 @@ import {
 import { getMascotScale, isMascotWheelZoom, setMascotScale, setMascotWheelZoom } from "../ui/live2d.js";
 import { isMascotLocked, setMascotLocked } from "../ui/mascot-actions.js";
 import { mountAiSettings } from "../ui/ai-config.js";
+import { fuzzyScore, highlight, splitTokens } from "../ui/fuzzy.js";
 import { pickFolder } from "../ui/picker.js";
 
 const THEME_MODES = [
@@ -207,6 +208,21 @@ export function renderSettings(root) {
               <svg class="icon icon--s"><use href="#i-user"/></svg>账号
             </button>
           </div>
+        </div>
+
+        <div class="settings-search" data-settings-search-wrap>
+          <div class="searchbox">
+            <span class="textbox">
+              <svg class="icon icon--s"><use href="#i-search"/></svg>
+              <input type="search" data-settings-search placeholder="搜索设置项…" autocomplete="off"
+                     aria-label="搜索设置项">
+            </span>
+          </div>
+          <button class="settings-search__clear icon-btn" type="button" data-settings-clear hidden
+                  title="清空搜索">
+            <svg class="icon"><use href="#i-close"/></svg>
+          </button>
+          <div class="settings-hits" data-settings-hits hidden></div>
         </div>
 
         <div class="settings-pane" data-settings-pane="appearance">
@@ -952,6 +968,20 @@ export function renderSettings(root) {
     saveAccent("gradient", editColors);
   }
 
+  // 看板娘对话里改了主题色（值已经落库）：把这块控件同步过去，别两处显示不一样
+  window.addEventListener(
+    "accent:change",
+    () => {
+      const live = accentStyleOf(store.get().user?.settings || {});
+      const first = live.colors[0] || currentAccent();
+      editColors = live.mode === "gradient" ? [...live.colors] : [first, accentCompanion(first)];
+      paintMode(live.mode);
+      paintStops();
+      markAccent(first);
+    },
+    keep
+  );
+
   modeBtns.forEach((btn) => {
     btn.addEventListener("click", () => {
       const mode = btn.dataset.accentModeBtn;
@@ -1427,8 +1457,12 @@ export function renderSettings(root) {
   const quickResetBtn = root.querySelector('[data-act="quick-folder-reset"]');
 
   function paintQuickPath(path) {
-    const parts = (path?.path || []).map((part) => part.name);
-    if (quickPathEl) quickPathEl.textContent = parts.length ? parts.join(" / ") : "我的文件 / 快传的文件";
+    // 默认位置的两段（我的文件 / 快传的文件）是系统给的目录名，要跟着界面语言走；
+    // 用户自建目录翻译不到就原样返回（t 的兜底行为）
+    const parts = (path?.path || []).map((part) => t(part.name));
+    if (quickPathEl) {
+      quickPathEl.textContent = parts.length ? parts.join(" / ") : t("我的文件 / 快传的文件");
+    }
     if (quickResetBtn) quickResetBtn.toggleAttribute("hidden", path ? path.isDefault !== false : true);
   }
 
@@ -1789,6 +1823,144 @@ export function renderSettings(root) {
   tabBtns.forEach((btn) => {
     btn.addEventListener("click", () => showPane(btn.dataset.settingsTab));
   });
+
+  /* --- 设置项搜索：跨所有页签模糊匹配，点结果直接跳过去 ---
+     索引不预先建：AI 配置那块是异步挂进来的，每次输入时现扫 DOM 才扫得到 */
+  const searchWrap = root.querySelector("[data-settings-search-wrap]");
+  const searchInput = root.querySelector("[data-settings-search]");
+  const searchClear = root.querySelector("[data-settings-clear]");
+  const hitsEl = root.querySelector("[data-settings-hits]");
+  let hitEntries = [];
+  let hitActive = -1;
+
+  function collectSettings(boxes) {
+    const out = [];
+    boxes.forEach((pane) => {
+      const key = pane.dataset.settingsPane;
+      const tabName = (tabBtns.find((b) => b.dataset.settingsTab === key)?.textContent || key).trim();
+      pane.querySelectorAll(".setting-row").forEach((row) => {
+        const card = (row.closest(".settings-card")?.querySelector(".settings-card__head")?.textContent || "").trim();
+        const label = (row.querySelector(".setting-row__label")?.textContent || "").trim().replace(/\s+/g, " ");
+        const desc = (row.querySelector(".setting-row__desc")?.textContent || "").trim().replace(/\s+/g, " ");
+        // 整行就是控件、没有 label 的，用说明开头当标题
+        const title = label || desc.split(/[，。；;]/)[0].slice(0, 26);
+        if (!title) return;
+        out.push({ key, tabName, card, title, desc, hay: `${card} ${title} ${desc}`, row });
+      });
+    });
+    return out;
+  }
+
+  function hideHits() {
+    if (hitsEl) {
+      hitsEl.hidden = true;
+      hitsEl.innerHTML = "";
+    }
+    hitActive = -1;
+  }
+
+  function markActive(next) {
+    if (!hitsEl || !hitEntries.length) return;
+    hitActive = (next + hitEntries.length) % hitEntries.length;
+    [...hitsEl.querySelectorAll("[data-hit]")].forEach((el, index) => {
+      el.classList.toggle("is-active", index === hitActive);
+    });
+    hitsEl.querySelector(`[data-hit="${hitActive}"]`)?.scrollIntoView({ block: "nearest" });
+  }
+
+  function gotoSetting(entry) {
+    if (!entry) return;
+    if (searchInput) searchInput.value = "";
+    if (searchClear) searchClear.hidden = true;
+    hideHits();
+    showPane(entry.key);
+    // 页签刚从 hidden 变可见，滚动要等一帧，不然量到的位置还是 0
+    window.requestAnimationFrame(() => {
+      entry.row.scrollIntoView({ block: "center", behavior: "smooth" });
+      entry.row.classList.add("is-hit");
+      window.setTimeout(() => entry.row.classList.remove("is-hit"), 2400);
+    });
+  }
+
+  function renderHits() {
+    if (!hitsEl || !searchInput) return;
+    const keyword = searchInput.value.trim();
+    if (searchClear) searchClear.hidden = !keyword;
+    if (!keyword) {
+      hideHits();
+      return;
+    }
+    const tokens = splitTokens(keyword);
+    hitEntries = collectSettings(panes)
+      .map((entry, index) => ({ ...entry, got: fuzzyScore(entry.hay, keyword, tokens), index }))
+      .filter((entry) => entry.got > 0)
+      .sort((a, b) => b.got - a.got || a.index - b.index)
+      .slice(0, 20);
+
+    if (!hitEntries.length) {
+      hitsEl.innerHTML = H`<div class="settings-hits__empty">${t("没有匹配的设置项，换个词试试")}</div>`;
+      hitsEl.hidden = false;
+      hitActive = -1;
+      return;
+    }
+    hitsEl.innerHTML = hitEntries
+      .map(
+        (entry, index) => H`
+        <button class="settings-hit ${index === 0 ? "is-active" : ""}" type="button" data-hit="${index}">
+          <span class="settings-hit__label">${highlight(entry.title, keyword)}</span>
+          <span class="settings-hit__where">${escapeHtml(entry.tabName)}${entry.card ? ` › ${escapeHtml(entry.card)}` : ""}</span>
+        </button>`
+      )
+      .join("");
+    hitsEl.hidden = false;
+    hitActive = 0;
+  }
+
+  searchInput?.addEventListener("input", () => {
+    window.requestAnimationFrame(renderHits);
+  });
+  searchInput?.addEventListener("focus", () => {
+    if (searchInput.value.trim()) renderHits();
+  });
+  searchInput?.addEventListener("keydown", (event) => {
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      if (hitsEl?.hidden) return;
+      event.preventDefault();
+      markActive(hitActive + (event.key === "ArrowDown" ? 1 : -1));
+    } else if (event.key === "Enter") {
+      if (hitsEl?.hidden) return;
+      event.preventDefault();
+      gotoSetting(hitEntries[hitActive]);
+    } else if (event.key === "Escape") {
+      searchInput.value = "";
+      if (searchClear) searchClear.hidden = true;
+      hideHits();
+      searchInput.blur();
+    }
+  });
+  searchClear?.addEventListener("click", () => {
+    if (searchInput) {
+      searchInput.value = "";
+      searchInput.focus();
+    }
+    searchClear.hidden = true;
+    hideHits();
+  });
+  hitsEl?.addEventListener("click", (event) => {
+    const btn = event.target.closest("[data-hit]");
+    if (!btn) return;
+    gotoSetting(hitEntries[Number(btn.dataset.hit)]);
+  });
+  // 点别处收起结果；点搜索框本身不收起（用 composedPath，弹层里点也能正确判断）
+  document.addEventListener(
+    "click",
+    (event) => {
+      if (view.signal.aborted) return;
+      if (!searchWrap || event.composedPath().includes(searchWrap)) return;
+      if (searchInput?.value.trim()) hideHits();
+    },
+    keep
+  );
 
   // 首帧别让滑块从「0 宽、贴在左上角」滑出来：先关掉过渡排一次，下一帧恢复
   if (tabThumb) tabThumb.style.transition = "none";

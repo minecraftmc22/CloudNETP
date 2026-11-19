@@ -652,7 +652,10 @@ export function renderAdmin(root) {
     // 用户可能在请求返回前就切走了，别把新标签页覆盖掉
     if (state.tab !== "overview") return;
     const { users: u, nodes: n, shares: s, storage: st, system } = data;
-    const quotaPct = percent(u.usedBytes, u.quotaBytes || 1);
+    // 配额是「每人一份」，全站已用除以单人上限没有意义（多账号时会超 100%）。
+    // 真正的水位看已用最多的那个账号：topUsers 按 usedBytes 倒序，取第一条即可。
+    const topUser = data.topUsers?.[0] || null;
+    const quotaPct = topUser ? percent(topUser.usedBytes, topUser.quotaBytes || 1) : 0;
     const diskPct = percent(st.diskUsed, st.diskTotal || 1);
     setSub(`${system.appName} v${system.version} · ${dbLabel(system.database, system.dbMode)}`);
 
@@ -679,7 +682,7 @@ export function renderAdmin(root) {
           "i-cloud",
           t("逻辑占用"),
           formatBytes(u.usedBytes),
-          t("配额合计 {total} · 占比 {pct}%", { total: formatBytes(u.quotaBytes), pct: quotaPct })
+          t("全站合计 · 单账号配额上限 {quota}", { quota: formatBytes(u.quotaBytes) })
         )}
         ${statCard(
           "i-database",
@@ -696,8 +699,10 @@ export function renderAdmin(root) {
         <div class="settings-card__head"><svg class="icon icon--s"><use href="#i-cloud"/></svg>存储</div>
         <div class="admin-card__pad">
           <div class="row" style="justify-content:space-between">
-            <span class="muted">${t("用户逻辑占用 {used} / {quota}", { used: formatBytes(u.usedBytes), quota: formatBytes(u.quotaBytes) })}</span>
-            <span class="muted">${quotaPct}%</span>
+            <span class="muted">${t("全站已用 {used} · 单账号上限 {quota}", { used: formatBytes(u.usedBytes), quota: formatBytes(u.quotaBytes) })}</span>
+            <span class="muted" ${
+              topUser ? `title="${escapeHtml(t("最满账号：{name}", { name: topUser.username }))}"` : ""
+            }>${topUser ? t("最满账号 {pct}%", { pct: quotaPct }) : ""}</span>
           </div>
           <div class="progress" style="margin:8px 0 4px;height:6px">
             <div class="progress__bar" style="width:${quotaPct}%"></div>
@@ -2187,6 +2192,62 @@ export function renderAdmin(root) {
         </div>
       </section>
 
+      <section class="settings-card" data-card="seo">
+        <div class="settings-card__head"><svg class="icon icon--s"><use href="#i-search"/></svg>搜索引擎优化（SEO）</div>
+        <div class="setting-row">
+          <div class="setting-row__main">
+            <div class="setting-row__label">允许搜索引擎收录</div>
+            <div class="setting-row__desc">关闭时首页输出 noindex，robots.txt 整站禁止抓取；分享页与取件页任何时候都不会被收录</div>
+          </div>
+          <label class="switch">
+            <input type="checkbox" data-key="seoIndex" ${settings.seoIndex ? "checked" : ""}>
+            <span class="switch__track"><span class="switch__knob"></span></span>
+          </label>
+        </div>
+        <div class="admin-form-grid">
+          <label class="field">
+            <span class="field__label">SEO 标题</span>
+            <span class="textbox"><input data-key="seoTitle" maxlength="120" placeholder="${t("留空用「站点名称 · 樱色云盘」")}" value="${escapeHtml(settings.seoTitle || "")}"></span>
+          </label>
+          <label class="field">
+            <span class="field__label">关键词</span>
+            <span class="textbox"><input data-key="seoKeywords" maxlength="200" placeholder="${t("网盘, 私有云, 文件分享")}" value="${escapeHtml(settings.seoKeywords || "")}"></span>
+          </label>
+          <label class="field field--wide">
+            <span class="field__label">站点描述</span>
+            <div class="textarea">
+              <textarea data-key="seoDescription" rows="3" maxlength="300"
+                        placeholder="${t("搜索结果里标题下面那两行，建议 80 字以内")}">${escapeHtml(settings.seoDescription || "")}</textarea>
+            </div>
+          </label>
+          <label class="field">
+            <span class="field__label">分享图地址</span>
+            <span class="textbox"><input data-key="seoImage" maxlength="500" placeholder="https://…/cover.png" value="${escapeHtml(settings.seoImage || "")}"></span>
+          </label>
+          <label class="field">
+            <span class="field__label">公开地址</span>
+            <span class="textbox"><input data-key="seoBaseUrl" maxlength="200" placeholder="https://pan.example.com" value="${escapeHtml(settings.seoBaseUrl || "")}"></span>
+          </label>
+        </div>
+        <div class="admin-hint">
+          ${t("分享图建议 1200×630，用作微信 / Telegram 等链接预览的封面。公开地址用于 canonical 与站点地图，留空则按访问域名推断（反向代理后可能不准）。")}
+        </div>
+        <div class="seo-preview">
+          <div class="seo-preview__head">
+            <span class="seo-preview__label">${t("搜索结果预览")}</span>
+            <span class="seo-preview__tag" data-seo-tag hidden>${t("不收录")}</span>
+          </div>
+          <div class="seo-preview__url" data-seo-url></div>
+          <div class="seo-preview__title" data-seo-title></div>
+          <div class="seo-preview__desc" data-seo-desc></div>
+        </div>
+        <div class="admin-card__foot">
+          <button class="btn" type="button" data-act="seo-robots">robots.txt</button>
+          <button class="btn" type="button" data-act="seo-sitemap">sitemap.xml</button>
+          <button class="btn btn--accent" type="button" data-save="seo">保存 SEO 设置</button>
+        </div>
+      </section>
+
       <section class="settings-card" data-card="contact">
         <div class="settings-card__head"><svg class="icon icon--s"><use href="#i-mail"/></svg>找回密码兜底联系</div>
         <div class="setting-row">
@@ -2295,6 +2356,28 @@ export function renderAdmin(root) {
         </div>
         <div class="setting-row">
           <div class="setting-row__main">
+            <div class="setting-row__label">生成后自动复制分享文案</div>
+            <div class="setting-row__desc">生成取件码时把下面这段文案直接送进剪贴板，粘到聊天窗口就能发出去；关掉后仍可在取件码卡片里手动复制</div>
+          </div>
+          <label class="switch">
+            <input type="checkbox" data-key="quickAutoCopy" ${settings.quickAutoCopy ? "checked" : ""}>
+            <span class="switch__track"><span class="switch__knob"></span></span>
+          </label>
+        </div>
+        <div class="admin-form-grid">
+          <label class="field field--wide">
+            <span class="field__label">取件码分享文案</span>
+            <div class="textarea admin-template">
+              <textarea data-key="quickCopyTemplate" rows="4" maxlength="1000" spellcheck="false"
+                        placeholder="${t("留空则使用默认文案")}">${escapeHtml(settings.quickCopyTemplate || "")}</textarea>
+            </div>
+          </label>
+        </div>
+        <div class="admin-hint">
+          ${t("占位符：{site} 站点名、{file} 文件名（多个文件显示「N 个项目」）、{code} 取件码、{link} 取件页完整地址。改完保存后，用户下次生成取件码时生效。")}
+        </div>
+        <div class="setting-row">
+          <div class="setting-row__main">
             <div class="setting-row__label">清理过期的快传文件</div>
             <div class="setting-row__desc">按上面的保留天数立即回收，物理文件一并删除；不影响「我的文件」里的任何内容</div>
           </div>
@@ -2388,6 +2471,39 @@ export function renderAdmin(root) {
     panel.querySelectorAll("[data-save]").forEach((btn) => {
       btn.addEventListener("click", () => saveCard(btn));
     });
+
+    /* --- SEO：搜索结果预览（只读回显，不触发保存） --- */
+    (function bindSeoCard() {
+      const card = panel.querySelector('[data-card="seo"]');
+      if (!card) return;
+      const read = (key) => card.querySelector(`[data-key="${key}"]`);
+      const urlEl = card.querySelector("[data-seo-url]");
+      const titleEl = card.querySelector("[data-seo-title]");
+      const descEl = card.querySelector("[data-seo-desc]");
+      const tagEl = card.querySelector("[data-seo-tag]");
+
+      const paint = () => {
+        const base = (read("seoBaseUrl")?.value || "").trim().replace(/\/+$/, "");
+        const title = (read("seoTitle")?.value || "").trim();
+        const desc = (read("seoDescription")?.value || "").trim();
+        urlEl.textContent = `${base || window.location.origin}/`;
+        titleEl.textContent = title || `${settings.siteName || "CloudNETP"} · ${t("樱色云盘")}`;
+        descEl.textContent = desc || t("没填描述时，搜索结果里只有标题和链接");
+        if (tagEl) tagEl.hidden = Boolean(read("seoIndex")?.checked);
+      };
+
+      card.querySelectorAll("[data-key]").forEach((el) => {
+        el.addEventListener("input", paint);
+        el.addEventListener("change", paint);
+      });
+      card.querySelector('[data-act="seo-robots"]')?.addEventListener("click", () => {
+        window.open("/robots.txt", "_blank", "noopener");
+      });
+      card.querySelector('[data-act="seo-sitemap"]')?.addEventListener("click", () => {
+        window.open("/sitemap.xml", "_blank", "noopener");
+      });
+      paint();
+    })();
 
     /* --- 快传：立即清理过期文件 --- */
     panel.querySelector('[data-act="quick-cleanup"]')?.addEventListener("click", async (event) => {
@@ -2903,7 +3019,12 @@ export function renderAdmin(root) {
       try {
         const res = await api.patch("/api/admin/settings", payload);
         Toast.success("设置已保存");
-        if (payload.siteName !== undefined || payload.siteAnnouncement !== undefined || payload.allowRegister !== undefined) {
+        if (
+          payload.siteName !== undefined ||
+          payload.siteAnnouncement !== undefined ||
+          payload.allowRegister !== undefined ||
+          payload.seoTitle !== undefined
+        ) {
           await refreshMeta();
         }
         if (payload.autoUpdateCheck !== undefined) await refreshMeta();

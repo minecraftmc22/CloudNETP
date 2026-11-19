@@ -37,6 +37,15 @@ import { renderQuick } from "./views/quick.js";
 import { renderShares } from "./views/shares.js";
 import { renderTrash } from "./views/trash.js";
 
+/**
+ * 标签页里的站点名：后台填了 SEO 标题就用它，跟服务端注入的 <title> 保持一致。
+ * 没填则退回站点名称。
+ */
+function siteTitle() {
+  const meta = store.get().meta || {};
+  return meta.seoTitle || meta.appName || "CloudNETP";
+}
+
 const NAV_ITEMS = [
   { group: "空间" },
   { route: "files", label: "我的文件", icon: "i-folder" },
@@ -108,7 +117,7 @@ async function boot() {
     store.set({ meta });
     el("brand-name").textContent = meta.appName || "CloudNETP";
     el("brand-version").textContent = `v${meta.version || "0.1.0"}`;
-    document.title = `${meta.appName || "CloudNETP"} · ${t("樱色云盘")}`;
+    document.title = meta.seoTitle || `${meta.appName || "CloudNETP"} · ${t("樱色云盘")}`;
     renderAnnounce(el("announce"), meta.announcement);
   } catch {
     /* 元信息失败不阻塞登录 */
@@ -201,7 +210,7 @@ function showAppeal(detail, ticket) {
   stopPetals();
   startPetals();
   if (location.hash !== "#/appeal") history.replaceState(null, "", "#/appeal");
-  document.title = `${t("账号申诉")} · ${store.get().meta?.appName || "CloudNETP"}`;
+  document.title = `${t("账号申诉")} · ${siteTitle()}`;
   renderAppeal(root, {
     detail,
     ticket,
@@ -473,7 +482,7 @@ function route() {
   else if (name === "admin") renderAdmin(root);
   else renderPlaceholder(root, PLACEHOLDERS.admin);
 
-  document.title = `${t(TITLES[name])} · ${store.get().meta?.appName || "CloudNETP"}`;
+  document.title = `${t(TITLES[name])} · ${siteTitle()}`;
   document.querySelectorAll(".nav-item").forEach((item) => {
     item.classList.toggle("is-active", item.dataset.route === name);
   });
