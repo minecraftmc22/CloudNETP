@@ -1,13 +1,19 @@
 /**
  * 设置视图：外观 / 装饰 / 账号
  */
-import { api, escapeHtml, formatBytes } from "../api.js";
+import { api, ApiError, escapeHtml, formatBytes, formatTime } from "../api.js";
 import { H, LANGS, getLang, langTag, setLang, t } from "../i18n.js";
 import { passwordProblem } from "../password.js";
 import { store, siteOrigin } from "../store.js";
 import { Toast } from "../ui/toast.js";
 import { Dialog } from "../ui/dialog.js";
 import { avatarMarkup } from "../ui/avatar.js";
+import { sendCode } from "../ui/email-code.js";
+import {
+  createCredential,
+  describeError as describeWebauthnError,
+  supported as webauthnSupported,
+} from "../ui/webauthn.js";
 import {
   ACCENT_GRADIENTS,
   ACCENT_PRESETS,
@@ -662,12 +668,151 @@ export function renderSettings(root) {
               </div>
               <button class="btn" type="button" data-act="email">${user?.email ? t("换绑") : t("绑定邮箱")}</button>
             </div>
+            <div class="setting-panel" data-email-panel hidden>
+              <div data-email-step="password">
+                <label class="field">
+                  <span class="field__label">账户密码</span>
+                  <span class="textbox">
+                    <input type="password" data-email-password autocomplete="current-password"
+                           placeholder="先验证一次密码，确认是本人操作" maxlength="128">
+                  </span>
+                </label>
+                <div class="setting-panel__foot">
+                  <button class="btn btn--subtle" type="button" data-act="email-cancel">取消</button>
+                  <button class="btn btn--accent" type="button" data-act="email-next">下一步</button>
+                </div>
+              </div>
+              <div data-email-step="code" hidden>
+                <label class="field">
+                  <span class="field__label">新邮箱</span>
+                  <span class="textbox">
+                    <input type="email" data-email-address autocomplete="email" maxlength="254"
+                           placeholder="you@example.com" value="${escapeHtml(user?.email || "")}">
+                  </span>
+                </label>
+                <div class="field" data-email-code-row>
+                  <span class="field__label">邮箱验证码</span>
+                  <div class="code-row">
+                    <span class="textbox">
+                      <input type="text" inputmode="numeric" autocomplete="one-time-code"
+                             maxlength="6" data-email-code placeholder="6 位数字">
+                    </span>
+                    <button class="btn" type="button" data-act="email-send"
+                            data-idle-label="发送验证码">发送验证码</button>
+                  </div>
+                </div>
+                <p class="setting-panel__hint" data-email-hint hidden></p>
+                <div class="setting-panel__foot">
+                  <button class="btn btn--subtle" type="button" data-act="email-back">上一步</button>
+                  <button class="btn btn--accent" type="button" data-act="email-save">完成绑定</button>
+                </div>
+              </div>
+            </div>
+
             <div class="setting-row">
               <div class="setting-row__main">
                 <div class="setting-row__label">登录密码</div>
                 <div class="setting-row__desc">修改后其它设备上的登录状态会立即失效</div>
               </div>
               <button class="btn" type="button" data-act="password">修改密码</button>
+            </div>
+            <div class="setting-panel" data-password-panel hidden>
+              <label class="field">
+                <span class="field__label">当前密码</span>
+                <span class="textbox">
+                  <input type="password" data-pwd-old autocomplete="current-password" maxlength="128">
+                </span>
+              </label>
+              <label class="field">
+                <span class="field__label">新密码</span>
+                <span class="textbox">
+                  <input type="password" data-pwd-new autocomplete="new-password" maxlength="128"
+                         placeholder="至少 8 位，含数字与小写字母">
+                </span>
+              </label>
+              <label class="field">
+                <span class="field__label">确认新密码</span>
+                <span class="textbox">
+                  <input type="password" data-pwd-confirm autocomplete="new-password" maxlength="128"
+                         placeholder="再输入一次">
+                </span>
+              </label>
+              <div class="field" data-pwd-email-row hidden>
+                <span class="field__label">邮箱验证码</span>
+                <div class="code-row">
+                  <span class="textbox">
+                    <input type="text" inputmode="numeric" autocomplete="one-time-code"
+                           maxlength="6" data-pwd-code placeholder="6 位数字">
+                  </span>
+                  <button class="btn btn--subtle" type="button" data-act="pwd-send"
+                          data-idle-label="发送验证码">发送验证码</button>
+                </div>
+              </div>
+              <div class="field">
+                <span class="field__label">图形验证码</span>
+                <div class="captcha">
+                  <span class="textbox">
+                    <input type="text" autocomplete="off" spellcheck="false" maxlength="8"
+                           data-pwd-captcha placeholder="输入右侧字符">
+                  </span>
+                  <button class="captcha__img" type="button" data-pwd-captcha-refresh title="点击换一张">
+                    <img data-pwd-captcha-img alt="验证码">
+                  </button>
+                </div>
+              </div>
+              <p class="setting-panel__hint" data-pwd-note hidden></p>
+              <div class="setting-panel__foot">
+                <button class="btn btn--subtle" type="button" data-act="pwd-cancel">取消</button>
+                <button class="btn btn--accent" type="button" data-act="pwd-save">保存</button>
+              </div>
+            </div>
+
+            <div class="setting-row">
+              <div class="setting-row__main">
+                <div class="setting-row__label">两步验证</div>
+                <div class="setting-row__desc" data-twofa-desc>
+                  开启后，用密码登录还要再过一次通行密钥或邮箱验证码
+                </div>
+              </div>
+              <label class="switch">
+                <input type="checkbox" data-twofa-toggle>
+                <span class="switch__track"><span class="switch__knob"></span></span>
+              </label>
+            </div>
+            <div class="setting-panel" data-twofa-panel hidden>
+              <p class="setting-panel__hint" data-twofa-note></p>
+              <label class="field">
+                <span class="field__label">账户密码</span>
+                <span class="textbox">
+                  <input type="password" data-twofa-password autocomplete="current-password" maxlength="128">
+                </span>
+              </label>
+              <div class="field" data-twofa-email-row hidden>
+                <span class="field__label">邮箱验证码</span>
+                <div class="code-row">
+                  <span class="textbox">
+                    <input type="text" inputmode="numeric" autocomplete="one-time-code"
+                           maxlength="6" data-twofa-code placeholder="6 位数字">
+                  </span>
+                  <button class="btn" type="button" data-act="twofa-send"
+                          data-idle-label="发送验证码">发送验证码</button>
+                </div>
+              </div>
+              <div class="field" data-twofa-captcha-row hidden>
+                <span class="field__label">图形验证码</span>
+                <div class="captcha">
+                  <span class="textbox">
+                    <input type="text" autocomplete="off" spellcheck="false" maxlength="8" data-twofa-captcha>
+                  </span>
+                  <button class="captcha__img" type="button" data-twofa-captcha-refresh title="点击换一张">
+                    <img data-twofa-captcha-img alt="验证码">
+                  </button>
+                </div>
+              </div>
+              <div class="setting-panel__foot">
+                <button class="btn btn--subtle" type="button" data-act="twofa-cancel">取消</button>
+                <button class="btn btn--accent" type="button" data-act="twofa-save">确认</button>
+              </div>
             </div>
             <a class="setting-row setting-row--link" href="#/about">
               <div class="setting-row__main">
@@ -677,6 +822,56 @@ export function renderSettings(root) {
               <span class="chip">${user?.role === 1 ? t("管理员") : t("普通用户")}</span>
               <svg class="icon icon--s setting-row__chevron"><use href="#i-chevron"/></svg>
             </a>
+          </div>
+        </section>
+
+        <section class="settings-card" data-card="passkeys">
+          <div class="settings-card__head"><svg class="icon icon--s"><use href="#i-shield"/></svg>通行密钥</div>
+          <div class="settings-card__body">
+            <p class="setting-panel__hint" data-passkey-note hidden></p>
+            <div class="passkey-list" data-passkey-list>
+              <p class="setting-panel__hint">正在读取…</p>
+            </div>
+            <div class="setting-row">
+              <div class="setting-row__main">
+                <div class="setting-row__label">添加通行密钥</div>
+                <div class="setting-row__desc">
+                  用 Windows Hello、手机指纹或硬件密钥作为登录的第二因子
+                </div>
+              </div>
+              <button class="btn" type="button" data-act="passkey-add">添加</button>
+            </div>
+            <div class="setting-panel" data-passkey-panel hidden>
+              <label class="field">
+                <span class="field__label">设备备注</span>
+                <span class="textbox">
+                  <input type="text" data-passkey-label maxlength="40" placeholder="例如：我的笔记本">
+                </span>
+              </label>
+              <label class="field">
+                <span class="field__label">账户密码</span>
+                <span class="textbox">
+                  <input type="password" data-passkey-password autocomplete="current-password" maxlength="128"
+                         placeholder="验证身份后才能添加">
+                </span>
+              </label>
+              <div class="field" data-passkey-email-row hidden>
+                <span class="field__label">或者用邮箱验证码</span>
+                <div class="code-row">
+                  <span class="textbox">
+                    <input type="text" inputmode="numeric" autocomplete="one-time-code"
+                           maxlength="6" data-passkey-code placeholder="6 位数字">
+                  </span>
+                  <button class="btn btn--subtle" type="button" data-act="passkey-send"
+                          data-idle-label="发送验证码">发送验证码</button>
+                </div>
+              </div>
+              <p class="setting-panel__hint" data-passkey-hint hidden></p>
+              <div class="setting-panel__foot">
+                <button class="btn btn--subtle" type="button" data-act="passkey-cancel">取消</button>
+                <button class="btn btn--accent" type="button" data-act="passkey-create">开始添加</button>
+              </div>
+            </div>
           </div>
         </section>
 
@@ -756,38 +951,486 @@ export function renderSettings(root) {
     }
   });
 
-  /* --- 绑定邮箱 --- */
-  root.querySelector('[data-act="email"]')?.addEventListener("click", async () => {
+  /* --- 账号安全：邮箱 / 密码 / 两步验证 / 通行密钥 --- */
+  // 这几块共享一份服务端状态（GET /api/me/security），避免每个面板各查一遍
+  const meta = store.get().meta || {};
+  let security = null;
+  let twofaWant = false;
+  let pwdCaptchaId = "";
+  let twofaCaptchaId = "";
+
+  const q = (sel) => root.querySelector(sel);
+  const emailPanel = q("[data-email-panel]");
+  const pwdPanel = q("[data-password-panel]");
+  const twofaPanel = q("[data-twofa-panel]");
+  const passkeyPanel = q("[data-passkey-panel]");
+
+  const currentUser = () => store.get().user || {};
+  const emailFactorOn = () =>
+    Boolean(security?.emailFactorAvailable ?? (currentUser().emailVerified && meta.mailReady));
+  const passkeyList = () => security?.passkeys || [];
+
+  function setEmailStep(step) {
+    emailPanel?.querySelectorAll("[data-email-step]").forEach((node) => {
+      node.hidden = node.dataset.emailStep !== step;
+    });
+  }
+
+  async function fetchCaptcha(which) {
+    try {
+      const data = await api.get("/api/auth/captcha");
+      if (which === "pwd") {
+        pwdCaptchaId = data.captchaId;
+        const img = q("[data-pwd-captcha-img]");
+        if (img) img.src = data.image;
+      } else {
+        twofaCaptchaId = data.captchaId;
+        const img = q("[data-twofa-captcha-img]");
+        if (img) img.src = data.image;
+      }
+    } catch {
+      /* 拿不到图就让后端在提交时报错，别把面板卡住 */
+    }
+  }
+
+  function updateEmailDesc(next) {
+    const desc = q("[data-email-desc]");
+    if (!desc) return;
+    desc.textContent = next?.email
+      ? `${next.email}${next.emailVerified ? "" : t("（未验证）")} · ${t("可用于登录和找回密码")}`
+      : t("还没有绑定 · 忘记密码时只能联系管理员");
+    const btn = q('[data-act="email"]');
+    if (btn) btn.textContent = next?.email ? t("换绑") : t("绑定邮箱");
+  }
+
+  /* 邮箱：先验证密码，再填新邮箱 + 验证码 */
+  q('[data-act="email"]')?.addEventListener("click", () => {
+    if (!emailPanel) return;
+    const opening = emailPanel.hidden;
+    emailPanel.hidden = !opening;
+    if (!opening) return;
+    setEmailStep("password");
+    q("[data-email-password]").value = "";
+    q("[data-email-address]").value = currentUser().email || "";
+    q("[data-email-code]").value = "";
+    const hint = q("[data-email-hint]");
+    if (hint) hint.hidden = true;
+    q("[data-email-password]")?.focus();
+  });
+
+  q('[data-act="email-cancel"]')?.addEventListener("click", () => {
+    if (emailPanel) emailPanel.hidden = true;
+  });
+
+  q('[data-act="email-back"]')?.addEventListener("click", () => setEmailStep("password"));
+
+  q('[data-act="email-next"]')?.addEventListener("click", () => {
+    if (!q("[data-email-password]").value) {
+      Toast.error("请输入账户密码");
+      return;
+    }
+    setEmailStep("code");
+    q("[data-email-address]")?.focus();
+  });
+
+  q('[data-act="email-send"]')?.addEventListener("click", async (event) => {
+    const btn = event.currentTarget;
+    const address = q("[data-email-address]").value.trim();
+    if (!address) {
+      Toast.error("请先填写邮箱");
+      return;
+    }
+    try {
+      await sendCode({
+        url: "/api/me/email/code",
+        scene: "bind",
+        body: { target: address, password: q("[data-email-password]").value },
+        button: btn,
+      });
+      const hint = q("[data-email-hint]");
+      if (hint) {
+        hint.hidden = false;
+        hint.textContent = t("验证码已发送到 {email}", { email: address });
+      }
+      q("[data-email-code]")?.focus();
+    } catch (err) {
+      Toast.error(err?.message || "发送失败，请稍后再试");
+    }
+  });
+
+  q('[data-act="email-save"]')?.addEventListener("click", async (event) => {
+    const btn = event.currentTarget;
+    const address = q("[data-email-address]").value.trim();
+    const code = q("[data-email-code]").value.trim();
+    if (!address) {
+      Toast.error("请填写邮箱");
+      return;
+    }
+    if (emailFactorOn() && meta.mailReady && !code) {
+      Toast.error("请填写邮箱验证码");
+      return;
+    }
+    btn.disabled = true;
+    try {
+      const res = await api.patch("/api/me/email", { email: address, code });
+      applyUser(res.user);
+      updateEmailDesc(res.user);
+      emailPanel.hidden = true;
+      Toast.success(res.user.emailVerified ? "邮箱已绑定并验证" : "邮箱已保存（未验证）");
+      refreshSecurity();
+    } catch (err) {
+      Toast.error(err?.message || "保存失败");
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  /* 密码：旧密码 + 邮箱验证码（有邮箱因子时）+ 图形验证码 */
+  q('[data-act="password"]')?.addEventListener("click", () => {
+    if (!pwdPanel) return;
+    const opening = pwdPanel.hidden;
+    pwdPanel.hidden = !opening;
+    if (!opening) return;
+    ["[data-pwd-old]", "[data-pwd-new]", "[data-pwd-confirm]", "[data-pwd-code]", "[data-pwd-captcha]"].forEach(
+      (sel) => {
+        const node = q(sel);
+        if (node) node.value = "";
+      }
+    );
+    const withEmail = emailFactorOn();
+    const emailRow = q("[data-pwd-email-row]");
+    if (emailRow) emailRow.hidden = !withEmail;
+    const note = q("[data-pwd-note]");
+    if (note) {
+      note.hidden = withEmail;
+      note.textContent = currentUser().email
+        ? t("邮件服务未配置，本次改用图形验证码")
+        : t("该账号未绑定邮箱，本次仅校验图形验证码");
+    }
+    fetchCaptcha("pwd");
+    q("[data-pwd-old]")?.focus();
+  });
+
+  q('[data-act="pwd-cancel"]')?.addEventListener("click", () => {
+    if (pwdPanel) pwdPanel.hidden = true;
+  });
+  q("[data-pwd-captcha-refresh]")?.addEventListener("click", () => fetchCaptcha("pwd"));
+
+  q('[data-act="pwd-send"]')?.addEventListener("click", async (event) => {
+    const btn = event.currentTarget;
+    try {
+      await sendCode({ url: "/api/me/email/code", scene: "password", button: btn });
+      Toast.success("验证码已发送，请查收邮件");
+      q("[data-pwd-code]")?.focus();
+    } catch (err) {
+      Toast.error(err?.message || "发送失败，请稍后再试");
+    }
+  });
+
+  q('[data-act="pwd-save"]')?.addEventListener("click", async (event) => {
+    const btn = event.currentTarget;
+    const oldPassword = q("[data-pwd-old]").value;
+    const newPassword = q("[data-pwd-new]").value;
+    const confirm = q("[data-pwd-confirm]").value;
+    const code = q("[data-pwd-code]").value.trim();
+    const captcha = q("[data-pwd-captcha]").value.trim();
+
+    if (!oldPassword) {
+      Toast.error("请输入当前密码");
+      return;
+    }
+    const problem = passwordProblem(newPassword);
+    if (problem) {
+      Toast.error(problem);
+      return;
+    }
+    if (newPassword !== confirm) {
+      Toast.error("两次输入的新密码不一致");
+      return;
+    }
+    if (emailFactorOn() && !code) {
+      Toast.error("请填写邮箱验证码");
+      return;
+    }
+    if (!captcha) {
+      Toast.error("请输入图形验证码");
+      return;
+    }
+
+    btn.disabled = true;
+    try {
+      await api.put("/api/me/password", {
+        old_password: oldPassword,
+        new_password: newPassword,
+        emailCode: code,
+        captchaId: pwdCaptchaId,
+        captcha,
+      });
+      Toast.success("密码已更新，其它设备需要重新登录");
+      pwdPanel.hidden = true;
+    } catch (err) {
+      Toast.error(err?.message || "修改失败");
+      // 图形码一次一用：失败后立刻换一张并清空输入
+      q("[data-pwd-captcha]").value = "";
+      fetchCaptcha("pwd");
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  /* 两步验证开关 */
+  function paintTwofa() {
+    const toggle = q("[data-twofa-toggle]");
+    const enabled = Boolean(security?.twoFactorEnabled ?? currentUser().twoFactorEnabled);
+    if (toggle) toggle.checked = enabled;
+    const desc = q("[data-twofa-desc]");
+    if (desc) {
+      desc.textContent = enabled
+        ? t("已开启：密码登录后还需要通行密钥或邮箱验证码")
+        : t("开启后，用密码登录还要再过一次通行密钥或邮箱验证码");
+    }
+  }
+
+  function openTwofaPanel(want) {
+    twofaWant = want;
+    if (!twofaPanel) return;
+    if (want && !emailFactorOn() && passkeyList().length === 0) {
+      Toast.error("请先绑定并验证邮箱，或添加一个通行密钥");
+      return;
+    }
+    twofaPanel.hidden = false;
+    q("[data-twofa-password]").value = "";
+    q("[data-twofa-code]").value = "";
+    q("[data-twofa-captcha]").value = "";
+    const withEmail = emailFactorOn();
+    const emailRow = q("[data-twofa-email-row]");
+    const captchaRow = q("[data-twofa-captcha-row]");
+    if (emailRow) emailRow.hidden = !withEmail;
+    if (captchaRow) captchaRow.hidden = withEmail;
+    if (!withEmail) fetchCaptcha("twofa");
+    const note = q("[data-twofa-note]");
+    if (note) {
+      note.textContent = want
+        ? t("开启前请确认身份：密码 + {by}", { by: withEmail ? t("邮箱验证码") : t("图形验证码") })
+        : t("关闭两步验证：密码 + {by}", { by: withEmail ? t("邮箱验证码") : t("图形验证码") });
+    }
+    q("[data-twofa-password]")?.focus();
+  }
+
+  q("[data-twofa-toggle]")?.addEventListener("change", (event) => {
+    const input = event.currentTarget;
+    const want = input.checked;
+    // 先回滚视觉状态，等服务端确认后再勾上，避免「看起来开了其实没开」
+    input.checked = !want;
+    openTwofaPanel(want);
+  });
+
+  q('[data-act="twofa-cancel"]')?.addEventListener("click", () => {
+    if (twofaPanel) twofaPanel.hidden = true;
+    paintTwofa();
+  });
+  q("[data-twofa-captcha-refresh]")?.addEventListener("click", () => fetchCaptcha("twofa"));
+
+  q('[data-act="twofa-send"]')?.addEventListener("click", async (event) => {
+    const btn = event.currentTarget;
+    try {
+      await sendCode({ url: "/api/me/email/code", scene: "twofactor", button: btn });
+      Toast.success("验证码已发送，请查收邮件");
+      q("[data-twofa-code]")?.focus();
+    } catch (err) {
+      Toast.error(err?.message || "发送失败，请稍后再试");
+    }
+  });
+
+  q('[data-act="twofa-save"]')?.addEventListener("click", async (event) => {
+    const btn = event.currentTarget;
+    const password = q("[data-twofa-password]").value;
+    const code = q("[data-twofa-code]").value.trim();
+    const captcha = q("[data-twofa-captcha]").value.trim();
+    if (!password) {
+      Toast.error("请输入账户密码");
+      return;
+    }
+    if (emailFactorOn() && !code) {
+      Toast.error("请填写邮箱验证码");
+      return;
+    }
+    if (!emailFactorOn() && !captcha) {
+      Toast.error("请输入图形验证码");
+      return;
+    }
+    btn.disabled = true;
+    try {
+      const res = await api.put("/api/me/2fa", {
+        enabled: twofaWant,
+        password,
+        emailCode: code,
+        captchaId: twofaCaptchaId,
+        captcha,
+      });
+      applyUser(res.user);
+      if (security) security.twoFactorEnabled = Boolean(res.twoFactorEnabled);
+      twofaPanel.hidden = true;
+      paintTwofa();
+      Toast.success(res.twoFactorEnabled ? "两步验证已开启" : "两步验证已关闭");
+    } catch (err) {
+      Toast.error(err?.message || "操作失败");
+      if (!emailFactorOn()) {
+        q("[data-twofa-captcha]").value = "";
+        fetchCaptcha("twofa");
+      }
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  /* 通行密钥 */
+  function renderPasskeys(list) {
+    const box = q("[data-passkey-list]");
+    if (!box) return;
+    if (!list.length) {
+      box.innerHTML = H`<p class="setting-panel__hint">${t("还没有添加通行密钥")}</p>`;
+      return;
+    }
+    box.innerHTML = list
+      .map(
+        (item) => H`<div class="passkey-item">
+          <div class="passkey-item__main">
+            <div class="passkey-item__label">${escapeHtml(item.label || t("通行密钥"))}</div>
+            <div class="passkey-item__meta">${
+              item.lastUsedAt ? t("上次使用 {time}", { time: formatTime(item.lastUsedAt) }) : t("还没有用过")
+            }</div>
+          </div>
+          <button class="btn btn--subtle" type="button" data-act="passkey-remove"
+                  data-id="${item.id}">${t("移除")}</button>
+        </div>`
+      )
+      .join("");
+  }
+
+  async function refreshSecurity() {
+    try {
+      security = await api.get("/api/me/security");
+    } catch {
+      return;
+    }
+    paintTwofa();
+    renderPasskeys(security.passkeys || []);
+
+    const note = q("[data-passkey-note]");
+    const addBtn = q('[data-act="passkey-add"]');
+    const usable = Boolean(security.passkeySupported) && webauthnSupported();
+    if (addBtn) addBtn.disabled = !usable;
+    if (note) {
+      if (!security.passkeySupported) {
+        note.hidden = false;
+        note.textContent = t("服务端未安装通行密钥依赖（webauthn），暂时无法使用");
+      } else if (!webauthnSupported()) {
+        note.hidden = false;
+        note.textContent = t("通行密钥需要 HTTPS 访问（localhost 除外），当前页面不可用");
+      } else {
+        note.hidden = true;
+      }
+    }
+    const emailRow = q("[data-passkey-email-row]");
+    if (emailRow) emailRow.hidden = !security.emailFactorAvailable;
+  }
+
+  q('[data-act="passkey-add"]')?.addEventListener("click", () => {
+    if (!passkeyPanel) return;
+    passkeyPanel.hidden = false;
+    q("[data-passkey-password]").value = "";
+    q("[data-passkey-code]").value = "";
+    q("[data-passkey-label]").value = "";
+    const hint = q("[data-passkey-hint]");
+    if (hint) hint.hidden = true;
+    q("[data-passkey-password]")?.focus();
+  });
+
+  q('[data-act="passkey-cancel"]')?.addEventListener("click", () => {
+    if (passkeyPanel) passkeyPanel.hidden = true;
+  });
+
+  q('[data-act="passkey-send"]')?.addEventListener("click", async (event) => {
+    const btn = event.currentTarget;
+    try {
+      await sendCode({ url: "/api/me/email/code", scene: "password", button: btn });
+      Toast.success("验证码已发送，请查收邮件");
+      q("[data-passkey-code]")?.focus();
+    } catch (err) {
+      Toast.error(err?.message || "发送失败，请稍后再试");
+    }
+  });
+
+  q('[data-act="passkey-create"]')?.addEventListener("click", async (event) => {
+    const btn = event.currentTarget;
+    const password = q("[data-passkey-password]").value;
+    const code = q("[data-passkey-code]").value.trim();
+    const label = q("[data-passkey-label]").value.trim();
+    if (!password && !code) {
+      Toast.error("请先用密码或邮箱验证码验证身份");
+      return;
+    }
+    if (!webauthnSupported()) {
+      Toast.error("当前页面无法使用通行密钥（需要 HTTPS 访问）");
+      return;
+    }
+    btn.disabled = true;
+    try {
+      const { options, nonce } = await api.post("/api/me/passkeys/options", {
+        password,
+        emailCode: code,
+        label,
+      });
+      const credential = await createCredential(options);
+      const res = await api.post("/api/me/passkeys", { nonce, credential, label });
+      if (security) security.passkeys = res.passkeys;
+      renderPasskeys(res.passkeys || []);
+      passkeyPanel.hidden = true;
+      Toast.success("通行密钥已添加。要让它在登录时生效，请打开「两步验证」开关");
+    } catch (err) {
+      const message = err instanceof ApiError ? err.message : describeWebauthnError(err);
+      Toast.error(message);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  q("[data-passkey-list]")?.addEventListener("click", async (event) => {
+    const btn = event.target.closest('[data-act="passkey-remove"]');
+    if (!btn) return;
+    const id = Number(btn.dataset.id);
     const values = await Dialog.form({
-      title: user?.email ? t("换绑邮箱") : t("绑定邮箱"),
-      message:
-        "邮箱用来登录和找回密码。邮件服务还没接入，现在绑定的邮箱会标记为「未验证」。",
-      confirmText: "保存",
+      title: t("移除通行密钥"),
+      message: t("移除后这个设备就不能再用来验证登录了，请输入账户密码确认。"),
+      confirmText: t("移除"),
+      danger: true,
       fields: [
         {
-          name: "email",
-          label: "邮箱地址",
-          type: "email",
-          placeholder: "you@example.com",
-          value: user?.email || "",
+          name: "password",
+          label: t("账户密码"),
+          type: "password",
+          validate: (v) => (String(v || "") ? null : t("请输入密码")),
         },
       ],
     });
-    if (!values?.email) return;
+    if (!values) return;
+    btn.disabled = true;
     try {
-      const res = await api.patch("/api/me/email", { email: values.email.trim() });
-      store.set({ user: res.user });
-      window.dispatchEvent(new CustomEvent("user:refresh", { detail: res.user }));
-      root.querySelector("[data-email-desc]").textContent = `${res.user.email}${t("（未验证）")} · ${t(
-        "可用于登录和找回密码"
-      )}`;
-      const btn = root.querySelector('[data-act="email"]');
-      if (btn) btn.textContent = t("换绑");
-      Toast.success("邮箱已保存");
+      const res = await api.del(`/api/me/passkeys/${id}`, { password: values.password });
+      if (security) security.passkeys = res.passkeys;
+      renderPasskeys(res.passkeys || []);
+      Toast.success("通行密钥已移除");
     } catch (err) {
-      Toast.error(err.message);
+      Toast.error(err?.message || "移除失败");
+    } finally {
+      btn.disabled = false;
     }
   });
+
+  paintTwofa();
+  refreshSecurity();
+
 
   root.querySelector('[data-act="dav-help"]')?.addEventListener("click", () => {
     Dialog.alert({
@@ -1737,46 +2380,6 @@ export function renderSettings(root) {
     } catch (err) {
       if (btn) btn.disabled = false;
       Toast.error(err.message || t("注销失败，请稍后再试"));
-    }
-  });
-
-  /* --- 修改密码 --- */
-  root.querySelector('[data-act="password"]')?.addEventListener("click", async () => {
-    const result = await Dialog.form({
-      title: "修改密码",
-      message: "修改成功后，其它设备上的登录状态会立即失效。",
-      confirmText: "保存",
-      fields: [
-        { name: "oldPassword", label: "当前密码", type: "password", placeholder: "当前密码" },
-        {
-          name: "newPassword",
-          label: "新密码",
-          type: "password",
-          placeholder: "至少 8 位，含数字与小写字母",
-          validate: (v) => passwordProblem(v),
-        },
-        {
-          name: "confirmPassword",
-          label: "确认新密码",
-          type: "password",
-          placeholder: "再输入一次",
-          validate: (v) => (v ? null : "请再输入一次新密码"),
-        },
-      ],
-    });
-    if (!result) return;
-    if (result.newPassword !== result.confirmPassword) {
-      Toast.error("两次输入的新密码不一致");
-      return;
-    }
-    try {
-      await api.put("/api/me/password", {
-        old_password: result.oldPassword,
-        new_password: result.newPassword,
-      });
-      Toast.success("密码已更新");
-    } catch (err) {
-      Toast.error(err.message || "修改失败");
     }
   });
 

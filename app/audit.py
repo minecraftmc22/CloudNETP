@@ -28,6 +28,17 @@ ACTIONS: dict[str, dict[str, str]] = {
     "ban_expired": {"label": "封禁到期自动解封", "tone": "success", "group": "账号"},
     "ban_appeal_submit": {"label": "提交封禁申诉", "tone": "warn", "group": "账号"},
     "account_delete": {"label": "注销账号", "tone": "danger", "group": "账号"},
+    # ---- 两步验证 / 通行密钥 ----
+    "login_2fa_required": {"label": "登录待两步验证", "tone": "info", "group": "账号"},
+    "login_2fa_failed": {"label": "两步验证失败", "tone": "warn", "group": "账号"},
+    "twofactor_enable": {"label": "开启两步验证", "tone": "warn", "group": "账号"},
+    "twofactor_disable": {"label": "关闭两步验证", "tone": "danger", "group": "账号"},
+    # 开关开着却没有可用因子（例如管理员关了邮件服务）→ 放行但留高危记录
+    "twofactor_skip": {"label": "两步验证被跳过", "tone": "danger", "group": "账号"},
+    "passkey_add": {"label": "添加通行密钥", "tone": "success", "group": "账号"},
+    "passkey_remove": {"label": "移除通行密钥", "tone": "warn", "group": "账号"},
+    "passkey_used": {"label": "通行密钥验证", "tone": "info", "group": "账号"},
+    "passkey_clone_warn": {"label": "通行密钥计数异常", "tone": "danger", "group": "账号"},
     # ---- 文件 ----
     "folder_create": {"label": "新建文件夹", "tone": "info", "group": "文件"},
     "node_rename": {"label": "重命名", "tone": "info", "group": "文件"},

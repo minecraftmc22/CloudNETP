@@ -3548,6 +3548,18 @@ export function renderAdmin(root) {
 
       <div class="admin-form-grid">
         <label class="field">
+          <span class="field__label">${t("验证码重发间隔（秒）")}</span>
+          <span class="textbox"><input type="number" min="10" max="600" data-mail-resend
+            placeholder="${cfg.codeResendSeconds || 60}"
+            value="${cfg.codeResendSecondsSource === "admin" ? cfg.codeResendSeconds : ""}"></span>
+          <span class="field__hint">${t(
+            "同一邮箱两次发码的最小间隔，注册、绑定邮箱、改密码、登录验证都按它算"
+          )}</span>
+        </label>
+      </div>
+
+      <div class="admin-form-grid">
+        <label class="field">
           <span class="field__label">${t("发件人名称")}</span>
           <span class="textbox"><input data-mail-from-name maxlength="80" spellcheck="false"
             placeholder="${escapeHtml(cfg.fromName || "")}"
@@ -3786,6 +3798,12 @@ export function renderAdmin(root) {
       const number = Number(raw);
       return raw && Number.isFinite(number) ? number : null;
     };
+    // 重发间隔同理：留空 = 继续用当前生效值（默认 60 秒）
+    const resend = () => {
+      const raw = text("[data-mail-resend]");
+      const number = Number(raw);
+      return raw && Number.isFinite(number) ? number : null;
+    };
 
     function collect() {
       return {
@@ -3806,6 +3824,7 @@ export function renderAdmin(root) {
         smtpUser: text("[data-mail-smtp-user]"),
         smtpPass: text("[data-mail-smtp-pass]"),
         smtpSecurity: pick("[data-mail-smtp-security]")?.value || "ssl",
+        codeResendSeconds: resend(),
         clearBmKey: Boolean(pick("[data-mail-clear-bm-key]")?.checked),
         clearSmtpPass: Boolean(pick("[data-mail-clear-smtp-pass]")?.checked),
       };

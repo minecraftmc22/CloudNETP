@@ -286,12 +286,14 @@ from .routers import dav as dav_router  # noqa: E402
 from .routers import feedback as feedback_router  # noqa: E402
 from .routers import live2d as live2d_router  # noqa: E402
 from .routers import nodes as nodes_router  # noqa: E402
+from .routers import passkeys as passkeys_router  # noqa: E402
 from .routers import quick as quick_router  # noqa: E402
 from .routers import shares as shares_router  # noqa: E402
 from .routers import update as update_router  # noqa: E402
 from .routers import uploads as uploads_router  # noqa: E402
 
 app.include_router(auth_router.router)
+app.include_router(passkeys_router.router)
 app.include_router(ban_router.router)
 app.include_router(nodes_router.router)
 app.include_router(shares_router.router)

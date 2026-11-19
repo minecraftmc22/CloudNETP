@@ -20,6 +20,8 @@ CREATE TABLE IF NOT EXISTS users (
   bio           VARCHAR(200) NULL COMMENT '个人简介',
   avatar        VARCHAR(64)  NULL COMMENT '头像文件名，文件在 storage/avatars/',
   dav_ha1       VARCHAR(32)  NULL COMMENT 'WebDAV Digest 用的 MD5(user:realm:password)',
+  email         VARCHAR(254) NULL COMMENT '绑定邮箱，可用于登录与找回密码',
+  email_verified TINYINT(1)  NOT NULL DEFAULT 0 COMMENT '邮箱验证码验过才算已验证',
   role          TINYINT      NOT NULL DEFAULT 0 COMMENT '0 普通 1 管理员',
   is_super      TINYINT(1)   NOT NULL DEFAULT 0 COMMENT '超级管理员：只有超管能调整成员角色',
   quota_bytes   BIGINT       NOT NULL DEFAULT 10737418240 COMMENT '默认 10 GiB',
@@ -30,6 +32,7 @@ CREATE TABLE IF NOT EXISTS users (
   ban_until     DATETIME     NULL COMMENT '到期自动解封；NULL = 永久',
   banned_by     BIGINT       NULL COMMENT '操作的管理员 id',
   token_version INT          NOT NULL DEFAULT 1 COMMENT '改密/踢下线时自增',
+  two_factor_enabled TINYINT(1) NOT NULL DEFAULT 0 COMMENT '两步验证开关',
   created_at    DATETIME     NOT NULL,
   last_login_at DATETIME     NULL,
   PRIMARY KEY (id),
@@ -277,4 +280,26 @@ CREATE TABLE IF NOT EXISTS ai_chat_messages (
   CONSTRAINT fk_aim_session FOREIGN KEY (session_id)
     REFERENCES ai_chat_sessions (id) ON DELETE CASCADE,
   CONSTRAINT ck_aim_role CHECK (role IN ('user', 'assistant'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- ------------------------------------------------------------
+-- 通行密钥（WebAuthn）：只做登录第二因子
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS passkeys (
+  id            BIGINT       NOT NULL AUTO_INCREMENT,
+  user_id       BIGINT       NOT NULL,
+  credential_id VARCHAR(255) NOT NULL COMMENT 'base64url(无填充)，全局唯一',
+  public_key    BLOB         NOT NULL COMMENT 'COSE 公钥原始字节',
+  sign_count    INT          NOT NULL DEFAULT 0 COMMENT '签名计数，0 表示认证器不计数',
+  transports    VARCHAR(64)  NULL COMMENT 'usb,nfc,internal 之类的提示',
+  aaguid        VARCHAR(36)  NULL,
+  label         VARCHAR(40)  NOT NULL DEFAULT '' COMMENT '用户备注，如「我的笔记本」',
+  backed_up     TINYINT(1)   NOT NULL DEFAULT 0,
+  created_at    DATETIME     NOT NULL,
+  last_used_at  DATETIME     NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_passkeys_cred (credential_id),
+  KEY idx_passkeys_user (user_id),
+  CONSTRAINT fk_passkeys_user FOREIGN KEY (user_id)
+    REFERENCES users (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;

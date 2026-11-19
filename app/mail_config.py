@@ -58,7 +58,10 @@ TEXT_FIELDS = (
 SECRET_FIELDS = ("bmKey", "smtpPass")
 BOOL_FIELDS = ("enabled",)
 ENUM_FIELDS = {"provider": PROVIDERS, "bmMode": MODES, "smtpSecurity": SECURITIES}
-INT_FIELDS = {"smtpPort": (1, 65535)}
+# 数值字段统一 clamp 到这个区间，脏数据进不了内存
+INT_FIELDS = {"smtpPort": (1, 65535), "codeResendSeconds": (10, 600)}
+
+DEFAULT_CODE_RESEND = 60
 
 DEFAULT_TEMPLATE_PATH = "/api/batch_mail/api/send"
 DEFAULT_DIRECT_PATH = "/api/send"
@@ -199,6 +202,8 @@ def env_config() -> dict:
         "smtpUser": (settings.MAIL_USER or "").strip(),
         "smtpPass": (settings.MAIL_PASSWORD or "").strip(),
         "smtpSecurity": security,
+        # 发码冷却：后台 > .env，默认 60 秒
+        "codeResendSeconds": int(settings.MAIL_CODE_RESEND or DEFAULT_CODE_RESEND),
     }
 
 
@@ -222,7 +227,27 @@ def resolved() -> dict:
         cfg["smtpPort"] = max(1, min(65535, int(cfg.get("smtpPort") or 465)))
     except (TypeError, ValueError):
         cfg["smtpPort"] = 465
+    try:
+        low, high = INT_FIELDS["codeResendSeconds"]
+        cfg["codeResendSeconds"] = max(
+            low, min(high, int(cfg.get("codeResendSeconds") or DEFAULT_CODE_RESEND))
+        )
+    except (TypeError, ValueError):
+        cfg["codeResendSeconds"] = DEFAULT_CODE_RESEND
     return cfg
+
+
+def resend_seconds(cfg: dict | None = None) -> int:
+    """发码冷却秒数（多次发码的最小间隔）。
+
+    只读进程内缓存，**不需要 db 会话**——`email_code.issue()` 在发码热路径上调用，
+    每发一封信都去敲库不值得。后台保存后会 `reload()` 覆盖内存，立刻生效。
+    """
+    cfg = cfg or resolved()
+    try:
+        return max(10, min(600, int(cfg.get("codeResendSeconds") or DEFAULT_CODE_RESEND)))
+    except (TypeError, ValueError):
+        return DEFAULT_CODE_RESEND
 
 
 def ready(cfg: dict | None = None) -> bool:
@@ -306,6 +331,13 @@ def snapshot() -> dict:
             "passwordSource": "admin" if "smtpPass" in overrides else ("env" if env["smtpPass"] else ""),
         },
         "ready": ready(cfg),
+        # 验证码重发间隔：后台可改，前端只按这个值显示倒计时
+        "codeResendSeconds": cfg["codeResendSeconds"],
+        "codeResendSecondsSource": (
+            "admin"
+            if "codeResendSeconds" in overrides
+            else ("env" if settings.MAIL_CODE_RESEND else "default")
+        ),
         # 对照信息：.env 里有什么，方便管理员判断「留空」会落到哪
         "env": {
             "enabled": env["enabled"],

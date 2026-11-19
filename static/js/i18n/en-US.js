@@ -1775,4 +1775,103 @@ export default {
   "下载失败": "Download failed",
   "变量名只能包含字母、数字和下划线，且不能以数字开头":
     "Variable names may only contain letters, digits and underscores, and cannot start with a digit",
+
+  // ---- 邮箱验证 / 两步验证 / 通行密钥 ----
+  "必填": "Required",
+  "邮箱验证码": "Email code",
+  "发送验证码": "Send code",
+  "{n} 秒后重发": "Resend in {n}s",
+  "验证码已发送，请查收邮件": "Code sent, check your inbox",
+  "验证码已发送到 {email}": "Code sent to {email}",
+  "验证码发送到上面填的邮箱，注册时需要它证明邮箱是你的":
+    "We send the code to the address above; registration needs it to prove the mailbox is yours",
+  "管理员已开启邮件服务但尚未配置完成，本次注册暂不校验邮箱；请联系管理员补全配置。":
+    "The mail service is enabled but not fully configured, so email verification is skipped for now. Please ask the administrator to finish the setup.",
+  "请填写邮箱": "Please enter your email",
+  "请先填写邮箱": "Please enter your email first",
+  "请填写邮箱验证码": "Please enter the email code",
+  "请输入邮箱验证码": "Please enter the email code",
+  "发送失败，请稍后再试": "Failed to send, please try again later",
+  "两步验证": "Two-step verification",
+  "密码已通过，再验证一次就能进入": "Password accepted — one more step to sign in",
+  "使用通行密钥": "Use a passkey",
+  "用邮箱验证码": "Use an email code",
+  "验证并登录": "Verify and sign in",
+  "换一种方式": "Choose another way",
+  "验证失败，请稍后再试": "Verification failed, please try again later",
+  "当前页面无法使用通行密钥（需要 HTTPS 访问），请改用邮箱验证码":
+    "Passkeys are unavailable on this page (HTTPS required) — use an email code instead",
+  "账户密码": "Account password",
+  "先验证一次密码，确认是本人操作": "Confirm it is you before changing the mailbox",
+  "新邮箱": "New email",
+  "上一步": "Back",
+  "完成绑定": "Finish",
+  "图形验证码": "Image code",
+  "邮箱已绑定并验证": "Email bound and verified",
+  "邮箱已保存（未验证）": "Email saved (unverified)",
+  "密码已更新，其它设备需要重新登录":
+    "Password updated — other devices need to sign in again",
+  "该账号未绑定邮箱，本次仅校验图形验证码":
+    "This account has no email bound, so only the image code is checked",
+  "邮件服务未配置，本次改用图形验证码":
+    "The mail service is not configured, so the image code is used instead",
+  "已开启：密码登录后还需要通行密钥或邮箱验证码":
+    "On: signing in with a password also requires a passkey or email code",
+  "开启后，用密码登录还要再过一次通行密钥或邮箱验证码":
+    "When on, password sign-in also requires a passkey or email code",
+  "请先绑定并验证邮箱，或添加一个通行密钥":
+    "Bind and verify an email first, or add a passkey",
+  "开启前请确认身份：密码 + {by}": "Confirm your identity first: password + {by}",
+  "关闭两步验证：密码 + {by}": "Turn off two-step verification: password + {by}",
+  "两步验证已开启": "Two-step verification is on",
+  "两步验证已关闭": "Two-step verification is off",
+  "通行密钥": "Passkey",
+  "添加通行密钥": "Add a passkey",
+  "用 Windows Hello、手机指纹或硬件密钥作为登录的第二因子":
+    "Use Windows Hello, a phone fingerprint or a hardware key as the second factor",
+  "设备备注": "Device label",
+  "例如：我的笔记本": "e.g. My laptop",
+  "或者用邮箱验证码": "Or use an email code",
+  "开始添加": "Start",
+  "还没有添加通行密钥": "No passkeys yet",
+  "上次使用 {time}": "Last used {time}",
+  "还没有用过": "Never used",
+  "移除通行密钥": "Remove passkey",
+  "移除后这个设备就不能再用来验证登录了，请输入账户密码确认。":
+    "This device will no longer be able to verify sign-ins. Enter your account password to confirm.",
+  "移除失败": "Failed to remove",
+  "通行密钥已添加。要让它在登录时生效，请打开「两步验证」开关":
+    "Passkey added. Turn on two-step verification to use it at sign-in",
+  "服务端未安装通行密钥依赖（webauthn），暂时无法使用":
+    "Passkeys are unavailable: the server is missing the webauthn dependency",
+  "通行密钥需要 HTTPS 访问（localhost 除外），当前页面不可用":
+    "Passkeys require HTTPS (localhost excepted) and are unavailable on this page",
+  "已取消，或等待超时": "Cancelled or timed out",
+  "这个设备已经添加过了": "This device has already been added",
+  "当前浏览器或设备不支持通行密钥": "This browser or device does not support passkeys",
+  "通行密钥需要 HTTPS 访问（localhost 除外）": "Passkeys require HTTPS (localhost excepted)",
+  "通行密钥验证失败，还可尝试 {n} 次": "Passkey verification failed, {n} attempts left",
+  "该账号未启用邮箱验证": "Email verification is not enabled for this account",
+  "该账号没有可用的通行密钥": "This account has no usable passkey",
+  "这个通行密钥不属于当前账号": "This passkey does not belong to the current account",
+  "这个通行密钥的计数异常，请改用其它方式登录":
+    "This passkey's signature counter looks wrong — use another sign-in method",
+  "验证已过期，请重新登录": "Verification expired, please sign in again",
+  "验证失败次数过多，请重新登录": "Too many failed attempts, please sign in again",
+  "这是最后一种两步验证方式，请先关闭两步验证再移除":
+    "This is the last two-step verification method — turn it off before removing it",
+  "请先绑定并验证邮箱，或改用其它验证方式":
+    "Bind and verify an email first, or use another verification method",
+  "请改用账户密码验证": "Please verify with your account password instead",
+  "密码与邮箱验证码只需选一种验证": "Use either the password or the email code, not both",
+  "请先用密码或邮箱验证码验证身份":
+    "Verify your identity with the password or an email code first",
+  "验证码重发间隔（秒）": "Code resend interval (seconds)",
+  "同一邮箱两次发码的最小间隔，注册、绑定邮箱、改密码、登录验证都按它算":
+    "Minimum gap between two codes to the same mailbox, used by registration, binding, password changes and sign-in verification",
+  "第 1 步 / 共 2 步 · 账号信息": "Step 1 of 2 · Account",
+  "第 1 步 / 共 2 步 · 首个注册账号会成为超级管理员":
+    "Step 1 of 2 · The first account becomes the super admin",
+  "第 2 步 / 共 2 步 · 设置密码": "Step 2 of 2 · Password",
+  "邮箱格式不正确": "Invalid email address",
 };

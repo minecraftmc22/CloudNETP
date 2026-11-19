@@ -212,6 +212,50 @@ def verify_ban_ticket(token: str) -> tuple[int, str] | None:
 
 
 # --------------------------------------------------------------------------- #
+# 登录第二步（两步验证）待验证票据
+# --------------------------------------------------------------------------- #
+def _pending_raw(user_id: int, exp: int, nonce: str, token_version: int) -> bytes:
+    return f"pending2fa:{user_id}:{token_version}:{exp}:{nonce}".encode()
+
+
+def sign_pending(user_id: int, token_version: int, ttl: int = 600) -> str:
+    """密码已通过、但还差第二步时签发的短期票据。
+
+    **它不是会话**：四段结构（`uid.exp.nonce.sig`），而 `decode_token` 只认两段，
+    所以塞进 Cookie 也过不了 `get_current_user`。签名里带 `token_version`，
+    改密码 / 被踢之后旧票据自动失效。
+    """
+    exp = int(time.time()) + ttl
+    nonce = secrets.token_urlsafe(9)
+    return f"{user_id}.{exp}.{nonce}.{_sign(_pending_raw(user_id, exp, nonce, token_version))}"
+
+
+def pending_uid(token: str) -> int | None:
+    """只取出 uid（还没验签），用于按用户回填 token_version 再验。"""
+    try:
+        uid_s, exp_s, _nonce, _sig = token.split(".")
+        if int(exp_s) < int(time.time()):
+            return None
+        return int(uid_s)
+    except (ValueError, AttributeError):
+        return None
+
+
+def verify_pending(token: str, user_id: int, token_version: int) -> str | None:
+    """校验票据，通过返回 nonce（调用方用它做一次性消费）；否则 None。"""
+    try:
+        uid_s, exp_s, nonce, sig = token.split(".")
+        uid, exp = int(uid_s), int(exp_s)
+    except (ValueError, AttributeError):
+        return None
+    if uid != user_id or exp < int(time.time()):
+        return None
+    if not hmac.compare_digest(_sign(_pending_raw(uid, exp, nonce, token_version)), sig):
+        return None
+    return nonce
+
+
+# --------------------------------------------------------------------------- #
 # 请求来源 / IP
 # --------------------------------------------------------------------------- #
 def client_ip(request: Request) -> str:

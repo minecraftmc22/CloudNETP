@@ -4,7 +4,7 @@
 「管理后台 → 邮箱服务」里配；没配好时接口直接回「未配置」，不会白烧配额。
 
 规则（按需求实现）：
-1. 同一目标（邮箱/场景）两次发送间隔不得小于 30 秒；
+1. 同一目标（邮箱/场景）两次发送间隔由后台「邮箱服务」里的「重发间隔」决定（默认 60 秒）；
 2. 同一设备累计发满 10 次后，冷却 1 小时；
 3. 每发一次新码，前一个码立即作废；
 4. 核验只在服务端做，前端拿不到也无法伪造；
@@ -21,14 +21,15 @@ import threading
 import time
 from dataclasses import dataclass, field
 
-from . import mail_service
+from . import mail_config, mail_service
 from .config import settings
 
 CODE_LENGTH = 6
 CODE_TTL_SECONDS = 600
 MAX_ATTEMPTS = 5
 
-RESEND_COOLDOWN = 30           # 两次发送之间的最小间隔
+# 兜底值：真正的间隔读后台配置（mail_config.resend_seconds()），这里只在读不到时用
+RESEND_COOLDOWN = 60
 DEVICE_SEND_LIMIT = 10         # 设备累计发满这个数就开始长冷却
 DEVICE_COOLDOWN = 3600         # 长冷却时长
 DEVICE_WINDOW = 24 * 3600      # 统计窗口
@@ -78,11 +79,17 @@ _SCENE_SUBJECT = {
     "register": "注册验证码",
     "bind": "绑定邮箱验证码",
     "reset": "重置密码验证码",
+    "password": "安全验证码",
+    "login": "登录验证码",
+    "twofactor": "两步验证验证码",
 }
 _SCENE_ACTION = {
     "register": "注册账号",
     "bind": "绑定邮箱",
     "reset": "重置密码",
+    "password": "验证身份",
+    "login": "登录账号",
+    "twofactor": "变更两步验证设置",
 }
 
 
@@ -160,6 +167,15 @@ def deliver(to: str, scene: str, code: str) -> None:
     )
 
 
+def _cooldown() -> int:
+    """当前生效的重发间隔（秒）。后台改了立即生效，读不到就用兜底值。"""
+    try:
+        return mail_config.resend_seconds()
+    except Exception:  # pragma: no cover - 配置层异常不能把发码整个堵死
+        log.warning("[mail] 读取重发间隔失败，改用默认 %s 秒", RESEND_COOLDOWN, exc_info=True)
+        return RESEND_COOLDOWN
+
+
 def issue(scene: str, target: str, device: str) -> int:
     """签发新验证码，返回本次冷却秒数（用于前端倒计时）。
 
@@ -168,14 +184,15 @@ def issue(scene: str, target: str, device: str) -> int:
     now = time.time()
     key = _key(scene, target)
     dev = (device or "unknown")[:64]
+    cooldown = _cooldown()
 
     with _lock:
         _purge(now)
 
         # 规则 3：新码直接覆盖旧的，旧的立即失效
         old = _codes.get(key)
-        if old is not None and now - old.sent_at < RESEND_COOLDOWN:
-            wait = int(RESEND_COOLDOWN - (now - old.sent_at)) + 1
+        if old is not None and now - old.sent_at < cooldown:
+            wait = int(cooldown - (now - old.sent_at)) + 1
             raise SendError(f"请等待 {wait} 秒后再发送", wait)
 
         # 规则 2：同一设备发太多了，冷却 1 小时
@@ -202,7 +219,7 @@ def issue(scene: str, target: str, device: str) -> int:
         log.warning("[mail] 发信失败，已撤销本次验证码：%s", exc.message)
         _rollback(key, dev, code, now)
         raise SendError(f"验证码邮件发送失败：{exc.message}", 0, status=502) from None
-    return RESEND_COOLDOWN
+    return cooldown
 
 
 def _rollback(key: str, dev: str, code: str, sent_at: float) -> None:

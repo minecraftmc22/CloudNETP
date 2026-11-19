@@ -7,5 +7,7 @@ PyMySQL>=1.1.2
 cryptography>=45
 Pillow>=11.3.0
 mutagen>=1.47.0
+# 通行密钥（WebAuthn）：只做登录第二因子，没装时站点照常跑，设置页会隐藏卡片
+webauthn>=2.7,<3
 # 网易云扫码登录：服务端把登录地址画成二维码（纯 Python，SVG 输出不依赖图片库）
 qrcode>=8.0

@@ -19,8 +19,9 @@ class CamelModel(BaseModel):
 class RegisterIn(CamelModel):
     username: str = Field(min_length=4, max_length=32)
     password: str = Field(min_length=8, max_length=128)
-    # 邮箱可选：还没接邮件服务，先存下来，绑不绑都不影响使用
+    # 邮件服务就绪时邮箱必填且必须带验证码；未就绪时沿用「可选、不验证」的老行为
     email: str | None = Field(default=None, max_length=254)
+    email_code: str = Field(default="", max_length=16)
     captcha_id: str = Field(default="", max_length=64)
     captcha: str = Field(default="", max_length=16)
     # 必须显式同意《用户协议》与《隐私政策》：前端勾选后传 true，接口层也挡一次
@@ -36,11 +37,26 @@ class LoginIn(CamelModel):
 
 
 class EmailCodeIn(CamelModel):
-    """申请邮箱验证码。scene: register / bind / reset"""
+    """申请邮箱验证码（匿名场景）。登录态场景用 MeEmailCodeIn。"""
 
-    scene: Literal["register", "bind", "reset"]
+    scene: Literal["register", "reset"]
     target: str = Field(min_length=1, max_length=254)
     # 前端生成的设备标识，仅用于「同一设备」限流，不涉及隐私
+    device: str = Field(default="", max_length=64)
+
+
+class MeEmailCodeIn(CamelModel):
+    """登录态申请验证码。
+
+    除 ``bind`` 外都不读 ``target``：服务端按当前账号绑定的邮箱发码，
+    免得前端指定收件人（那等于给攻击者一个改收件地址的入口）。
+    """
+
+    scene: Literal["bind", "password", "twofactor"]
+    # 仅 bind 用：要绑定的新邮箱
+    target: str = Field(default="", max_length=254)
+    # 仅 bind 用：绑邮箱属于敏感操作，先验一次账户密码
+    password: str = Field(default="", max_length=128)
     device: str = Field(default="", max_length=64)
 
 
@@ -69,11 +85,58 @@ class ResetPasswordIn(CamelModel):
 
 class EmailBindIn(CamelModel):
     email: str = Field(min_length=3, max_length=254)
+    # 邮件服务就绪时必填：发给这个新邮箱的验证码
+    code: str = Field(default="", max_length=16)
 
 
 class PasswordIn(CamelModel):
     old_password: str = Field(min_length=1, max_length=128)
     new_password: str = Field(min_length=8, max_length=128)
+    # 绑定并验证过邮箱时必填；否则降级为「旧密码 + 图形验证码」
+    email_code: str = Field(default="", max_length=16)
+    captcha_id: str = Field(default="", max_length=64)
+    captcha: str = Field(default="", max_length=16)
+
+
+class TwoFactorIn(CamelModel):
+    """开启/关闭两步验证：密码必填，另需邮箱验证码或图形验证码之一。"""
+
+    enabled: bool
+    password: str = Field(min_length=1, max_length=128)
+    email_code: str = Field(default="", max_length=16)
+    captcha_id: str = Field(default="", max_length=64)
+    captcha: str = Field(default="", max_length=16)
+
+
+class TwoFactorTicketIn(CamelModel):
+    """登录第二步：手上只有 pending 票据，没有会话。"""
+
+    ticket: str = Field(min_length=8, max_length=512)
+
+
+class TwoFactorEmailVerifyIn(CamelModel):
+    ticket: str = Field(min_length=8, max_length=512)
+    code: str = Field(min_length=1, max_length=16)
+
+
+class PasskeyAuthIn(CamelModel):
+    """添加通行密钥前确认身份：密码与邮箱验证码二选一，恰好一个非空。"""
+
+    password: str = Field(default="", max_length=128)
+    email_code: str = Field(default="", max_length=16)
+    label: str = Field(default="", max_length=40)
+
+
+class PasskeyCreateIn(CamelModel):
+    nonce: str = Field(min_length=8, max_length=64)
+    credential: dict
+    label: str = Field(default="", max_length=40)
+
+
+class PasskeyAssertIn(CamelModel):
+    ticket: str = Field(min_length=8, max_length=512)
+    nonce: str = Field(min_length=8, max_length=64)
+    credential: dict
 
 
 class PasswordOnlyIn(CamelModel):
@@ -554,6 +617,9 @@ class AdminMailIn(CamelModel):
     smtp_user: str | None = Field(default=None, max_length=254)
     smtp_pass: str | None = Field(default=None, max_length=500)
     smtp_security: Literal["ssl", "starttls", "none"] | None = None
+
+    # 验证码重发间隔（秒）：10-600，留空 = 不改
+    code_resend_seconds: int | None = Field(default=None, ge=10, le=600)
 
     clear_bm_key: bool = False
     clear_smtp_pass: bool = False

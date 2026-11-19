@@ -786,6 +786,7 @@ def mail_save(payload: AdminMailIn, request: Request, db: DbSession, me: AdminUs
             "hasBmKey": config["billionmail"]["hasKey"],
             "smtpHost": config["smtp"]["host"],
             "hasSmtpPass": config["smtp"]["hasPassword"],
+            "codeResendSeconds": config["codeResendSeconds"],
             "ready": config["ready"],
         },
         request,

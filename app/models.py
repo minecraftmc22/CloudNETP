@@ -13,6 +13,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     SmallInteger,
     String,
     Text,
@@ -60,10 +61,41 @@ class User(Base):
     ban_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     banned_by: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     token_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    # 两步验证：开启后密码登录还要再过一次邮箱验证码或通行密钥。
+    # 放 users 而不是 user_settings —— 登录阶段只加载 User，settings 行是懒创建的
+    two_factor_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     __table_args__ = (CheckConstraint("role IN (0, 1)", name="ck_users_role"),)
+
+
+class Passkey(Base):
+    """WebAuthn 通行密钥。
+
+    `credential_id` 存 base64url 文本并全局唯一（登录断言时按它反查用户）；
+    `public_key` 存 COSE 原始字节。只做「第二因子」，不参与无密码登录。
+    """
+
+    __tablename__ = "passkeys"
+
+    id: Mapped[int] = mapped_column(AutoPK, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    credential_id: Mapped[str] = mapped_column(
+        String(255), nullable=False, unique=True, index=True
+    )
+    public_key: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    sign_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # "usb,nfc,internal" 这类提示，浏览器用来优先匹配认证器
+    transports: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    aaguid: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    # 用户自己起的备注（"我的笔记本"），留空时前端显示「通行密钥」
+    label: Mapped[str] = mapped_column(String(40), nullable=False, default="")
+    backed_up: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 class UserSetting(Base):

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import base64
+import secrets
+import threading
 import time
 from collections import defaultdict, deque
 
@@ -17,13 +19,16 @@ from .. import ban_service
 from .. import captcha as cap
 from .. import email_code
 from .. import mail_config
+from .. import passkey_service
 from .. import profile_service as ps
 from .. import dav_auth as da
 from .. import settings_store, trash_guard
+from .. import twofa
+from .. import webauthn_chal
 from ..config import settings
 from ..db import get_db
 from ..deps import get_current_user
-from ..models import User, utcnow
+from ..models import Passkey, User, utcnow
 from ..schemas import (
     AccountDeleteIn,
     EmailBindIn,
@@ -32,6 +37,8 @@ from ..schemas import (
     ForgotCheckIn,
     ForgotStartIn,
     LoginIn,
+    MeEmailCodeIn,
+    PasskeyAssertIn,
     PasswordIn,
     PasswordOnlyIn,
     ProfileIn,
@@ -39,6 +46,9 @@ from ..schemas import (
     ResetPasswordIn,
     SettingsIn,
     TrashSwitchIn,
+    TwoFactorEmailVerifyIn,
+    TwoFactorIn,
+    TwoFactorTicketIn,
 )
 from ..security import (
     check_origin,
@@ -48,10 +58,13 @@ from ..security import (
     hash_password,
     normalize_email,
     password_problem,
+    pending_uid,
     sign_ban_ticket,
+    sign_pending,
     sign_reset,
     username_problem,
     verify_password,
+    verify_pending,
     verify_reset,
 )
 from ..user_service import ensure_settings, log_action, user_payload
@@ -145,12 +158,18 @@ def _set_session(response: Response, user: User) -> None:
 def meta(db: Session = Depends(get_db)) -> dict:
     from .. import db_failover
 
+    mail_cfg = mail_config.resolved()
+    mail_ready = mail_config.ready(mail_cfg)
+    mail_enabled = bool(mail_cfg.get("enabled"))
+
     return {
         "appName": settings_store.get_value(db, "site_name"),
         # 后台填了 SEO 标题就用它当浏览器标签页标题，跟服务端注入的 <title> 保持一致
         "seoTitle": settings_store.get_value(db, "seo_title"),
         "version": settings.VERSION,
         "allowRegister": settings_store.get_flag(db, "allow_register"),
+        # 站里还没有用户：这次注册会自动成为超级管理员，注册页拿它做提示
+        "firstUser": db.scalar(select(func.count()).select_from(User)) == 0,
         "announcement": settings_store.get_value(db, "site_announcement"),
         "chunkSize": settings_store.get_int(db, "chunk_size_bytes") or settings.chunk_size_bytes,
         "maxFileSize": settings_store.get_int(db, "max_file_size_bytes"),
@@ -159,7 +178,15 @@ def meta(db: Session = Depends(get_db)) -> dict:
         # primary = 主库（MySQL）；fallback = 主库不可用，本地 SQLite 接管
         "dbMode": db_failover.mode_label(),
         # 认证相关：前端据此决定要不要显示验证码、找回密码走哪条路
-        "mailReady": mail_config.ready(),
+        "mailReady": mail_ready,
+        # 开了邮件服务但参数没填全：降级不校验邮箱，但要让用户知道原因
+        "mailEnabled": mail_enabled,
+        "mailMisconfigured": mail_enabled and not mail_ready,
+        # 注册是否强制邮箱验证码（= 邮件服务真的能发信）
+        "emailCodeRequired": mail_ready,
+        "codeResendSeconds": mail_config.resend_seconds(mail_cfg),
+        # 通行密钥依赖服务端装了 webauthn；HTTP 页面另外由前端 isSecureContext 拦
+        "passkeyReady": passkey_service.available(),
         "contactEmail": settings_store.get_value(db, "contact_email"),
         "contactQq": settings_store.get_value(db, "contact_qq"),
         # 管理员开启后，前端登录时自动查一次新版本（只提示）
@@ -239,12 +266,25 @@ def register(
         if db.scalar(select(User.id).where(func.lower(User.email) == email)):
             raise HTTPException(status.HTTP_409_CONFLICT, "该邮箱已被其它账号绑定")
 
+    # 邮件服务真能发信时才强制邮箱验证；未配置就沿用「邮箱可选」的老流程
+    mail_ready = mail_config.ready()
+    if mail_ready:
+        if not email:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "请填写邮箱并完成邮箱验证")
+        if not payload.email_code.strip():
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "请填写邮箱验证码")
+        # 邮箱码放在最后验：它是「一次一用 + 有冷却」的，前面任何一步失败都不该白烧
+        passed, why = email_code.verify("register", email, payload.email_code)
+        if not passed:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, why)
+
     is_first = db.scalar(select(func.count()).select_from(User)) == 0
     user = User(
         username=username,
         password_hash=hash_password(payload.password),
         email=email,
-        email_verified=False,
+        # 只有「邮件服务就绪 + 真的验过码」才算已验证
+        email_verified=bool(mail_ready and email),
         dav_ha1=da.ha1(username, payload.password),
         role=1 if is_first else 0,
         # 第一次注册的账号就是超级管理员：只有超管能调整成员角色
@@ -263,6 +303,12 @@ def register(
 
     _set_session(response, user)
     return {"user": user_payload(db, user), "firstAdmin": is_first}
+
+
+def _finish_login(db: Session, user: User, request: Request, method: str) -> None:
+    user.last_login_at = utcnow()
+    log_action(db, "login", user.id, {"method": method}, request)
+    db.commit()
 
 
 @router.post("/auth/login")
@@ -309,10 +355,26 @@ def login(
     if not user.dav_ha1:
         # 网页登录拿得到明文，正好给老账号补上 WebDAV Digest 需要的 HA1
         user.dav_ha1 = da.ha1(user.username, payload.password)
-    user.last_login_at = utcnow()
-    log_action(db, "login", user.id, None, request)
-    db.commit()
 
+    if user.two_factor_enabled:
+        methods = twofa.login_methods(db, user)
+        if methods:
+            # 密码已通过但还不发会话：只给一张 10 分钟的待验证票据
+            ticket = sign_pending(user.id, user.token_version)
+            log_action(
+                db, "login_2fa_required", user.id, {"account": account, "methods": methods}, request
+            )
+            db.commit()
+            return {
+                "twoFactor": {"required": True, "ticket": ticket, "methods": methods},
+                "username": user.username,
+            }
+        # 开了但没有可用因子（多半是管理员把邮件服务关了）：放行但留高危日志，
+        # 否则用户会被自己的开关永久锁在门外
+        log_action(db, "twofactor_skip", user.id, {"reason": "no_factor_available"}, request)
+        db.commit()
+
+    _finish_login(db, user, request, "password" if not user.two_factor_enabled else "password_2fa_skipped")
     _set_session(response, user)
     return {"user": user_payload(db, user)}
 
@@ -328,14 +390,36 @@ def _mask_email(email: str) -> str:
     return f"{head}***@{domain}"
 
 
+def _issue_code(
+    db: Session, scene: str, target: str, device: str, request: Request, user_id: int | None = None
+) -> dict:
+    """发码统一出口：把限流原因与「还剩几秒」一起交给前端。
+
+    ``retryAfter`` 走结构化 detail（前端 `err.payload.detail.retryAfter` 取），
+    同时塞进 `Retry-After` 头，非前端调用方也能按标准读。
+    """
+    try:
+        retry_after = email_code.issue(scene, target, device or client_ip(request))
+    except email_code.SendError as exc:
+        raise HTTPException(
+            exc.status,
+            {"message": exc.message, "retryAfter": exc.retry_after, "scene": scene},
+            headers={"Retry-After": str(exc.retry_after)} if exc.retry_after else None,
+        ) from None
+
+    log_action(db, "email_code_send", user_id, {"scene": scene}, request)
+    db.commit()
+    return {"sent": True, "retryAfter": retry_after}
+
+
 @router.post("/auth/email/code")
 def send_email_code(
     payload: EmailCodeIn, request: Request, db: Session = Depends(get_db)
 ) -> dict:
-    """发送邮箱验证码。
+    """发送邮箱验证码（匿名场景：注册、找回密码）。
 
-    限流全部在服务端：同目标 30 秒一次、同设备发满 10 次冷却 1 小时、
-    新码覆盖旧码。邮件服务没配好之前直接 503，不消耗任何配额。
+    限流全部在服务端：同目标按后台配置的间隔（默认 60 秒）重发、同设备发满 10 次
+    冷却 1 小时、新码覆盖旧码。邮件服务没配好之前直接 503，不消耗任何配额。
     """
     check_origin(request)
     if not mail_config.ready():
@@ -349,19 +433,52 @@ def send_email_code(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, problem)
     target = normalize_email(target)
 
-    if payload.scene in ("register", "bind"):
+    if payload.scene == "register":
         if db.scalar(select(User.id).where(func.lower(User.email) == target)):
             raise HTTPException(status.HTTP_409_CONFLICT, "该邮箱已被其它账号绑定")
 
-    try:
-        retry_after = email_code.issue(payload.scene, target, payload.device or client_ip(request))
-    except email_code.SendError as exc:
-        # 限流是 429；发信失败是 502，前端按 message 展示即可
-        raise HTTPException(exc.status, exc.message) from None
+    return _issue_code(db, payload.scene, target, payload.device, request)
 
-    log_action(db, "email_code_send", None, {"scene": payload.scene}, request)
-    db.commit()
-    return {"sent": True, "retryAfter": retry_after}
+
+@router.post("/me/email/code")
+def send_me_email_code(
+    payload: MeEmailCodeIn,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """登录态发码：绑定邮箱 / 改密码 / 开关两步验证。
+
+    除 ``bind`` 外一律发到**当前账号已绑定并验证过的邮箱**，不接受前端指定收件人。
+    """
+    check_origin(request)
+    if not mail_config.ready():
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "邮件服务尚未配置，暂时无法发送验证码"
+        )
+
+    if payload.scene == "bind":
+        # 绑邮箱属于敏感操作：先证明知道账户密码，再往新邮箱发码
+        if not verify_password(payload.password, user.password_hash):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "账户密码不正确")
+        target = payload.target.strip()
+        problem = email_problem(target)
+        if problem:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, problem)
+        target = normalize_email(target)
+        other = db.scalar(
+            select(User.id).where(func.lower(User.email) == target, User.id != user.id)
+        )
+        if other:
+            raise HTTPException(status.HTTP_409_CONFLICT, "该邮箱已被其它账号绑定")
+    else:
+        if not (user.email and user.email_verified):
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST, "请先绑定并验证邮箱，或改用其它验证方式"
+            )
+        target = normalize_email(user.email)
+
+    return _issue_code(db, payload.scene, target, payload.device, request, user.id)
 
 
 @router.post("/auth/email/verify")
@@ -372,6 +489,244 @@ def verify_email_code(payload: EmailVerifyIn, request: Request) -> dict:
     if not passed:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, reason)
     return {"ok": True}
+
+
+# --------------------------------------------------------------------------- #
+# 两步验证：登录第二步（邮件 / 通行密钥）
+# --------------------------------------------------------------------------- #
+_2FA_MAX_TRIES = 5
+_2fa_lock = threading.Lock()
+_2fa_used: dict[str, float] = {}   # nonce → 失效时间，防同一张票据被重放
+_2fa_tries: dict[str, int] = {}    # nonce → 已失败次数
+
+
+def _purge_2fa(now: float) -> None:
+    for store in (_2fa_used,):
+        for key, exp in list(store.items()):
+            if exp <= now:
+                store.pop(key, None)
+
+
+def _pending_user(payload_ticket: str, db: Session) -> tuple[User, str]:
+    """把待验证票据换成用户；票据本身不能当会话用。"""
+    uid = pending_uid(payload_ticket)
+    if not uid:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "验证已过期，请重新登录")
+    user = db.get(User, uid)
+    if user is None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "验证已过期，请重新登录")
+    nonce = verify_pending(payload_ticket, user.id, user.token_version)
+    if nonce is None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "验证已过期，请重新登录")
+    now = time.time()
+    with _2fa_lock:
+        _purge_2fa(now)
+        if nonce in _2fa_used:
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "验证已过期，请重新登录")
+        if _2fa_tries.get(nonce, 0) >= _2FA_MAX_TRIES:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                {"code": "2fa_locked", "message": "验证失败次数过多，请重新登录"},
+            )
+    return user, nonce
+
+
+def _burn_nonce(nonce: str) -> None:
+    with _2fa_lock:
+        _2fa_used[nonce] = time.time() + 900
+        _2fa_tries.pop(nonce, None)
+
+
+def _fail_nonce(nonce: str) -> int:
+    """记一次失败，返回还剩几次。"""
+    with _2fa_lock:
+        count = _2fa_tries.get(nonce, 0) + 1
+        _2fa_tries[nonce] = count
+        return max(_2FA_MAX_TRIES - count, 0)
+
+
+@router.post("/auth/2fa/email")
+def two_factor_send_email(
+    payload: TwoFactorTicketIn, request: Request, db: Session = Depends(get_db)
+) -> dict:
+    """给当前待验证账号的邮箱发登录验证码。"""
+    check_origin(request)
+    user, _nonce = _pending_user(payload.ticket, db)
+    if not twofa.email_factor_ready(user):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "该账号未启用邮箱验证")
+    result = _issue_code(db, "login", normalize_email(user.email), "", request, user.id)
+    result["maskedEmail"] = _mask_email(user.email)
+    return result
+
+
+@router.post("/auth/2fa/email/verify")
+def two_factor_verify_email(
+    payload: TwoFactorEmailVerifyIn,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+) -> dict:
+    """校验登录验证码，通过才真正建立会话。"""
+    check_origin(request)
+    user, nonce = _pending_user(payload.ticket, db)
+    if not twofa.email_factor_ready(user):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "该账号未启用邮箱验证")
+
+    passed, reason = email_code.verify("login", normalize_email(user.email), payload.code)
+    if not passed:
+        left = _fail_nonce(nonce)
+        log_action(db, "login_2fa_failed", user.id, {"method": "email", "reason": reason}, request)
+        db.commit()
+        if left <= 0:
+            _burn_nonce(nonce)
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                {"code": "2fa_locked", "message": "验证失败次数过多，请重新登录"},
+            )
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"{reason}（还可尝试 {left} 次）")
+
+    _burn_nonce(nonce)
+    _finish_login(db, user, request, "2fa_email")
+    _set_session(response, user)
+    return {"user": user_payload(db, user)}
+
+
+@router.post("/auth/2fa/passkey/options")
+def two_factor_passkey_options(
+    payload: TwoFactorTicketIn, request: Request, db: Session = Depends(get_db)
+) -> dict:
+    """登录第二步：给出通行密钥断言的 challenge。"""
+    check_origin(request)
+    passkey_service.require()
+    rp_id, origin = passkey_service.rp_and_origin(request)
+    passkey_service.ensure_secure(rp_id, origin)
+
+    user, _nonce = _pending_user(payload.ticket, db)
+    ids = list(
+        db.scalars(select(Passkey.credential_id).where(Passkey.user_id == user.id)).all()
+    )
+    if not ids:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "该账号没有可用的通行密钥")
+
+    challenge = secrets.token_bytes(32)
+    nonce = webauthn_chal.put("auth", user.id, challenge)
+    options = passkey_service.authentication_options(rp_id, ids, challenge)
+    return {"options": options, "nonce": nonce}
+
+
+@router.post("/auth/2fa/passkey/verify")
+def two_factor_passkey_verify(
+    payload: PasskeyAssertIn,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+) -> dict:
+    """校验通行密钥断言，通过才建立会话。"""
+    check_origin(request)
+    passkey_service.require()
+    rp_id, origin = passkey_service.rp_and_origin(request)
+    passkey_service.ensure_secure(rp_id, origin)
+
+    user, ticket_nonce = _pending_user(payload.ticket, db)
+    challenge = webauthn_chal.pop("auth", user.id, payload.nonce)
+    if challenge is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "验证已过期，请重新登录")
+
+    credential_id = str((payload.credential or {}).get("id") or "")
+    row = db.scalar(
+        select(Passkey).where(
+            Passkey.credential_id == credential_id, Passkey.user_id == user.id
+        )
+    )
+    if row is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "这个通行密钥不属于当前账号")
+
+    try:
+        result = passkey_service.verify_authentication(
+            rp_id, origin, challenge, payload.credential, row.public_key, row.sign_count
+        )
+    except HTTPException:
+        raise
+    except Exception:
+        left = _fail_nonce(ticket_nonce)
+        log_action(db, "login_2fa_failed", user.id, {"method": "passkey", "left": left}, request)
+        db.commit()
+        if left <= 0:
+            _burn_nonce(ticket_nonce)
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                {"code": "2fa_locked", "message": "验证失败次数过多，请重新登录"},
+            ) from None
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, f"通行密钥验证失败，还可尝试 {left} 次"
+        ) from None
+
+    if result["clone"]:
+        # 计数回退通常意味着同一个密钥被复制到了别处：宁可拒绝并留高危日志
+        _burn_nonce(ticket_nonce)
+        log_action(db, "passkey_clone_warn", user.id, {"passkeyId": row.id}, request)
+        db.commit()
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "这个通行密钥的计数异常，请改用其它方式登录")
+
+    row.sign_count = result["sign_count"]
+    row.last_used_at = utcnow()
+    log_action(db, "passkey_used", user.id, {"passkeyId": row.id}, request)
+    _burn_nonce(ticket_nonce)
+    _finish_login(db, user, request, "2fa_passkey")
+    _set_session(response, user)
+    return {"user": user_payload(db, user)}
+
+
+@router.put("/me/2fa")
+def update_two_factor(
+    payload: TwoFactorIn,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """开关两步验证。
+
+    开启：密码 + 邮箱验证码（没有邮箱因子时用图形验证码），并确认至少有一种可用因子；
+    关闭：密码 + 邮箱验证码（邮件服务不可用时降级图形验证码）——不能让运维变更把人锁死。
+    """
+    check_origin(request)
+    if not verify_password(payload.password, user.password_hash):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "账户密码不正确")
+
+    email_ok = twofa.email_factor_ready(user)
+    if payload.enabled and not email_ok and not twofa.passkey_count(db, user.id):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "请先绑定并验证邮箱，或添加一个通行密钥"
+        )
+
+    if payload.email_code.strip() and email_ok:
+        passed, reason = email_code.verify(
+            "twofactor", normalize_email(user.email), payload.email_code
+        )
+        if not passed:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, reason)
+    else:
+        # 没有邮箱因子：用图形验证码兜底（证明是活人在操作，不是纯脚本）
+        passed, reason = cap.verify(payload.captcha_id, payload.captcha)
+        if not passed:
+            return JSONResponse(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                content={"detail": reason, "needCaptcha": True},
+            )
+
+    user.two_factor_enabled = bool(payload.enabled)
+    log_action(
+        db,
+        "twofactor_enable" if payload.enabled else "twofactor_disable",
+        user.id,
+        {"via": "email" if email_ok else "captcha"},
+        request,
+    )
+    db.commit()
+    return {
+        "twoFactorEnabled": bool(user.two_factor_enabled),
+        "user": user_payload(db, user),
+    }
 
 
 # --------------------------------------------------------------------------- #
@@ -558,14 +913,11 @@ def me(user: User = Depends(get_current_user), db: Session = Depends(get_db)) ->
 def update_email(
     payload: EmailBindIn,
     request: Request,
+    response: Response,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> dict:
-    """绑定 / 换绑邮箱。
-
-    邮件服务还没通，所以现在只能存下来、标记为未验证；
-    等 /auth/email/code 可用后，这里接一步验证码即可转成已验证。
-    """
+    """绑定 / 换绑邮箱：邮件服务就绪时必须带发到新邮箱的验证码。"""
     check_origin(request)
     problem = email_problem(payload.email)
     if problem:
@@ -578,10 +930,32 @@ def update_email(
     if other:
         raise HTTPException(status.HTTP_409_CONFLICT, "该邮箱已被其它账号绑定")
 
+    mail_ready = mail_config.ready()
+    if mail_ready:
+        if not payload.code.strip():
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "请填写邮箱验证码")
+        passed, reason = email_code.verify("bind", email, payload.code)
+        if not passed:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, reason)
+
+    rebind = bool(user.email) and user.email.lower() != email
     user.email = email or None
-    user.email_verified = False
-    log_action(db, "email_bind", user.id, {"email": email}, request)
+    user.email_verified = bool(mail_ready and email)
+    if rebind:
+        # 邮箱也是登录标识（登录按 username/email 查人），换绑等于身份凭证变了：
+        # 让其它设备上的旧会话失效，当前设备重新签一次避免把自己踢掉
+        user.token_version += 1
+
+    log_action(
+        db,
+        "email_bind",
+        user.id,
+        {"email": email, "rebind": rebind, "verified": bool(user.email_verified)},
+        request,
+    )
     db.commit()
+    if rebind:
+        _set_session(response, user)
     return {"user": user_payload(db, user)}
 
 
@@ -927,10 +1301,28 @@ def change_password(
     if payload.old_password == payload.new_password:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "新密码不能与原密码相同")
 
+    # 人机验证码先过：一次性但能立刻换图，失败了不用等发码冷却
+    passed, reason = cap.verify(payload.captcha_id, payload.captcha)
+    if not passed:
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content={"detail": reason, "needCaptcha": True},
+        )
+
+    email_ok = twofa.email_factor_ready(user)
+    if email_ok:
+        if not payload.email_code.strip():
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "请填写邮箱验证码")
+        passed, reason = email_code.verify(
+            "password", normalize_email(user.email), payload.email_code
+        )
+        if not passed:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, reason)
+
     user.password_hash = hash_password(payload.new_password)
     user.dav_ha1 = da.ha1(user.username, payload.new_password)
     user.token_version += 1  # 踢掉其它设备
-    log_action(db, "change_password", user.id, None, request)
+    log_action(db, "change_password", user.id, {"via": "email" if email_ok else "captcha"}, request)
     db.commit()
 
     _set_session(response, user)

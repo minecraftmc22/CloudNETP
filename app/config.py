@@ -111,7 +111,7 @@ def _compose_database_url() -> str:
 class Settings:
     # ---- 应用 ----
     APP_NAME: str = _get("APP_NAME", "CloudNETP")
-    VERSION: str = "0.4.16"
+    VERSION: str = "0.4.17"
     DEBUG: bool = _get_bool("DEBUG", True)
 
     # ---- 监听与对外地址 ----
@@ -149,6 +149,12 @@ class Settings:
     COOKIE_NAME: str = _get("COOKIE_NAME", "cloudnetp_session")
     COOKIE_SECURE: bool = _get_bool("COOKIE_SECURE", False)
     SESSION_TTL_SECONDS: int = _get_int("SESSION_TTL_SECONDS", 60 * 60 * 24 * 14)
+
+    # ---- 通行密钥（WebAuthn）----
+    # 留空则按 SITE_URL（没有就用请求 Host）自动推：rpId = 域名，origin = 协议+域名
+    # 前端域名与 SITE_URL 不一致、或用了多个域名时才需要显式配
+    WEBAUTHN_RP_ID: str = _get("WEBAUTHN_RP_ID").strip()
+    WEBAUTHN_ORIGIN: str = _get("WEBAUTHN_ORIGIN").strip().rstrip("/")
 
     # ---- 数据库 ----
     # 两种写法任选其一：
@@ -256,6 +262,8 @@ class Settings:
     MAIL_BM_ADDRESSER: str = _get("MAIL_BM_ADDRESSER", "").strip()
     # 模板里引用验证码的变量名（对应 {{.API.code}}）
     MAIL_BM_CODE_VAR: str = _get("MAIL_BM_CODE_VAR", "code").strip()
+    # 同一邮箱两次发码的最小间隔（秒）；后台「邮箱服务」里改的值优先
+    MAIL_CODE_RESEND: int = _get_int("MAIL_CODE_RESEND", 60)
 
     @property
     def mail_ready(self) -> bool:

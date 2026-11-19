@@ -184,6 +184,8 @@ _COLUMN_PATCHES: dict[str, dict[str, str]] = {
         "banned_at": "DATETIME NULL",
         "ban_until": "DATETIME NULL",
         "banned_by": "BIGINT NULL",
+        # 两步验证开关；凭证本身在 passkeys 表里（新表由 create_all 建）
+        "two_factor_enabled": "BOOLEAN NOT NULL DEFAULT 0",
     },
     "shares": {
         # 合集分享：根节点 id 的 JSON 数组；NULL = 单节点分享

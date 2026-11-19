@@ -39,6 +39,8 @@ def user_payload(db: Session, user: User) -> dict[str, Any]:
         "emailVerified": bool(user.email_verified),
         # 没绑邮箱时前端会在右上角提醒（可关闭）
         "needEmail": not bool(user.email),
+        # 两步验证开关（第二因子清单由 /api/me/security 另行返回）
+        "twoFactorEnabled": bool(user.two_factor_enabled),
         "role": user.role,
         # 超级管理员：前端据此决定是否显示「成员权限」操作
         "isSuper": bool(user.is_super),
