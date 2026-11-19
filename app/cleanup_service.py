@@ -17,7 +17,7 @@ import threading
 import time
 from datetime import datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from . import db_failover
@@ -117,7 +117,7 @@ def storage_snapshot(db: Session) -> dict:
         "quickBytes": int(quick_bytes or 0),
         "unreferenced": {
             "count": len(unref),
-            "bytes": int(sum(int(b.size or 0) for b in unref)),
+            "bytes": int(sum(row[1] for row in unref)),
             "blocked": protected,
         },
     }
@@ -134,37 +134,36 @@ def scan_unreferenced(
     rows, protected = _unreferenced(db)
 
     now = time.time()
-    doomed: list[Blob] = []
+    doomed: list[tuple[str, int]] = []
     skipped_new = 0
     drift = 0
-    for blob in rows:
-        if int(blob.ref_count or 0) > 0:
+    for sha, size, ref_count in rows:
+        if ref_count > 0:
             # 计数漂移：记录说有人用，节点表里却找不到。清掉是安全的，但值得单独报数
             drift += 1
         age = None
         try:
-            path = storage.blob_path(blob.sha256)
+            path = storage.blob_path(sha)
             if path.is_file():
                 age = now - path.stat().st_mtime
         except (ValueError, OSError):
             age = None
         if age is None:
             # 文件已经不在盘上，这条记录本身就是垃圾，不受「新文件保护」限制
-            doomed.append(blob)
+            doomed.append((sha, size))
             continue
         if age < keep_hours * 3600:
             skipped_new += 1
             continue
-        doomed.append(blob)
+        doomed.append((sha, size))
 
-    total_bytes = int(sum(int(b.size or 0) for b in doomed))
+    total_bytes = int(sum(size for _, size in doomed))
     removed = 0
     freed = 0
     if apply and doomed:
-        for blob in doomed:
-            size = int(blob.size or 0)
-            db.delete(blob)
-            storage.delete_blob(blob.sha256)
+        for sha, size in doomed:
+            db.execute(delete(Blob).where(Blob.sha256 == sha))
+            storage.delete_blob(sha)
             removed += 1
             freed += size
         db.flush()
