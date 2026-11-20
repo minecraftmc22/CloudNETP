@@ -82,6 +82,7 @@ _SCENE_SUBJECT = {
     "password": "安全验证码",
     "login": "登录验证码",
     "twofactor": "两步验证验证码",
+    "delete": "注销账号验证码",
 }
 _SCENE_ACTION = {
     "register": "注册账号",
@@ -90,6 +91,7 @@ _SCENE_ACTION = {
     "password": "验证身份",
     "login": "登录账号",
     "twofactor": "变更两步验证设置",
+    "delete": "注销账号",
 }
 
 

@@ -2290,7 +2290,11 @@ export function renderAdmin(root) {
               <div class="setting-row__desc">${t("没有任何文件指向的物理文件，永远用不上却占着磁盘；当前 {n} 个，约 {size}", {
                 n: unref.count || 0,
                 size: formatBytes(unref.bytes || 0),
-              })}</div>
+              })}${
+                unref.trashKept
+                  ? ` · ${t("另有 {n} 个只在回收站里，受保护不清理", { n: unref.trashKept })}`
+                  : ""
+              }</div>
             </div>
             <button class="btn" type="button" data-act="orphan-gc">${t("扫描并清理")}</button>
           </div>
@@ -2301,7 +2305,7 @@ export function renderAdmin(root) {
             </div>
             <button class="btn" type="button" data-act="quick-cleanup">${t("立即清理")}</button>
           </div>
-          <div class="admin-hint">${t("最近 1 小时内新写入的文件不参与「无人引用」清理，避免误删正在上传的内容；自动清理使用 24 小时保护期。")}</div>
+          <div class="admin-hint">${t("最近 1 小时内新写入的文件不参与「无人引用」清理，避免误删正在上传的内容；自动清理使用 24 小时保护期。回收站里的文件（含其他账号的）始终算作被引用，一律不参与清理。")}</div>
         </section>`;
 
       bind();
@@ -2385,7 +2389,7 @@ export function renderAdmin(root) {
         const ok = await Dialog.confirm({
           title: t("清理无人引用的文件"),
           message: t(
-            "将删除 <b>{n}</b> 个没有任何文件引用的物理文件，释放约 <b>{size}</b>。此操作不可撤销，但不会影响任何账号里能看到的文件。",
+            "将删除 <b>{n}</b> 个没有任何文件引用的物理文件，释放约 <b>{size}</b>。此操作不可撤销，但不会影响任何账号里能看到的文件（含回收站）。",
             { n: cand.candidates, size: formatBytes(cand.candidatesBytes || 0) }
           ),
           confirmText: t("确认清理"),

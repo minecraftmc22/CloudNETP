@@ -89,15 +89,6 @@ async function apiPost(path, body) {
   return data;
 }
 
-async function copyText(text) {
-  try {
-    await navigator.clipboard.writeText(text);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 function card(inner, { center = false } = {}) {
   root.innerHTML = H`<section class="share-card${center ? " share-card--center" : ""}">${inner}</section>`;
   return root.querySelector("section");

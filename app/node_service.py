@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Iterable
 from datetime import datetime
 
@@ -560,9 +561,35 @@ def subtree_ids(db: Session, user_id: int, root_id: int) -> list[int]:
     return collected
 
 
+def detach_trashed_children(db: Session, user_id: int, parent_ids: list[int]) -> int:
+    """把挂在本次要删的节点下、但早就单独进过回收站的条目摘出来。
+
+    不然「先删 1/文件1、再删整个 1」时，文件1 会因为父节点也在回收站里而被当成
+    这次删除的一部分（``trash_list`` 正是按这个规则过滤子项的），用户单独删的那一条
+    就消失了 —— 表现就是"文件1 被放回了 1 里"。
+
+    摘出来只是把 ``parent_id`` 置空，``restore_parent_id`` 仍是它当初的原父：
+    于是它成为回收站里的独立顶层条目，清空 1、还原 1 都不会带走它；
+    单独还原它时若原目录已不在，照旧回根目录。
+    """
+    rows = db.scalars(
+        select(Node).where(
+            Node.user_id == user_id,
+            Node.parent_id.in_(parent_ids),
+            Node.deleted_at.is_not(None),
+        )
+    ).all()
+    for row in rows:
+        row.parent_id = None
+    return len(rows)
+
+
 def soft_delete(db: Session, user: User, node: Node) -> int:
     ids = subtree_ids(db, user.id, node.id) if node.type == "folder" else [node.id]
     now = utcnow()
+    if node.type == "folder" and ids:
+        # 先摘再标删：ids 只含还没删过的节点，两者不重叠
+        detach_trashed_children(db, user.id, ids)
     db.execute(
         update(Node)
         .where(Node.id.in_(ids))
@@ -578,15 +605,7 @@ def restore_node(db: Session, user: User, node: Node) -> None:
         parent = db.get(Node, target)
         if not parent or parent.user_id != user.id or parent.deleted_at or parent.type != "folder":
             target = None
-    ids = subtree_ids(db, user.id, node.id)  # 回收站内的子节点也一起找出来
-    if node.type == "folder":
-        deleted_children = db.scalars(
-            select(Node.id).where(
-                Node.user_id == user.id,
-                Node.parent_id.in_([node.id]),
-            )
-        ).all()
-        ids = list({*ids, *[int(i) for i in deleted_children]})
+    ids = trash_subtree_ids(db, user.id, node.id)
     node.parent_id = target
     node.name = unique_name(db, user.id, target, node.name, exclude_id=node.id)
     node.deleted_at = None
@@ -601,30 +620,67 @@ def restore_node(db: Session, user: User, node: Node) -> None:
             child.restore_parent_id = None
 
 
+def trash_subtree_ids(db: Session, user_id: int, root_id: int) -> list[int]:
+    """收集回收站里的整棵子树（含自身），还原与彻底删除共用。
+
+    不能复用 ``subtree_ids``：那个函数筛 ``deleted_at IS NULL``，而进了回收站的子树
+    每一层都带着删除标记，用它只会收集到根节点自己，深层文件行被落下 —— 父行没了、
+    子行还在，变成永远清不掉的幽灵（还占配额）。
+    """
+    collected = [root_id]
+    frontier = [root_id]
+    guard = 0
+    while frontier and guard < MAX_DEPTH:
+        guard += 1
+        children = db.scalars(
+            select(Node.id).where(
+                Node.user_id == user_id,
+                Node.parent_id.in_(frontier),
+                # 只收回收站里的：万一有活跃子节点（不该出现）也绝不牵连
+                Node.deleted_at.is_not(None),
+            )
+        ).all()
+        frontier = [int(i) for i in children]
+        collected.extend(frontier)
+    return collected
+
+
 def purge_node(db: Session, user: User, node: Node) -> int:
-    """彻底删除：子节点行一起删，并递减 blob 引用计数。"""
-    ids = subtree_ids(db, user.id, node.id)
-    if node.type == "folder":
-        rows = db.scalars(select(Node.id).where(Node.user_id == user.id, Node.parent_id.in_(ids))).all()
-        ids = list({*ids, *[int(i) for i in rows]})
+    """彻底删除：整棵子树的节点行一起删，并按实际引用次数递减 blob 计数。"""
+    ids = trash_subtree_ids(db, user.id, node.id)
     blobs = db.scalars(
         select(Node.blob_sha256).where(Node.id.in_(ids), Node.blob_sha256.is_not(None))
     ).all()
     db.execute(Node.__table__.delete().where(Node.id.in_(ids)))
-    for sha in {b for b in blobs if b}:
-        release_blob(db, sha)
+    # 同一份内容在子树里出现多次就要减多次，去重减会让 ref_count 越滚越高（blob 永远删不掉）
+    for sha, times in Counter(sha for sha in blobs if sha).items():
+        release_blob(db, sha, times)
     return len(ids)
 
 
-def release_blob(db: Session, sha256: str) -> None:
+def release_blob(db: Session, sha256: str, count: int = 1) -> None:
+    """递减引用，归零时连记录带磁盘一起删掉。
+
+    ``ref_count`` 只是记账，``nodes`` 表才是事实。历史数据、并发、早先按 sha 去重的
+    释放都可能让计数提前归零，而 ``blobs.sha256`` 被 ``nodes.blob_sha256`` 外键引用
+    （RESTRICT，没有级联），这时直接 DELETE 会抛 IntegrityError，把整个「清空回收站」
+    事务打回 500。所以归零后再跟节点表核对一次：只要还有引用就把计数兜回 1，
+    宁可留个 blob 等孤儿清理，也不能让用户点一次清空就炸。
+    """
     blob = db.get(Blob, sha256)
     if not blob:
         return
-    blob.ref_count = max(0, blob.ref_count - 1)
-    if blob.ref_count == 0:
-        db.delete(blob)
-        # 引用归零就清盘，避免"DB 没了但文件还在"的垃圾堆积
-        delete_blob(sha256)
+    blob.ref_count = max(0, blob.ref_count - max(1, int(count)))
+    if blob.ref_count > 0:
+        return
+    # session 是 autoflush=False：调用方（换文件内容等）可能刚把 node.blob_sha256 改成新值
+    # 还没落库，不 flush 会把旧引用误判成"仍在使用"
+    db.flush()
+    if db.scalar(select(Node.id).where(Node.blob_sha256 == sha256).limit(1)) is not None:
+        blob.ref_count = 1
+        return
+    db.delete(blob)
+    delete_blob(sha256)
 
 
 def retain_blob(db: Session, sha256: str, size: int) -> Blob:
@@ -714,6 +770,10 @@ def purge_expired(db: Session, days: int) -> int:
     ).all()
     removed = 0
     for node in rows:
+        # 父节点也在回收站里的交给父的 purge 递归带走，否则同一个文件被数两遍
+        parent = db.get(Node, node.parent_id) if node.parent_id else None
+        if parent is not None and parent.deleted_at:
+            continue
         user = db.get(User, node.user_id)
         if not user:
             continue

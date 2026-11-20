@@ -42,15 +42,30 @@ _lock = threading.Lock()
 # 概况
 # --------------------------------------------------------------------------- #
 def _referenced_shas(db: Session) -> set[str]:
-    """所有被节点引用的哈希（含回收站与快传副本）。"""
+    """所有被节点引用的哈希（含回收站与快传副本）。
+
+    **回收站里的节点也算引用**：用户把文件删进回收站只是打了 ``deleted_at``，
+    文件随时可能被还原，物理文件必须留着。清理不能只看「活跃节点」，
+    否则管理员点一次「清理无人引用的文件」就会把所有人回收站里的文件一起带走。
+    """
     rows = db.scalars(
         select(Node.blob_sha256).where(Node.blob_sha256.is_not(None)).distinct()
     ).all()
     return {sha for sha in rows if sha}
 
 
-def _unreferenced(db: Session) -> tuple[list[tuple[str, int, int]], int]:
-    """返回（无人引用的 (sha, 大小, 引用计数) 列表，被黑名单保护而跳过的数量）。
+def _active_shas(db: Session) -> set[str]:
+    """还在目录里（没进回收站）的节点引用的哈希。"""
+    rows = db.scalars(
+        select(Node.blob_sha256)
+        .where(Node.blob_sha256.is_not(None), Node.deleted_at.is_(None))
+        .distinct()
+    ).all()
+    return {sha for sha in rows if sha}
+
+
+def _unreferenced(db: Session) -> tuple[list[tuple[str, int, int]], int, int]:
+    """返回（无人引用的 (sha, 大小, 引用计数) 列表，被黑名单保护的数量，回收站保护的数量）。
 
     只取三列、不加载 ORM 对象：blobs 表可能有几十万行，这一页每次打开都要算一遍，
     全量实例化对象太浪费；真正要删的时候按 sha 单条 DELETE 就行。
@@ -58,19 +73,24 @@ def _unreferenced(db: Session) -> tuple[list[tuple[str, int, int]], int]:
     黑名单里的文件留着：举报审核页还要预览原件，删了就没法复核了。
     """
     referenced = _referenced_shas(db)
+    active = _active_shas(db)
     blocked = {sha for sha in db.scalars(select(BlockedBlob.sha256)).all()}
     rows: list[tuple[str, int, int]] = []
     protected = 0
+    trash_kept = 0
     for sha, size, ref_count in db.execute(
         select(Blob.sha256, Blob.size, Blob.ref_count)
     ).all():
         if sha in referenced:
+            # 只被回收站引用的单独计数，方便在后台说明「没被清掉是因为还在回收站」
+            if sha not in active:
+                trash_kept += 1
             continue
         if sha in blocked:
             protected += 1
             continue
         rows.append((sha, int(size or 0), int(ref_count or 0)))
-    return rows, protected
+    return rows, protected, trash_kept
 
 
 def storage_snapshot(db: Session) -> dict:
@@ -100,7 +120,7 @@ def storage_snapshot(db: Session) -> dict:
         )
     ).one()
 
-    unref, protected = _unreferenced(db)
+    unref, protected, trash_kept = _unreferenced(db)
     disk_used, disk_total = storage.disk_usage()
 
     return {
@@ -119,6 +139,7 @@ def storage_snapshot(db: Session) -> dict:
             "count": len(unref),
             "bytes": int(sum(row[1] for row in unref)),
             "blocked": protected,
+            "trashKept": trash_kept,
         },
     }
 
@@ -131,7 +152,7 @@ def scan_unreferenced(
 ) -> dict:
     """回收 `blobs` 里无人引用的记录与物理文件。默认只统计，`apply=True` 才真删。"""
     keep_hours = max(0, int(keep_hours))
-    rows, protected = _unreferenced(db)
+    rows, protected, trash_kept = _unreferenced(db)
 
     now = time.time()
     doomed: list[tuple[str, int]] = []
@@ -160,8 +181,14 @@ def scan_unreferenced(
     total_bytes = int(sum(size for _, size in doomed))
     removed = 0
     freed = 0
+    kept_by_refs = 0
     if apply and doomed:
         for sha, size in doomed:
+            # 扫描到落手之间可能有人刚上传同内容文件、或把回收站条目还原了：
+            # 删之前再查一次节点引用，宁可不删也不能删错
+            if db.scalar(select(Node.id).where(Node.blob_sha256 == sha).limit(1)) is not None:
+                kept_by_refs += 1
+                continue
             db.execute(delete(Blob).where(Blob.sha256 == sha))
             storage.delete_blob(sha)
             removed += 1
@@ -176,6 +203,8 @@ def scan_unreferenced(
         "removed": removed,
         "freedBytes": freed,
         "protected": protected,
+        "trashKept": trash_kept,
+        "keptByRefs": kept_by_refs,
         "drift": drift,
         "skippedNew": skipped_new,
         "keepHours": keep_hours,

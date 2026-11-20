@@ -187,6 +187,9 @@ def main() -> int:
 
             def open_account(width: int = 1280) -> None:
                 page.set_viewport_size({"width": width, "height": 900})
+                # 先回首页让 app 完成登录判断：直接进 #/settings 时偶尔会先撞一次 401 停在登录页
+                page.goto(base, wait_until="domcontentloaded")
+                page.wait_for_timeout(1200)
                 page.goto(f"{base}/#/settings", wait_until="domcontentloaded")
                 # 只改 hash 是同文档导航、不会重新拉 /api/me，必须真刷一次才能读到改过的库
                 page.reload(wait_until="domcontentloaded")

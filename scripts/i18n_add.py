@@ -80,8 +80,10 @@ def main() -> None:
     DICT.write_text(new_text, encoding="utf-8")
 
     inner = DICT.read_text(encoding="utf-8").split("{", 1)[1].rsplit("}", 1)[0]
-    # 字典里按分组写了 /* ... */ 注释、末尾也留着尾逗号（JS 允许、JSON 不允许），校验前先摘掉
+    # 字典里按分组写了注释、末尾也留着尾逗号（JS 允许、JSON 不允许），校验前先摘掉。
+    # 分组注释既有 /* */ 也有 // —— 后者只认行首（值里的 https:// 不能被误删）
     inner = re.sub(r"/\*.*?\*/", "", inner, flags=re.S)
+    inner = re.sub(r"^\s*//.*$", "", inner, flags=re.M)
     inner = re.sub(r",\s*$", "", inner.rstrip())
     data = json.loads("{" + inner + "}")
     print(f"\n新增 {len(added)} 条，字典共 {len(data)} 条；JSON 校验通过")

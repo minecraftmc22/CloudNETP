@@ -19,6 +19,7 @@ import { avatarMarkup } from "./ui/avatar.js";
 import { renderAnnounce } from "./ui/announce.js";
 import { Toast } from "./ui/toast.js";
 import { openMenu } from "./ui/menu.js";
+import { initSelectUI } from "./ui/select.js";
 import { reset as resetUploads } from "./ui/upload-queue.js";
 import { installState, promptInstall, registerPwa } from "./pwa.js";
 import { initLive2DMascot } from "./ui/live2d.js";
@@ -30,7 +31,7 @@ import { banNoticeOpen, hideBanNotice, showBanNotice } from "./ui/ban.js";
 import { renderAuth } from "./views/auth.js";
 import { renderAdmin } from "./views/admin.js";
 import { renderAbout } from "./views/about.js";
-import { renderFiles } from "./views/files.js";
+import { disposeFilesView, renderFiles } from "./views/files.js";
 import { renderSettings } from "./views/settings.js";
 import { renderFeedback } from "./views/feedback.js";
 import { renderQuick } from "./views/quick.js";
@@ -103,6 +104,7 @@ function takeNextPath() {
 /* ------------------------------------------------------------------ */
 async function boot() {
   initI18n();
+  initSelectUI();
   registerPwa();
   applyCachedAppearance();
   watchSystemTheme();
@@ -154,6 +156,8 @@ async function boot() {
 function showAuth() {
   stopBanWatch();
   hideBanNotice();
+  // 文件视图的 Delete 键监听挂在 document 上，不撤掉的话退出登录后还能触发删除
+  disposeFilesView();
   store.set({ user: null });
   if (location.hash.startsWith("#/appeal")) {
     // 离开申诉页时把 hash 抹掉，否则刷新又跳回去
@@ -202,6 +206,7 @@ function showAuth() {
 function showAppeal(detail, ticket) {
   stopBanWatch();
   hideBanNotice();
+  disposeFilesView();
   store.set({ user: null });
   el("shell").hidden = true;
   el("mascot").classList.add("is-hidden");

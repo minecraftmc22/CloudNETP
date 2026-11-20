@@ -24,6 +24,16 @@ const UPLOAD_CONCURRENCY = 2;
  */
 let viewAbort = null;
 
+/**
+ * 登出 / 换账号时收尾：撤掉挂在 document 上的键盘监听与拖拽监听。
+ * 只清 #view-root 的 innerHTML 不够——监听还活着，退出登录后按 Delete
+ * 依然会对上一次选中的文件弹删除确认，点下去报「未登录」。
+ */
+export function disposeFilesView() {
+  viewAbort?.abort();
+  viewAbort = null;
+}
+
 export function renderFiles(root) {
   viewAbort?.abort();
   const view = new AbortController();
@@ -896,6 +906,10 @@ export function renderFiles(root) {
   // 键盘
   const onKey = (event) => {
     if (view.signal.aborted || !document.body.contains(root)) return;
+    // #view-root 常驻、切换视图只是清空 innerHTML，登出后这套 handler 还挂在 document 上：
+    // 只判 root 是否在 DOM 里没用，得看这一次渲染的节点还在不在，
+    // 否则「退出登录后按 Delete 还会弹出删除确认，点确认提示未登录」
+    if (!bodyEl.isConnected) return;
     const tag = document.activeElement?.tagName;
     if (tag === "INPUT" || tag === "TEXTAREA") return;
 

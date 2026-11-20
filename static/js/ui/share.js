@@ -7,6 +7,7 @@ import { t } from "../i18n.js";
 import { Dialog } from "./dialog.js";
 import { Toast } from "./toast.js";
 import { siteOrigin } from "../store.js";
+import { copyText } from "./clipboard.js";
 
 const DAY_OPTIONS = [
   { label: "1 天", value: "1" },
@@ -15,27 +16,9 @@ const DAY_OPTIONS = [
   { label: "永久有效", value: "" },
 ];
 
-export async function copyText(text) {
-  try {
-    await navigator.clipboard.writeText(text);
-    return true;
-  } catch {
-    // 非 https / 无剪贴板权限时退化为隐藏 textarea
-    try {
-      const ta = document.createElement("textarea");
-      ta.value = text;
-      ta.style.position = "fixed";
-      ta.style.opacity = "0";
-      document.body.appendChild(ta);
-      ta.select();
-      const ok = document.execCommand("copy");
-      ta.remove();
-      return ok;
-    } catch {
-      return false;
-    }
-  }
-}
+// 复制统一走 ui/clipboard.js（http 内网里 navigator.clipboard 不存在，那里有兜底）；
+// 这里再导出一份，老调用点不用改 import 路径
+export { copyText };
 
 const SHARE_FIELDS = [
   {

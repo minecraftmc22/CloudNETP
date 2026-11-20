@@ -483,6 +483,42 @@
 .link-btn:hover {
   color: var(--accent);
 }
+
+/* ---- 两步验证（登录第二步）----
+   .tf-methods / .tf-email 只是分组包裹：不排成列的话，里面的按钮与字段会互相贴着，
+   因为 .auth-form 的 gap 只作用于它的直接子元素（包裹层内部拿不到）。 */
+.tf-methods,
+.tf-email {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+.tf-methods {
+  gap: var(--sp-2);
+}
+.tf-methods[hidden],
+.tf-email[hidden] {
+  display: none;
+}
+/* 验证码框下的提示空着时不占位，报错时才把按钮往下推一点 */
+.tf-email .auth-form__msg:empty {
+  display: none;
+}
+/* 发码按钮跟输入框同高：手机断点里输入框是 42px，别被 .code-row .btn 的 36px 写死 */
+.auth-form .code-row .btn {
+  height: auto;
+  min-height: 36px;
+}
+/* 倒计时期间按钮是禁用的，但 .btn:disabled 的 0.45 透明度会让它淡成一行灰字，
+   看不出「现在不能点、过会儿能点」——用虚线框保留按钮轮廓 */
+.auth-form .code-row .btn:disabled {
+  opacity: 1;
+  color: var(--text-3);
+  background: transparent;
+  border-color: var(--stroke-strong);
+  border-style: dashed;
+}
+
 .auth-card__title--sm {
   font-size: 15px;
   margin-bottom: 2px;
@@ -907,6 +943,23 @@ a.setting-row--link:hover .setting-row__chevron {
 }
 .passkey-list:not(:empty) {
   padding: 4px 0;
+}
+/* 卡身直接挂的提示（空状态 / 正在读取 / 设备不支持）：跟设置行同样的左右内缩，
+   否则文字会贴着卡身边框。面板里的提示有自己的 padding，别误伤 */
+.settings .settings-card__body > .setting-panel__hint,
+.settings .passkey-list > .setting-panel__hint {
+  margin: 0;
+  padding: 12px 16px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+/* 列表项跟设置行同一条左边线，别一个小 18 一个小 16 */
+.settings .passkey-item {
+  padding: 10px 16px;
+}
+/* 首项顶上就是卡身边框，再画一条发丝线会像双线 */
+.passkey-list > .passkey-item:first-child {
+  border-top: 0;
 }
 .passkey-item {
   display: flex;

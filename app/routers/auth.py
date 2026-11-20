@@ -447,9 +447,11 @@ def send_me_email_code(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> dict:
-    """登录态发码：绑定邮箱 / 改密码 / 开关两步验证。
+    """登录态发码：绑定邮箱 / 改密码 / 开关两步验证 / 注销账号。
 
     除 ``bind`` 外一律发到**当前账号已绑定并验证过的邮箱**，不接受前端指定收件人。
+    ``delete`` 与 ``bind`` 一样要先用密码证明是本人，免得拿着一个登录会话就能往
+    别人邮箱里灌验证码。
     """
     check_origin(request)
     if not mail_config.ready():
@@ -472,6 +474,8 @@ def send_me_email_code(
         if other:
             raise HTTPException(status.HTTP_409_CONFLICT, "该邮箱已被其它账号绑定")
     else:
+        if payload.scene == "delete" and not verify_password(payload.password, user.password_hash):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "账户密码不正确")
         if not (user.email and user.email_verified):
             raise HTTPException(
                 status.HTTP_400_BAD_REQUEST, "请先绑定并验证邮箱，或改用其它验证方式"
@@ -850,19 +854,14 @@ def delete_me(
 ) -> dict:
     """注销当前账号：验证通过后删除全部数据，并清掉登录态。
 
-    验证方式是「密码 + 绑定邮箱」——邮箱是自己填过的额外凭据，能证明操作者不是
-    拿着一个已登录会话的旁人；没绑邮箱就只验密码。
+    验证方式是「密码 + 发送到绑定邮箱的验证码」。邮箱是本人在别处也拿得到的凭据，
+    能证明操作者不是拿着一个已登录会话的旁人；没绑定 / 没验证过邮箱、或站点压根
+    没配邮件服务时，退回只验密码（否则这条路就被彻底堵死了）。
     """
     check_origin(request)
 
     if not verify_password(payload.password, user.password_hash):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "密码不正确")
-    if user.email:
-        given = (payload.email or "").strip().lower()
-        if not given:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, "请填写绑定的邮箱")
-        if given != (user.email or "").strip().lower():
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, "邮箱与当前账号绑定的不一致")
 
     # 管理员账号不能把站点删成「没人管」的状态
     if user.role == 1 and admin_service.admin_count(db) <= 1:
@@ -871,6 +870,15 @@ def delete_me(
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST, "这是最后一个超级管理员，请先把超级管理员交给别人"
         )
+
+    # 邮箱验证码放在最后：它在成功核验时会作废，前面这些确定性检查先跑完再消耗
+    if user.email and user.email_verified and mail_config.ready():
+        code = (payload.email_code or "").strip()
+        if not code:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "请输入邮箱验证码")
+        passed, reason = email_code.verify("delete", normalize_email(user.email), code)
+        if not passed:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, reason)
 
     name = user.username
     uid = user.id

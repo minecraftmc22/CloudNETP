@@ -265,7 +265,7 @@ const template = () => H`
           </button>
         </div>
 
-        <div data-tf-emailbox hidden>
+        <div class="tf-email" data-tf-emailbox hidden>
           <div class="field">
             <span class="field__label">邮箱验证码</span>
             <div class="code-row">
@@ -274,15 +274,15 @@ const template = () => H`
                 <input name="tfcode" type="text" inputmode="numeric" autocomplete="one-time-code"
                        placeholder="6 位数字" maxlength="6" spellcheck="false">
               </span>
-              <button class="btn btn--subtle" type="button" data-tf-send
+              <button class="btn" type="button" data-tf-send
                       data-idle-label="发送验证码">发送验证码</button>
             </div>
-            <span class="field__hint" data-tf-hint hidden></span>
+            <div class="auth-form__msg" data-tf-code-msg></div>
           </div>
           <button class="btn btn--accent btn--block" type="submit" data-tf-submit>
             <span>验证并登录</span>
           </button>
-          <div class="auth-links">
+          <div class="auth-links" data-tf-switch hidden>
             <button class="link-btn" type="button" data-act="tf-back">换一种方式</button>
           </div>
         </div>
@@ -359,7 +359,10 @@ export function renderAuth(root, { meta = {}, onSuccess, onBanned }) {
   const tfEmailBox = el("[data-tf-emailbox]");
   const tfMethodsBox = el("[data-tf-methods]");
   const tfSendBtn = el("[data-tf-send]");
-  const tfHint = el("[data-tf-hint]");
+  // 两步验证的提示分两处：选方式那张放方法按钮下面，邮箱面板放验证码框下面。
+  // 都写到一个容器里的话，报错会飘到卡片最底部，离正在输入的框老远
+  const tfCodeMsg = el("[data-tf-code-msg]");
+  const tfSwitchRow = el("[data-tf-switch]");
   const tfSubmit = el("[data-tf-submit]");
 
   // 邮件服务就绪才强制邮箱验证；「开了但没配完」降级并提醒管理员
@@ -700,8 +703,17 @@ export function renderAuth(root, { meta = {}, onSuccess, onBanned }) {
   let tfMethods = [];
 
   function tfShowMessage(text, ok = false) {
-    tfMsg.textContent = text ? t(text) : "";
-    tfMsg.classList.toggle("is-ok", Boolean(text) && ok);
+    // 邮箱面板已经展开时，提示贴到验证码框下面；否则留在方法按钮下面
+    const inEmail = !tfEmailBox.hidden;
+    const target = inEmail ? tfCodeMsg : tfMsg;
+    const idle = inEmail ? tfMsg : tfCodeMsg;
+    if (idle) {
+      idle.textContent = "";
+      idle.classList.remove("is-ok");
+    }
+    if (!target) return;
+    target.textContent = text ? t(text) : "";
+    target.classList.toggle("is-ok", Boolean(text) && ok);
   }
 
   function tfReset() {
@@ -710,8 +722,8 @@ export function renderAuth(root, { meta = {}, onSuccess, onBanned }) {
     tfForm.hidden = true;
     tfEmailBox.hidden = true;
     tfMethodsBox.hidden = false;
+    tfSwitchRow.hidden = true;
     tfForm.querySelector('[name="tfcode"]').value = "";
-    tfHint.hidden = true;
     tfMsg.textContent = "";
     tfMsg.classList.remove("is-ok");
     form.hidden = false;
@@ -722,6 +734,8 @@ export function renderAuth(root, { meta = {}, onSuccess, onBanned }) {
   function tfEnterEmail() {
     tfMethodsBox.hidden = true;
     tfEmailBox.hidden = false;
+    // 只有一种因子时没有「换一种方式」可换，露出来只会让人点了又回来
+    tfSwitchRow.hidden = tfMethods.length <= 1;
     tfSendCode();
   }
 
@@ -732,11 +746,14 @@ export function renderAuth(root, { meta = {}, onSuccess, onBanned }) {
         body: { ticket: tfTicket },
         button: tfSendBtn,
       });
-      if (res?.maskedEmail) {
-        tfHint.hidden = false;
-        tfHint.textContent = t("验证码已发送到 {email}", { email: res.maskedEmail });
-      }
-      tfShowMessage("验证码已发送，请查收邮件", true);
+      // 成功也走同一个提示位：之前「已发送到 xx」和「请查收邮件」两句话
+      // 分别落在输入框下与卡片底部，看起来像重复报了两遍
+      tfShowMessage(
+        res?.maskedEmail
+          ? t("验证码已发送到 {email}", { email: res.maskedEmail })
+          : "验证码已发送，请查收邮件",
+        true
+      );
       tfForm.querySelector('[name="tfcode"]')?.focus();
     } catch (err) {
       tfShowMessage(err instanceof ApiError ? err.message : "发送失败，请稍后再试");

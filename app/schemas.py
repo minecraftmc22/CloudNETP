@@ -52,10 +52,10 @@ class MeEmailCodeIn(CamelModel):
     免得前端指定收件人（那等于给攻击者一个改收件地址的入口）。
     """
 
-    scene: Literal["bind", "password", "twofactor"]
+    scene: Literal["bind", "password", "twofactor", "delete"]
     # 仅 bind 用：要绑定的新邮箱
     target: str = Field(default="", max_length=254)
-    # 仅 bind 用：绑邮箱属于敏感操作，先验一次账户密码
+    # bind / delete 用：都属于敏感操作，先验一次账户密码
     password: str = Field(default="", max_length=128)
     device: str = Field(default="", max_length=64)
 
@@ -144,10 +144,10 @@ class PasswordOnlyIn(CamelModel):
 
 
 class AccountDeleteIn(CamelModel):
-    """注销账号：密码必填；绑定过邮箱的还要再填一次那个邮箱。"""
+    """注销账号：密码必填；绑过并验证过邮箱时还要填收到的验证码。"""
 
     password: str = Field(min_length=1, max_length=128)
-    email: str = Field(default="", max_length=254)
+    email_code: str = Field(default="", max_length=16)
 
 
 class SettingsIn(CamelModel):

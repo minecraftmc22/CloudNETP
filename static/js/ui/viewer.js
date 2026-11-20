@@ -8,6 +8,7 @@ import { H, t } from "../i18n.js";
 import { store } from "../store.js";
 import { renderMarkdown } from "./markdown.js";
 import { Toast } from "./toast.js";
+import { copyText } from "./clipboard.js";
 import { mountOffice, OFFICE_KINDS } from "./office.js";
 import {
   buildVideoPlugins,
@@ -1387,14 +1388,14 @@ export function openViewer(item, { onDownload } = {}) {
   host.querySelector('[data-act="copy"]')?.addEventListener("click", async (event) => {
     const codeEl = bodyEl.querySelector("[data-code]");
     if (!codeEl) return;
-    try {
-      await navigator.clipboard.writeText(codeEl.textContent || "");
-      const btn = event.currentTarget;
-      btn.textContent = t("已复制");
-      window.setTimeout(() => (btn.textContent = t("复制")), 1400);
-    } catch {
-      /* 剪贴板被拒时静默失败，用户可以手动选中 */
+    const ok = await copyText(codeEl.textContent || "");
+    if (!ok) {
+      Toast.error(t("复制失败，请手动选中内容"));
+      return;
     }
+    const btn = event.currentTarget;
+    btn.textContent = t("已复制");
+    window.setTimeout(() => (btn.textContent = t("复制")), 1400);
   });
 
   // Ctrl/⌘ + 滚轮缩放（普通滚轮留给滚动）

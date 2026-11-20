@@ -8,6 +8,7 @@ import { store, siteOrigin } from "../store.js";
 import { Toast } from "../ui/toast.js";
 import { Dialog } from "../ui/dialog.js";
 import { avatarMarkup } from "../ui/avatar.js";
+import { copyText } from "../ui/clipboard.js";
 import { sendCode } from "../ui/email-code.js";
 import {
   createCredential,
@@ -174,6 +175,11 @@ export function renderSettings(root) {
   const keep = { signal: view.signal };
 
   const { user } = store.get();
+  // 通用取值工具：danger 区那段在 if (davUrlEl) { } 之外，必须放在函数顶部
+  const q = (sel) => root.querySelector(sel);
+  const currentUser = () => store.get().user || {};
+  // 注销时要不要邮箱码：绑过且验证过邮箱、站点也配了邮件服务
+  const deleteNeedsCode = Boolean(user?.emailVerified && store.get().meta?.mailReady);
   const s = user?.settings || {};
   const mode = s.themeMode ?? 2;
   const accent = (s.accentColor || "#c084fc").toLowerCase();
@@ -904,6 +910,41 @@ export function renderSettings(root) {
               </div>
               <button class="btn btn--danger" type="button" data-act="delete-account">${t("注销账号")}</button>
             </div>
+
+            <div class="setting-panel" data-delete-panel hidden>
+              <p class="setting-panel__hint">${
+                deleteNeedsCode
+                  ? t("确认要注销的话，请再验证一次身份：输入登录密码，并填写发送到绑定邮箱的验证码。")
+                  : t("确认要注销的话，请输入登录密码来确认是本人操作。")
+              }</p>
+              <label class="field">
+                <span class="field__label">${t("登录密码")}</span>
+                <span class="textbox">
+                  <input type="password" data-delete-password autocomplete="current-password"
+                         maxlength="128" placeholder="${t("当前登录密码")}">
+                </span>
+              </label>
+              <div class="field" data-delete-code-row ${deleteNeedsCode ? "" : "hidden"}>
+                <span class="field__label">${t("邮箱验证码")}</span>
+                <div class="code-row">
+                  <span class="textbox">
+                    <input type="text" inputmode="numeric" autocomplete="one-time-code"
+                           maxlength="6" data-delete-code placeholder="${t("6 位数字")}">
+                  </span>
+                  <button class="btn" type="button" data-act="delete-send"
+                          data-idle-label="发送验证码">${t("发送验证码")}</button>
+                </div>
+              </div>
+              <p class="setting-panel__hint" data-delete-hint ${deleteNeedsCode ? "hidden" : ""}>${
+                deleteNeedsCode
+                  ? ""
+                  : t("这个账号没有已验证的邮箱，或站点未配置邮件服务，输入密码即可确认是本人操作。")
+              }</p>
+              <div class="setting-panel__foot">
+                <button class="btn btn--subtle" type="button" data-act="delete-cancel">${t("取消")}</button>
+                <button class="btn btn--danger" type="button" data-act="delete-confirm">${t("永久删除")}</button>
+              </div>
+            </div>
           </div>
         </section>
 
@@ -960,10 +1001,10 @@ export function renderSettings(root) {
   });
 
   root.querySelector('[data-act="dav-copy"]')?.addEventListener("click", async () => {
-    try {
-      await navigator.clipboard.writeText(davUrl);
+    // 走统一的 copyText：http 内网里 navigator.clipboard 不存在，用 execCommand 兜底
+    if (await copyText(davUrl)) {
       Toast.success("挂载地址已复制");
-    } catch {
+    } else {
       Toast.error("复制失败，请手动选中地址");
     }
   });
@@ -976,13 +1017,11 @@ export function renderSettings(root) {
   let pwdCaptchaId = "";
   let twofaCaptchaId = "";
 
-  const q = (sel) => root.querySelector(sel);
   const emailPanel = q("[data-email-panel]");
   const pwdPanel = q("[data-password-panel]");
   const twofaPanel = q("[data-twofa-panel]");
   const passkeyPanel = q("[data-passkey-panel]");
 
-  const currentUser = () => store.get().user || {};
   const emailFactorOn = () =>
     Boolean(security?.emailFactorAvailable ?? (currentUser().emailVerified && meta.mailReady));
   const passkeyList = () => security?.passkeys || [];
@@ -2340,15 +2379,33 @@ export function renderSettings(root) {
     if (event.key === "Enter") root.querySelector('[data-act="profile-save"]')?.click();
   });
 
-  /* --- 注销账号：先说清后果，再验一次身份 --- */
-  root.querySelector('[data-act="delete-account"]')?.addEventListener("click", async () => {
-    const boundEmail = (user?.email || "").trim();
+  /* --- 注销账号：先说清后果，再在面板里验密码 + 邮箱验证码 --- */
+  const deletePanel = q("[data-delete-panel]");
+  const deleteCodeRow = q("[data-delete-code-row]");
+  const deleteEmailOn = () => deleteNeedsCode;
+  const deleteHint = (msg) => {
+    const hint = q("[data-delete-hint]");
+    if (!hint) return;
+    hint.hidden = !msg;
+    hint.textContent = msg || "";
+  };
 
+  function closeDeletePanel() {
+    if (!deletePanel) return;
+    deletePanel.hidden = true;
+    const pwd = q("[data-delete-password]");
+    const code = q("[data-delete-code]");
+    if (pwd) pwd.value = "";
+    if (code) code.value = "";
+    deleteHint("");
+  }
+
+  root.querySelector('[data-act="delete-account"]')?.addEventListener("click", async () => {
     const res = await Dialog.confirm({
       title: t("注销账号"),
       message: H`
         <p>${t("这一步会把 {name} 这个账号永久删除，无法撤销：", {
-          name: `<b>${escapeHtml(user?.username || "")}</b>`,
+          name: `<b>${escapeHtml(currentUser().username || "")}</b>`,
         })}</p>
         <ul class="danger-list">
           <li>${t("登录名会释放，之后任何人都可能注册它，你的旧链接与分享也会失效")}</li>
@@ -2361,56 +2418,69 @@ export function renderSettings(root) {
       cancelText: t("再想想"),
       danger: true,
     });
-    if (!res) return;
+    if (!res || !deletePanel) return;
+    deletePanel.hidden = false;
+    if (deleteCodeRow) deleteCodeRow.hidden = !deleteEmailOn();
+    deleteHint(
+      deleteEmailOn()
+        ? ""
+        : t("这个账号没有已验证的邮箱，或站点未配置邮件服务，输入密码即可确认是本人操作。")
+    );
+    deletePanel.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    q("[data-delete-password]")?.focus();
+  });
 
-    const values = await Dialog.form({
-      title: t("注销账号"),
-      message: boundEmail
-        ? t("请输入登录密码，并填写绑定的邮箱 {email}，用来确认是本人操作。", {
-            email: `<b>${escapeHtml(boundEmail)}</b>`,
-          })
-        : t("这个账号没有绑定邮箱，输入登录密码即可确认是本人操作。"),
-      confirmText: t("永久删除"),
-      cancelText: t("取消"),
-      danger: true,
-      fields: [
-        {
-          name: "password",
-          label: t("登录密码"),
-          type: "password",
-          placeholder: t("当前登录密码"),
-          validate: (v) => (String(v || "") ? null : t("请输入密码")),
-        },
-        ...(boundEmail
-          ? [
-              {
-                name: "email",
-                label: t("绑定的邮箱"),
-                placeholder: boundEmail,
-                validate: (v) =>
-                  String(v || "").trim().toLowerCase() === boundEmail.toLowerCase()
-                    ? null
-                    : t("邮箱与绑定的不一致"),
-              },
-            ]
-          : []),
-      ],
-    });
-    if (!values) return;
+  q('[data-act="delete-cancel"]')?.addEventListener("click", closeDeletePanel);
 
-    const btn = root.querySelector('[data-act="delete-account"]');
-    if (btn) btn.disabled = true;
+  q('[data-act="delete-send"]')?.addEventListener("click", async (event) => {
+    const btn = event.currentTarget;
+    const password = q("[data-delete-password]")?.value || "";
+    if (!password) {
+      deleteHint(t("请先填写登录密码，再发送验证码"));
+      q("[data-delete-password]")?.focus();
+      return;
+    }
     try {
-      await api.post("/api/me/delete", {
-        password: values.password,
-        email: values.email || "",
+      await sendCode({
+        url: "/api/me/email/code",
+        scene: "delete",
+        body: { password },
+        button: btn,
       });
+      Toast.success("验证码已发送，请查收邮件");
+      deleteHint("");
+      q("[data-delete-code]")?.focus();
+    } catch (err) {
+      Toast.error(err?.message || t("发送失败，请稍后再试"));
+    }
+  });
+
+  q('[data-act="delete-confirm"]')?.addEventListener("click", async (event) => {
+    const btn = event.currentTarget;
+    const password = q("[data-delete-password]")?.value || "";
+    const code = (q("[data-delete-code]")?.value || "").trim();
+
+    if (!password) {
+      deleteHint(t("请输入登录密码"));
+      q("[data-delete-password]")?.focus();
+      return;
+    }
+    if (deleteEmailOn() && !/^\d{6}$/.test(code)) {
+      deleteHint(t("请输入 6 位邮箱验证码"));
+      q("[data-delete-code]")?.focus();
+      return;
+    }
+
+    btn.disabled = true;
+    deleteHint("");
+    try {
+      await api.post("/api/me/delete", { password, emailCode: code });
       Toast.success(t("账号已注销，正在退出…"));
       // 服务端已经清了 cookie，这里整页重载回到登录页，顺便丢掉内存里的用户态
       window.setTimeout(() => window.location.assign("/"), 700);
     } catch (err) {
-      if (btn) btn.disabled = false;
-      Toast.error(err.message || t("注销失败，请稍后再试"));
+      btn.disabled = false;
+      deleteHint(err.message || t("注销失败，请稍后再试"));
     }
   });
 
