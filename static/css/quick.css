@@ -1029,9 +1029,11 @@
 .quick-mini select {
   height: 26px;
   padding: 0 6px;
-  border: 1px solid var(--stroke);
+  border: 1px solid var(--stroke-strong);
   border-radius: var(--radius-xs);
-  background: var(--surface-2);
+  /* --surface-2 这个变量从来没定义过，写它等于没底色；改用层色 + 主题薄雾 */
+  background-color: var(--layer-3);
+  background-image: var(--accent-tint, none);
   color: var(--text-2);
   font: inherit;
   font-size: 11.5px;
@@ -1068,7 +1070,9 @@
   padding: 10px 12px;
   border: 1px solid var(--stroke-hair);
   border-radius: var(--radius-m);
-  background: color-mix(in srgb, var(--surface-2) 70%, transparent);
+  /* 同上：--surface-2 不存在，原来这块底色也是空的 */
+  background-color: var(--layer-3);
+  background-image: var(--accent-tint, none);
 }
 
 .quick-lookup__head {

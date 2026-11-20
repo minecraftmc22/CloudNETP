@@ -138,11 +138,11 @@ export function renderShares(root) {
       </label>
       <button class="icon-btn" type="button" data-page="prev" title="${t("上一页")}"
               ${state.page <= 1 ? "disabled" : ""}>
-        <svg class="icon"><use href="#i-chevron"/></svg>
+        <svg class="icon" style="transform:rotate(180deg)"><use href="#i-chevron"/></svg>
       </button>
       <button class="icon-btn" type="button" data-page="next" title="${t("下一页")}"
               ${state.page >= state.pages ? "disabled" : ""}>
-        <svg class="icon" style="transform:rotate(180deg)"><use href="#i-chevron"/></svg>
+        <svg class="icon"><use href="#i-chevron"/></svg>
       </button>`;
 
     pagerEl.querySelector("[data-page-size]").addEventListener("change", (event) => {

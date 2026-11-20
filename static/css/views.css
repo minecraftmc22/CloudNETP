@@ -4118,9 +4118,12 @@ html[data-ai="off"] .mascot__act[data-mascot-act="chat"] {
 .share-pager__size select {
   height: 26px;
   padding: 0 6px;
-  border: 1px solid var(--stroke);
+  border: 1px solid var(--stroke-strong);
   border-radius: var(--radius-xs);
-  background: var(--surface-2);
+  /* 原来写的是 var(--surface-2)，这个变量全项目根本没定义过 → 底色整块失效（透明）。
+     跟输入框一套：层色打底 + 主题薄雾，换主题色时一起变（别写 background 简写）。 */
+  background-color: var(--layer-3);
+  background-image: var(--accent-tint, none);
   color: var(--text-2);
   font: inherit;
   font-size: 12px;
@@ -4138,14 +4141,18 @@ html[data-ai="off"] .mascot__act[data-mascot-act="chat"] {
   margin-top: 4px;
   padding: 8px 4px;
   border-top: 1px solid var(--stroke-hair);
-  /* 86% 是默认浓度；和别的卡片一样按「卡片」滑块倍数缩放，默认 1 = 原样 */
+  /* 底色用「导航 / 标题栏」那一层的玻璃（--layer-1），和分享行同一个色相，
+     只是稠一点 —— 它是贴在滚动区底部的**遮罩**，太透时下面滚过去的文件名
+     会透上来，看着像渲染错位。以前用 --dialog-surface 86%，那是个不透明实色
+     （暗色 #2e2146），压上去就是一条糊掉的实心紫色带，颜色和浓度都不对。 */
   background-color: color-mix(
     in srgb,
-    var(--dialog-surface) calc(var(--op-card, var(--card-a, 1)) * 86%),
+    var(--layer-1) calc(var(--op-card, var(--card-a, 1)) * 100%),
     transparent
   );
   background-image: var(--accent-tint, none);
-  backdrop-filter: blur(14px);
+  /* 18px：太浅时下面滚过去的文件名还看得清，像渲染错位 */
+  backdrop-filter: blur(18px);
   z-index: 1;
 }
 
