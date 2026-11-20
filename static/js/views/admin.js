@@ -796,7 +796,7 @@ export function renderAdmin(root) {
           ? ""
           : H`<div class="admin-notice">
               <svg class="icon icon--s"><use href="#i-lock"/></svg>
-              <span>${t("成员角色只有超级管理员能调整；你可以查看成员、调整配额与密码、封禁账号。")}</span>
+              <span>${t("配额：任何管理员都能改。成员角色、重置密码、封禁与删除：对管理员 / 超管账号只有超级管理员能操作。")}</span>
             </div>`
       }
       <div data-table>${loading()}</div>
@@ -956,11 +956,16 @@ export function renderAdmin(root) {
     const lockedMember = user.role === 1 && !meSuper;
     const roleName = targetSuper ? "超级管理员" : user.role === 1 ? "管理员" : "普通用户";
 
+    // 被权限挡住的项直接在文案后标「（仅超管）」：
+    // 光把菜单灰掉，用户会以为「连配额都改不了」是 bug —— 实际上配额所有管理员都能改
+    const onlySuper = (label) => t("{label}（仅超管）", { label: t(label) });
+    const roleLock = (label) => (lockedMember ? onlySuper(label) : t(label));
+
     const items = [
       { label: "查看审计日志", icon: "i-clock", onClick: () => openUserLogs(user) },
       { label: "调整配额", icon: "i-cloud", onClick: () => changeQuota(user, reload) },
       {
-        label: "重置密码",
+        label: roleLock("重置密码"),
         icon: "i-key",
         // 能重置超管密码就等于能接管超管账号，普通管理员不给这个入口
         disabled: lockedMember,
@@ -986,13 +991,17 @@ export function renderAdmin(root) {
         });
       }
     } else {
-      items.push({ label: "成员角色由超级管理员管理", icon: "i-lock", disabled: true });
+      items.push({
+        label: onlySuper("调整成员角色"),
+        icon: "i-shield",
+        disabled: true,
+      });
     }
 
     if (user.banned) {
       // 已封禁时允许直接改原因 / 时长，不必先解封再封
       items.push({
-        label: "修改封禁",
+        label: roleLock("修改封禁"),
         icon: "i-alert",
         disabled: self || targetSuper || lockedMember,
         onClick: () => setBanned(user, reload, { reban: true }),
@@ -1002,7 +1011,7 @@ export function renderAdmin(root) {
     items.push(
       { sep: true },
       {
-        label: user.banned ? "解封账号" : "封禁账号",
+        label: roleLock(user.banned ? "解封账号" : "封禁账号"),
         icon: "i-alert",
         danger: !user.banned,
         disabled: self || targetSuper || lockedMember,
@@ -1010,7 +1019,7 @@ export function renderAdmin(root) {
       },
       { sep: true },
       {
-        label: "删除用户",
+        label: roleLock("删除用户"),
         icon: "i-trash",
         danger: true,
         disabled: self || targetSuper || lockedMember,

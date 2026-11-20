@@ -237,7 +237,15 @@ def main() -> int:
                 "注册页签被选中",
                 page.locator('[data-mode="register"]').evaluate("el => el.classList.contains('is-active')"),
             )
-            check("注册才有的确认密码可见", page.locator("[data-f-confirm]").is_visible())
+            # 注册已经拆成两步：第一步只有账号（+ 邮箱码），密码与确认密码在第二步
+            check(
+                "注册第一步可见（账号）",
+                page.locator('[data-reg-step="1"]').is_visible(),
+            )
+            check(
+                "确认密码落在第二步，没提前露出来",
+                not page.locator("[data-f-confirm]").is_visible(),
+            )
 
             print("\n[B] 登录后自动跳回分享页")
             page.goto(base + f"/?next={share_url}", wait_until="domcontentloaded")

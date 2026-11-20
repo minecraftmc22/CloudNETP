@@ -482,7 +482,7 @@ export default {
   "已设为超级管理员": "Super admin granted",
   "已取消超级管理员": "Super admin revoked",
   "成员角色由超级管理员管理": "Member roles are managed by super admins",
-  "成员角色只有超级管理员能调整；你可以查看成员、调整配额与密码、封禁账号。": "Only super admins can change member roles; you can still review members, adjust quotas and passwords, and ban accounts.",
+  "配额：任何管理员都能改。成员角色、重置密码、封禁与删除：对管理员 / 超管账号只有超级管理员能操作。": "Quota: any admin can change it. Roles, password resets, bans and deletion: for admin / super-admin accounts only a super admin can do these.",
   "{name} 将成为超级管理员：可以调整其他成员的角色，也能取消别人的超管身份。": "{name} becomes a super admin and can change other members' roles, including revoking super admin.",
   "{name} 将退回普通管理员：仍能进管理后台看用户和日志，但不能再增减管理员。": "{name} goes back to a regular administrator: still able to view users and logs, but no longer able to grant or revoke admins.",
   "该账号已自动成为<strong>超级管理员</strong>：可以进入「管理后台」调整成员角色、配额与系统设置；普通管理员只能查看成员，不能增减管理员。": "This account is now a <strong>super admin</strong>: open Admin to manage member roles, quotas and site settings. Regular administrators can view members but cannot grant or revoke admin rights.",
@@ -1885,4 +1885,6 @@ export default {
   "请输入 6 位邮箱验证码": "Enter the 6-digit email code",
   "确认要注销的话，请输入登录密码来确认是本人操作。": "To confirm, enter your login password so we know it's really you.",
   "复制失败，请手动选中内容": "Could not copy - please select the text manually",
+  "{label}（仅超管）": "{label} (super admin only)",
+  "这里没有子文件夹，可直接移到这里": "No subfolders here — you can move items here directly",
 };

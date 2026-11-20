@@ -643,7 +643,9 @@
   padding: 0 10px;
   border-radius: var(--radius-s);
   border: 1px solid var(--stroke-hair);
-  background: var(--layer-3);
+  /* 跟工具栏其它按钮一套：层色 + 主题薄雾，换个主色排序按钮也一起变 */
+  background-color: var(--layer-3);
+  background-image: var(--accent-tint, none);
   color: var(--text-2);
   font-size: 12px;
   transition: color var(--dur-fast) var(--ease-standard),
@@ -773,6 +775,32 @@
   color: var(--text-3);
   width: 12px;
   height: 12px;
+}
+/* 正在移动的文件夹：留在列表里但置灰 —— 直接过滤掉会让用户以为「选中的少了一个」 */
+.picker__row.is-blocked,
+.picker__row:disabled {
+  color: var(--text-3);
+  cursor: default;
+}
+.picker__row.is-blocked:hover,
+.picker__row:disabled:hover {
+  background: transparent;
+}
+.picker__row.is-blocked .icon,
+.picker__row:disabled .icon {
+  color: var(--text-3);
+}
+/* 需要写成 .picker__row .picker__tag 才压得过上面的 .picker__row span（flex:1 + 溢出省略） */
+.picker__row .picker__tag {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--stroke-hair);
+  background: var(--fill-subtle);
+  color: var(--text-2);
+  font-size: 10.5px;
+  line-height: 1.5;
+  white-space: nowrap;
 }
 .picker__empty {
   padding: 22px 12px;

@@ -511,10 +511,12 @@ export function renderFiles(root) {
 
   async function moveItems(items) {
     if (!items.length) return;
-    const first = items[0];
+    // 正在移动的文件夹不能当目标（含自身与子孙，后端也会拦），这里一次把它们全传进去：
+    // 只传第一项的话，另外几个还会留在候选里，看着像「能移进自己」，也容易让人以为漏了文件
+    const movingFolderIds = items.filter((item) => item.type === "folder").map((item) => item.id);
     const target = await pickFolder({
       title: items.length > 1 ? H`移动 ${items.length} 项到` : "移动到",
-      excludeId: first.type === "folder" ? first.id : null,
+      excludeIds: movingFolderIds,
     });
     if (target === undefined) return; // 取消；null 表示移到根目录
     if (target === state.parentId && !state.searchMode) {

@@ -391,8 +391,11 @@
   margin-top: var(--sp-2);
   padding: 12px;
   border-radius: var(--radius-m);
-  background: var(--layer-3);
-  border: 1px solid var(--stroke-hair);
+  /* 卡片底色跟着主题色：层色打底 + 主题薄雾，描边也掺一点主色，
+     跟上面那块 .view-root 的粉紫调子连成一片（写 background 简写会把薄雾冲掉） */
+  background-color: var(--layer-3);
+  background-image: var(--accent-tint, none);
+  border: 1px solid color-mix(in srgb, var(--accent) 14%, var(--stroke-hair));
   overflow: hidden;
   transition: opacity var(--dur-fast) var(--ease-standard);
 }

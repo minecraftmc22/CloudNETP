@@ -15,22 +15,27 @@
   padding: 0 12px;
   border-radius: var(--radius-xs);
   border: 1px solid var(--stroke-strong);
-  background: var(--layer-2);
+  /* 次级按钮也吃主题色：层色打底 + 主题薄雾（主按钮 .btn--accent 本身就是渐变，
+     .btn--subtle / .btn--danger 会用 background 简写把自己清干净，正好保持原样） */
+  background-color: var(--layer-2);
+  background-image: var(--accent-tint, none);
   color: var(--text-1);
   font-size: 13px;
   font-weight: 500;
   white-space: nowrap;
-  transition: background var(--dur-fast) var(--ease-standard),
+  transition: background-color var(--dur-fast) var(--ease-standard),
     border-color var(--dur-fast) var(--ease-standard),
     transform var(--dur-fast) var(--ease-standard),
     box-shadow var(--dur-fast) var(--ease-standard);
 }
+/* hover / active 只改 background-color：写成 background 简写会把上面那层薄雾
+   一起重置成 none，鼠标一移上去按钮就「褪色」，看着像两套配色 */
 .btn:hover {
-  background: var(--fill-hover);
+  background-color: var(--fill-hover);
   border-color: color-mix(in srgb, var(--accent) 40%, var(--stroke-strong));
 }
 .btn:active {
-  background: var(--fill-active);
+  background-color: var(--fill-active);
   transform: scale(0.985);
 }
 .btn:focus-visible {
@@ -60,7 +65,7 @@
   color: var(--text-2);
 }
 .btn--subtle:hover {
-  background: var(--fill-hover);
+  background: color-mix(in srgb, var(--accent) 10%, var(--fill-hover));
   color: var(--text-1);
   border-color: transparent;
 }
@@ -90,7 +95,8 @@
     color var(--dur-fast) var(--ease-standard);
 }
 .icon-btn:hover {
-  background: var(--fill-hover);
+  /* 悬停底也掺主题色，图标按钮才跟主色是一套的 */
+  background: color-mix(in srgb, var(--accent) 10%, var(--fill-hover));
   color: var(--text-1);
 }
 .icon-btn:active {
@@ -124,16 +130,20 @@
   padding: 0 10px;
   border-radius: var(--radius-xs);
   border: 1px solid var(--stroke-strong);
-  background: var(--layer-3);
+  /* 底色 = 层色 + 一层主题薄雾：只写 --layer-* 的话换主题色输入框纹丝不动。
+     必须拆成 background-color / background-image 两条 —— 用 background 简写
+     会把上面那层薄雾一起重置成 none，hover / focus 时尤其容易踩到。 */
+  background-color: var(--layer-3);
+  background-image: var(--accent-tint, none);
   transition: border-color var(--dur-fast) var(--ease-standard),
-    background var(--dur-fast) var(--ease-standard),
+    background-color var(--dur-fast) var(--ease-standard),
     box-shadow var(--dur-fast) var(--ease-standard);
 }
 .textbox:hover {
-  background: var(--layer-2);
+  background-color: var(--layer-2);
 }
 .textbox:focus-within {
-  background: var(--layer-2);
+  background-color: var(--layer-2);
   border-color: color-mix(in srgb, var(--accent) 55%, var(--stroke-strong));
   box-shadow: inset 0 -2px 0 0 var(--accent),
     0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent);
@@ -198,16 +208,18 @@
   height: 36px;
   border-radius: var(--radius-xs);
   border: 1px solid var(--stroke-strong);
-  background: var(--layer-3);
+  /* 跟文本框同一套：层色打底 + 主题薄雾（见上方 .textbox 的说明） */
+  background-color: var(--layer-3);
+  background-image: var(--accent-tint, none);
   transition: border-color var(--dur-fast) var(--ease-standard),
-    background var(--dur-fast) var(--ease-standard),
+    background-color var(--dur-fast) var(--ease-standard),
     box-shadow var(--dur-fast) var(--ease-standard);
 }
 .selectbox:hover {
-  background: var(--layer-2);
+  background-color: var(--layer-2);
 }
 .selectbox:focus-within {
-  background: var(--layer-2);
+  background-color: var(--layer-2);
   border-color: color-mix(in srgb, var(--accent) 55%, var(--stroke-strong));
   box-shadow: inset 0 -2px 0 0 var(--accent),
     0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent);
@@ -364,8 +376,11 @@
   gap: 2px;
   padding: 3px;
   border-radius: var(--radius-m);
-  background: var(--fill-subtle);
-  border: 1px solid var(--stroke-hair);
+  /* 分段控件（设置 / 后台的分类栏、登录注册切换）跟着主题色走：
+     槽底是「层色 + 主题薄雾」，滑块再叠一层更浓的雾并描一道主题色细边 */
+  background-color: var(--fill-subtle);
+  background-image: var(--accent-tint, none);
+  border: 1px solid color-mix(in srgb, var(--accent) 10%, var(--stroke-hair));
 }
 .segmented__thumb {
   position: absolute;
@@ -373,7 +388,9 @@
   left: 3px;
   height: calc(100% - 6px);
   border-radius: var(--radius-s);
-  background: var(--acrylic-strong);
+  background-color: var(--acrylic-strong);
+  background-image: var(--accent-tint, none);
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
   box-shadow: var(--shadow-1);
   transition: transform var(--dur-base) var(--ease-fluent), width var(--dur-base) var(--ease-fluent);
   z-index: 0;
@@ -387,8 +404,9 @@
   border-radius: var(--radius-s);
   transition: color var(--dur-fast) var(--ease-standard);
 }
+/* 选中项文字也掺一点主题色，纯 --text-1 的话换色只看到滑块微微变色，不够明显 */
 .segmented__btn.is-active {
-  color: var(--text-1);
+  color: color-mix(in srgb, var(--accent) 42%, var(--text-1));
   font-weight: 600;
 }
 
