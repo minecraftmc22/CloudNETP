@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from .. import admin_service as admin
 from .. import ai_defaults
 from .. import ban_service
+from .. import chat_service as chat_svc
 from .. import cleanup_service as cs
 from .. import dav_auth as da
 from .. import db_failover
@@ -46,6 +47,7 @@ from ..schemas import (
     AdminMailTestIn,
     AdminOrphanGcIn,
     AdminQuickCleanupIn,
+    ChatReportHandleIn,
     AdminLyricsTestIn,
     AdminSettingsIn,
     AdminUserPatchIn,
@@ -490,6 +492,46 @@ def reject_report(
     log_action(db, "admin_report_reject", me.id, {"reportId": report_id}, request)
     db.commit()
     return {"rejected": True}
+
+
+# --------------------------------------------------------------------------- #
+# 聊天举报审核
+# --------------------------------------------------------------------------- #
+@router.get("/chat-reports")
+def list_chat_reports(
+    db: DbSession,
+    _: AdminUser,
+    report_status: str = Query(
+        default="pending", pattern="^(pending|approved|rejected|all)$", alias="status"
+    ),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100, alias="pageSize"),
+) -> dict:
+    return chat_svc.admin_list_reports(
+        db, report_status=report_status, page=page, page_size=page_size
+    )
+
+
+@router.post("/chat-reports/{report_id}/approve")
+def approve_chat_report(
+    report_id: int, payload: ChatReportHandleIn, request: Request, db: DbSession, me: AdminUser
+) -> dict:
+    check_origin(request)
+    result = chat_svc.admin_handle_report(db, me, report_id, approve=True, reason=payload.reason)
+    log_action(db, "admin_chat_report_approve", me.id, {"reportId": report_id}, request)
+    db.commit()
+    return result
+
+
+@router.post("/chat-reports/{report_id}/reject")
+def reject_chat_report(
+    report_id: int, payload: ChatReportHandleIn, request: Request, db: DbSession, me: AdminUser
+) -> dict:
+    check_origin(request)
+    result = chat_svc.admin_handle_report(db, me, report_id, approve=False, reason=payload.reason)
+    log_action(db, "admin_chat_report_reject", me.id, {"reportId": report_id}, request)
+    db.commit()
+    return result
 
 
 @router.post("/blacklist/{sha256}/unblock")

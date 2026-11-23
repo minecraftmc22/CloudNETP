@@ -178,7 +178,7 @@ def main() -> None:
             })()
             """
         )
-        check(tabs["n"] >= 9, f"后台页签齐全（{tabs['n']} 个）")
+        check(tabs["n"] >= 10, f"后台页签齐全（{tabs['n']} 个）")
         check(not tabs["clipped"], f"页签文字未被压窄（{tabs['clipped']}）")
         check(not tabs["overlap"], f"页签互不重叠（{tabs['overlap']}）")
         check(tabs["scrollable"], "页签条可横向滚动（窄屏放不下时）")
@@ -262,6 +262,44 @@ def main() -> None:
             check(reports["hashVisible"], "举报行显示哈希列")
             check(reports["reasonVisible"], "举报行显示举报理由")
             check(reports["overflowX"] <= W + 1, f"举报行不撑宽页面（scrollWidth={reports['overflowX']}）")
+
+        # 5b) 聊天举报：快照要看得见，下架/驳回按钮不能被挤出屏幕
+        js("document.querySelector('[data-tab=\"chat\"]').click()")
+        time.sleep(2.2)
+        creports = js(
+            """
+            (() => {
+              const row = document.querySelector('.admin-row[data-id]');
+              if (!row) return { empty: true };
+              const btn = row.querySelector('[data-approve]');
+              const rej = row.querySelector('[data-reject]');
+              const snap = row.querySelector('.admin-user__meta');
+              const reason = row.querySelector('.admin-reason');
+              const r = btn ? btn.getBoundingClientRect() : null;
+              const rr = rej ? rej.getBoundingClientRect() : null;
+              return {
+                empty: false,
+                approveVisible: !!r && r.width > 0 && r.height > 0 && r.right <= window.innerWidth + 1,
+                rejectVisible: !!rr && rr.width > 0 && rr.height > 0 && rr.right <= window.innerWidth + 1,
+                snapVisible: !!snap && getComputedStyle(snap).display !== 'none',
+                reasonVisible: !!reason && getComputedStyle(reason).display !== 'none',
+                snapClipped: !!snap && snap.scrollHeight > snap.clientHeight + 2,
+                overflowX: document.documentElement.scrollWidth,
+              };
+            })()
+            """
+        )
+        if creports.get("empty"):
+            print("（聊天举报列表为空，跳过聊天举报行检查）")
+        else:
+            check(creports["approveVisible"], "聊天举报行有可见的「下架」按钮")
+            check(creports["rejectVisible"], "聊天举报行有可见的「驳回」按钮")
+            check(creports["snapVisible"], "聊天举报行显示消息快照")
+            check(creports["reasonVisible"], "聊天举报行显示举报理由（窄屏也不藏）")
+            check(
+                creports["overflowX"] <= W + 1,
+                f"聊天举报行不撑宽页面（scrollWidth={creports['overflowX']}）",
+            )
 
         # 6) 审计日志：时间不能只剩「2026-10-29 18…」
         js("document.querySelector('[data-tab=\"logs\"]').click()")

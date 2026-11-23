@@ -20,6 +20,7 @@ const KIND = {
   friend_request: { icon: "i-user-plus", label: "好友申请" },
   friend_accept: { icon: "i-users", label: "好友" },
   quick: { icon: "i-bolt", label: "快传" },
+  chat: { icon: "i-chat", label: "聊天" },
   system: { icon: "i-bell", label: "系统" },
 };
 
@@ -27,6 +28,7 @@ const PENDING = [
   { key: "reports", icon: "i-alert", label: "待审核举报", link: "#/admin/reports" },
   { key: "appeals", icon: "i-shield", label: "待审核申诉", link: "#/admin/appeals" },
   { key: "feedback", icon: "i-mail", label: "待处理反馈", link: "#/admin/feedback" },
+  { key: "chatReports", icon: "i-chat", label: "聊天举报", link: "#/admin/chat" },
   { key: "friendRequests", icon: "i-user-plus", label: "好友申请", link: "#/friends" },
 ];
 

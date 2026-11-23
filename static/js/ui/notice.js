@@ -12,7 +12,7 @@ import { t } from "../i18n.js";
 import { store } from "../store.js";
 
 const POLL_MS = 45_000;
-const state = { unread: 0, pending: {}, timer: 0 };
+const state = { unread: 0, pending: {}, chat: 0, timer: 0 };
 
 function paint() {
   const btn = document.getElementById("notice-btn");
@@ -35,19 +35,32 @@ function paint() {
     badge.textContent = fr > 9 ? "9+" : String(fr);
     badge.hidden = fr <= 0;
   }
+  // 聊天项：未读消息数（跟铃铛一起刷，不用为它单独挂一个计时器）
+  const chatBadge = document.querySelector('.nav-item[data-route="chat"] [data-nav-badge]');
+  if (chatBadge) {
+    const n = Number(state.chat || 0);
+    chatBadge.textContent = n > 99 ? "99+" : String(n);
+    chatBadge.hidden = n <= 0;
+  }
 }
 
 export async function refreshNoticeBadge() {
   if (!store.get().user) {
     state.unread = 0;
     state.pending = {};
+    state.chat = 0;
     paint();
     return;
   }
   try {
-    const data = await api.get("/api/notices/unread");
+    const [data, chat] = await Promise.all([
+      api.get("/api/notices/unread"),
+      // 聊天未读单独一个接口：通知接口不该被聊天消息拖慢
+      api.get("/api/chat/unread").catch(() => null),
+    ]);
     state.unread = Number(data.unread) || 0;
     state.pending = data.pending || {};
+    state.chat = Number(chat?.unread) || 0;
     paint();
   } catch {
     /* 网络抖动就保持上一次的数字，别把角标清空 */

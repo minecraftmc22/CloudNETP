@@ -127,6 +127,12 @@ ACTIONS: dict[str, dict[str, str]] = {
     "friend_request": {"label": "发送好友申请", "tone": "info", "group": "好友"},
     "friend_accept": {"label": "通过好友申请", "tone": "success", "group": "好友"},
     "friend_remove": {"label": "删除好友", "tone": "warn", "group": "好友"},
+    # ---- 聊天 ----
+    "chat_group_create": {"label": "创建群聊", "tone": "success", "group": "聊天"},
+    "chat_report": {"label": "举报聊天消息", "tone": "warn", "group": "聊天"},
+    "chat_files_save": {"label": "保存聊天文件", "tone": "info", "group": "聊天"},
+    "admin_chat_report_approve": {"label": "下架聊天消息", "tone": "danger", "group": "聊天"},
+    "admin_chat_report_reject": {"label": "驳回聊天举报", "tone": "info", "group": "聊天"},
     # ---- 反馈 ----
     "feedback_create": {"label": "提交意见反馈", "tone": "info", "group": "反馈"},
     "feedback_status": {"label": "处理意见反馈", "tone": "info", "group": "反馈"},

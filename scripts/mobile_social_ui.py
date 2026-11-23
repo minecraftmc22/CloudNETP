@@ -2,7 +2,7 @@
 """手机端导航改造 + 新页面的回归检查。
 
 钉住这几件事：
-- 底部导航只剩「我的文件 / 快传 / 好友 / CDP娘 / 设置（/ 管理后台）」，
+- 底部导航只剩「我的文件 / 快传 / 聊天 / 好友 / CDP娘 / 设置（/ 管理后台）」，
   分享、回收站、关于不在手机导航里；桌面侧栏反过来（分享/回收站/关于在，CDP娘不在）
 - 图标下面的小字可见、没有被压到截断
 - 我的文件页有「我的分享 / 回收站」两个入口，点得进对应页面
@@ -208,7 +208,7 @@ def main() -> None:
             })()
             """
         )
-        expected = ["files", "quick", "friends", "mascot", "settings", "admin"]
+        expected = ["files", "quick", "chat", "friends", "mascot", "settings", "admin"]
         check(nav["shown"] == expected, f"手机底部导航 = {expected}（实际 {nav['shown']}）")
         check("shares" not in nav["shown"], "「我的分享」不在手机导航")
         check("trash" not in nav["shown"], "「回收站」不在手机导航")

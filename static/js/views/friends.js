@@ -88,6 +88,7 @@ export function renderFriends(root) {
           }</div>
         </div>
         <div class="friend-row__ops">
+          <button class="btn btn--accent" type="button" data-act="chat" data-id="${item.id}">发消息</button>
           <button class="btn btn--subtle" type="button" data-act="remove" data-id="${item.id}">删除</button>
         </div>
       </div>`;
@@ -251,6 +252,8 @@ export function renderFriends(root) {
       void act(() => api.post(`/api/friends/requests/${btn.dataset.request}/reject`), t("已拒绝"));
     } else if (action === "withdraw") {
       void act(() => api.del(`/api/friends/${btn.dataset.id}`), t("已撤回申请"));
+    } else if (action === "chat") {
+      void openChat(btn.dataset.id);
     } else if (action === "remove") {
       void removeFriend(btn.dataset.id);
     } else if (action === "open-incoming") {
@@ -321,6 +324,21 @@ export function renderFriends(root) {
       if (hit) hit.relation = "pending_out";
       paintResults();
     }, t("好友申请已发送"));
+  }
+
+  /** 直接开一段单聊：先建会话再跳过去，聊天页会按 hash 里的 id 打开 */
+  async function openChat(id) {
+    if (state.busy) return;
+    state.busy = true;
+    try {
+      const data = await api.post("/api/chat/conversations/direct", { userId: Number(id) });
+      const conv = data?.conversation;
+      location.hash = conv ? `#/chat/${conv.id}` : "#/chat";
+    } catch (err) {
+      Toast.error(err?.message || t("打不开这个会话"));
+    } finally {
+      state.busy = false;
+    }
   }
 
   async function removeFriend(id) {

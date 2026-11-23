@@ -30,6 +30,7 @@ import { renderAppeal, rememberBanTicket, storedBanTicket } from "./views/appeal
 import { banNoticeOpen, hideBanNotice, showBanNotice } from "./ui/ban.js";
 import { renderAuth } from "./views/auth.js";
 import { renderAdmin } from "./views/admin.js";
+import { renderChat } from "./views/chat.js";
 import { renderAbout } from "./views/about.js";
 import { disposeFilesView, renderFiles } from "./views/files.js";
 import { renderSettings } from "./views/settings.js";
@@ -69,6 +70,7 @@ const NAV_ITEMS = [
   { route: "quick", label: "快传", icon: "i-bolt" },
   { route: "trash", label: "回收站", icon: "i-trash", desktopOnly: true },
   { group: "互动" },
+  { route: "chat", label: "聊天", icon: "i-chat", badge: true },
   { route: "friends", label: "好友", icon: "i-users", badge: true },
   { route: "mascot", label: "CDP娘", icon: "i-spark", mobileOnly: true },
   { group: "系统" },
@@ -82,6 +84,7 @@ const TITLES = {
   shares: "我的分享",
   quick: "快传",
   trash: "回收站",
+  chat: "聊天",
   friends: "好友",
   mascot: "CDP娘",
   notices: "消息中心",
@@ -527,6 +530,7 @@ function route() {
   else if (name === "shares") renderShares(root, { user });
   else if (name === "quick") renderQuick(root, { user });
   else if (name === "trash") renderTrash(root, { user });
+  else if (name === "chat") renderChat(root, { sub });
   else if (name === "friends") renderFriends(root);
   else if (name === "mascot") renderMascotPage(root);
   else if (name === "notices") renderNotices(root, { user });

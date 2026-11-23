@@ -15,7 +15,16 @@ from typing import Any
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import Session
 
-from .models import BanAppeal, Feedback, Friendship, Notice, ShareReport, User, utcnow
+from .models import (
+    BanAppeal,
+    ChatReport,
+    Feedback,
+    Friendship,
+    Notice,
+    ShareReport,
+    User,
+    utcnow,
+)
 from .user_service import iso
 
 # 只给管理员看的通知类型
@@ -132,5 +141,11 @@ def pending_for(db: Session, user: User) -> dict[str, int]:
     )
     data["feedback"] = int(
         db.scalar(select(func.count()).select_from(Feedback).where(Feedback.status == 0)) or 0
+    )
+    data["chatReports"] = int(
+        db.scalar(
+            select(func.count()).select_from(ChatReport).where(ChatReport.status == "pending")
+        )
+        or 0
     )
     return data

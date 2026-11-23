@@ -14,6 +14,7 @@ import { DROP_MAX_FILES, collectDropped } from "../ui/drop-tree.js";
 import { pickFolder } from "../ui/picker.js";
 import { pickNodes } from "../ui/file-browser.js";
 import { openSendBrowser } from "../ui/send-browser.js";
+import { pickFriend } from "../ui/friend-picker.js";
 import { copyText } from "../ui/share.js";
 import { siteOrigin, store } from "../store.js";
 import { uploadFile } from "../uploader.js";
@@ -615,7 +616,10 @@ export function renderQuick(root) {
         <div class="quick-fields">
           <label class="quick-field" style="flex:1 1 180px">
             <span data-i18n="对方的用户名">${t("对方的用户名")}</span>
-            <input class="input" data-to maxlength="32" placeholder="${t("对方的登录名")}">
+            <span class="quick-field__row">
+              <input class="input" data-to maxlength="32" placeholder="${t("对方的登录名")}">
+              <button class="btn btn--subtle" type="button" data-act="pick-friend">${t("选好友")}</button>
+            </span>
           </label>
           <label class="quick-field" style="flex:2 1 240px">
             <span data-i18n="附言（可选）">${t("附言（可选）")}</span>
@@ -686,6 +690,13 @@ export function renderQuick(root) {
       });
     };
     paintChips();
+
+    panelEl.querySelector('[data-act="pick-friend"]')?.addEventListener("click", async () => {
+      // 好友多了手打用户名很痛苦，直接给个列表点一下
+      const friend = await pickFriend({ title: t("发给哪位好友") });
+      if (!friend) return;
+      panelEl.querySelector("[data-to]").value = friend.username;
+    });
 
     panelEl.querySelector('[data-act="pick"]').addEventListener("click", async () => {
       const picked = await pickNodes({ title: t("选择要发送的文件"), mode: "any" });

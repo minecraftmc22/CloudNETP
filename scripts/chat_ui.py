@@ -1,0 +1,537 @@
+# -*- coding: utf-8 -*-
+"""聊天页的浏览器回归（桌面 + 手机两套宽度）。
+
+覆盖：
+- 桌面：左右两栏、会话列表（标题/预览/未读角标）、气泡左右分、图片加载、
+  文件卡片带下载、回车发送、表情面板发包、消息菜单（转发/举报/撤回）、撤回后的样子
+- 群聊：群头像、头部成员数、群信息弹窗
+- 手机：只显示列表 → 点会话进消息流（有返回）→ 返回列表；无横向溢出
+
+用法（需要一个已启动的隔离实例）：
+    python scripts/chat_ui.py [port]
+"""
+from __future__ import annotations
+
+import io
+import json
+import subprocess
+import sys
+import tempfile
+import time
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+import websocket
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+urllib.request.install_opener(urllib.request.build_opener(urllib.request.ProxyHandler({})))
+
+from PIL import Image  # noqa: E402
+from sqlalchemy import delete, select  # noqa: E402
+
+from app import db_failover, storage  # noqa: E402
+from app.config import settings  # noqa: E402
+from app.models import (  # noqa: E402
+    Blob,
+    ChatConversation,
+    ChatMember,
+    ChatMessage,
+    ChatReport,
+    Friendship,
+    Node,
+    Notice,
+    Sticker,
+    User,
+    utcnow,
+)
+from app.security import create_token, hash_password  # noqa: E402
+
+PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8131
+BASE = f"http://127.0.0.1:{PORT}"
+CHROME = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
+W, H = 1280, 800
+MW, MH = 390, 844
+
+CHECKS: list[tuple[bool, str]] = []
+
+
+def check(ok: bool, msg: str) -> None:
+    CHECKS.append((bool(ok), msg))
+
+
+def call(path: str, token: str, method: str = "GET", body=None):
+    data = json.dumps(body).encode() if body is not None else None
+    req = urllib.request.Request(BASE + path, method=method, data=data)
+    req.add_header("Content-Type", "application/json")
+    req.add_header("Cookie", f"{settings.COOKIE_NAME}={token}")
+    try:
+        with urllib.request.urlopen(req, timeout=30) as res:
+            return res.status, json.loads(res.read() or b"{}")
+    except urllib.error.HTTPError as err:
+        raw = err.read()
+        try:
+            return err.code, json.loads(raw or b"{}")
+        except Exception:
+            return err.code, {"raw": raw.decode("utf-8", "replace")}
+
+
+def png_bytes(w: int = 120, h: int = 80, color=(255, 150, 190)) -> bytes:
+    img = Image.new("RGB", (w, h), color)
+    buf = io.BytesIO()
+    img.save(buf, "PNG")
+    return buf.getvalue()
+
+
+def seed() -> tuple[str, int, int]:
+    """准备两个好友账号、一个单聊、一个群聊，返回 (主账号 token, 单聊 id, 群 id)。"""
+    if not db_failover._started:
+        db_failover.startup()
+    db = db_failover.current_sessionmaker()()
+    try:
+        def ensure(name: str, display: str) -> User:
+            row = db.scalar(select(User).where(User.username == name))
+            if row is None:
+                row = User(
+                    username=name,
+                    display_name=display,
+                    password_hash=hash_password("SmokeTest123"),
+                    role=0,
+                    quota_bytes=4 * 1024**3,
+                    used_bytes=0,
+                )
+                db.add(row)
+                db.commit()
+                db.refresh(row)
+            return row
+
+        a = ensure("ui_chat_a", "小樱")
+        b = ensure("ui_chat_b", "阿蓝")
+        c = ensure("ui_chat_c", "可可")
+
+        conv_ids = [
+            r
+            for r in db.scalars(
+                select(ChatMember.conversation_id).where(
+                    ChatMember.user_id.in_([a.id, b.id, c.id])
+                )
+            ).all()
+        ]
+        if conv_ids:
+            db.execute(delete(ChatMessage).where(ChatMessage.conversation_id.in_(conv_ids)))
+            db.execute(delete(ChatReport).where(ChatReport.conversation_id.in_(conv_ids)))
+            db.execute(delete(ChatMember).where(ChatMember.conversation_id.in_(conv_ids)))
+            db.execute(delete(ChatConversation).where(ChatConversation.id.in_(conv_ids)))
+        db.execute(delete(Sticker).where(Sticker.user_id.in_([a.id, b.id, c.id])))
+        db.execute(delete(Notice).where(Notice.user_id.in_([a.id, b.id, c.id])))
+        db.execute(
+            delete(Friendship).where(
+                Friendship.requester_id.in_([a.id, b.id, c.id])
+                | Friendship.addressee_id.in_([a.id, b.id, c.id])
+            )
+        )
+        db.add_all(
+            [
+                Friendship(requester_id=a.id, addressee_id=b.id, status="accepted",
+                           message="", created_at=utcnow(), updated_at=utcnow()),
+                Friendship(requester_id=a.id, addressee_id=c.id, status="accepted",
+                           message="", created_at=utcnow(), updated_at=utcnow()),
+            ]
+        )
+        # 给 A 一个网盘文件，用来发文件消息
+        payload = b"ui-chat-attachment-bytes"
+        import hashlib
+
+        sha = hashlib.sha256(payload).hexdigest()
+        target = storage.blob_path(sha)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(payload)
+        if db.get(Blob, sha) is None:
+            db.add(Blob(sha256=sha, size=len(payload), ref_count=1))
+        for old in db.scalars(
+            select(Node).where(Node.user_id == a.id, Node.name == "会议记录.txt")
+        ).all():
+            db.delete(old)
+        db.add(
+            Node(
+                user_id=a.id,
+                parent_id=None,
+                type="file",
+                name="会议记录.txt",
+                blob_sha256=sha,
+                size=len(payload),
+                mime="text/plain",
+                created_at=utcnow(),
+                updated_at=utcnow(),
+            )
+        )
+        db.commit()
+        return (
+            create_token(a.id, a.token_version),
+            create_token(b.id, b.token_version),
+            create_token(c.id, c.token_version),
+            a.id,
+            b.id,
+            c.id,
+        )
+    finally:
+        db.close()
+
+
+def main() -> None:
+    ta, tb, tc, a_id, b_id, c_id = seed()
+
+    # ---- 用接口造聊天内容（比手写 TABLE 行更接近真实路径）----
+    code, data = call("/api/chat/conversations/direct", ta, "POST", {"userId": b_id})
+    assert code == 201, data
+    direct_id = data["conversation"]["id"]
+    call(f"/api/chat/conversations/{direct_id}/messages", tb, "POST",
+         {"kind": "text", "body": "在吗？我把整理好的表格发你"})
+    # 图片（B 发）
+    req = urllib.request.Request(BASE + "/api/chat/images", method="PUT", data=png_bytes())
+    req.add_header("Content-Type", "image/png")
+    req.add_header("Cookie", f"{settings.COOKIE_NAME}={tb}")
+    with urllib.request.urlopen(req, timeout=20) as res:
+        img = json.loads(res.read())
+    call(f"/api/chat/conversations/{direct_id}/messages", tb, "POST",
+         {"kind": "image", "payload": {"name": img["name"], "width": img["width"],
+                                        "height": img["height"]}})
+    # 文件（A 发）
+    db = db_failover.current_sessionmaker()()
+    try:
+        doc = db.scalar(select(Node).where(Node.user_id == a_id, Node.name == "会议记录.txt"))
+        doc_id = doc.id
+    finally:
+        db.close()
+    call(f"/api/chat/conversations/{direct_id}/messages", ta, "POST",
+         {"kind": "file", "payload": {"nodeIds": [doc_id]}})
+    # 表情（A 存一张再发）
+    req = urllib.request.Request(BASE + "/api/chat/stickers?name=%E5%B0%8F%E7%86%8A",
+                                 method="POST", data=png_bytes(96, 96, (120, 200, 255)))
+    req.add_header("Content-Type", "image/png")
+    req.add_header("Cookie", f"{settings.COOKIE_NAME}={ta}")
+    with urllib.request.urlopen(req, timeout=20) as res:
+        sticker = json.loads(res.read())["sticker"]
+    call(f"/api/chat/conversations/{direct_id}/messages", ta, "POST",
+         {"kind": "sticker", "payload": {"stickerId": sticker["id"]}})
+    # 群聊
+    code, data = call("/api/chat/conversations/group", ta, "POST",
+                      {"title": "周末小组", "memberIds": [b_id, c_id]})
+    assert code == 201, data
+    group_id = data["conversation"]["id"]
+    call(f"/api/chat/conversations/{group_id}/messages", tc, "POST",
+         {"kind": "text", "body": "周六上午出发可以吗"})
+
+    profile = Path(tempfile.mkdtemp(prefix="cdp_chat_ui_"))
+    proc = subprocess.Popen(
+        [
+            CHROME,
+            "--headless=new",
+            "--remote-debugging-port=9479",
+            f"--user-data-dir={profile}",
+            "--no-first-run",
+            "--disable-gpu",
+            "--hide-scrollbars",
+            f"--window-size={W},{H}",
+            "about:blank",
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        target = None
+        for _ in range(80):
+            try:
+                pages = [
+                    t
+                    for t in json.load(urllib.request.urlopen("http://127.0.0.1:9479/json/list", timeout=2))
+                    if t.get("type") == "page"
+                ]
+                if pages:
+                    target = pages[0]
+                    break
+            except Exception:
+                time.sleep(0.4)
+        assert target, "无法连接 Chrome CDP"
+        ws = websocket.create_connection(target["webSocketDebuggerUrl"], timeout=60, suppress_origin=True)
+        mid = 0
+
+        def send(method, **params):
+            nonlocal mid
+            mid += 1
+            ws.send(json.dumps({"id": mid, "method": method, "params": params}))
+            while True:
+                msg = json.loads(ws.recv())
+                if msg.get("id") == mid:
+                    if "error" in msg:
+                        raise RuntimeError(f"{method}: {msg['error']}")
+                    return msg.get("result", {})
+
+        def js(expr):
+            return send("Runtime.evaluate", expression=expr, returnByValue=True, userGesture=True)["result"].get("value")
+
+        def wait_for(expr, timeout=25):
+            end = time.time() + timeout
+            while time.time() < end:
+                try:
+                    if js(expr):
+                        return True
+                except Exception:
+                    pass
+                time.sleep(0.25)
+            return False
+
+        def shot(name):
+            data_ = send("Page.captureScreenshot", format="png")
+            import base64
+
+            path = Path("D:/tmp_cn_chat/shots")
+            path.mkdir(parents=True, exist_ok=True)
+            (path / name).write_bytes(base64.b64decode(data_["data"]))
+
+        send("Page.enable")
+        send("Runtime.enable")
+        send("Network.enable")
+        send("Emulation.setDeviceMetricsOverride", width=W, height=H, deviceScaleFactor=1, mobile=False)
+        send("Network.setCookie", name=settings.COOKIE_NAME, value=ta, domain="127.0.0.1",
+             path="/", httpOnly=True)
+        send("Page.navigate", url=f"{BASE}/#/chat")
+        assert wait_for("!!document.querySelector('.chat-side .chat-item')", 30), "聊天页没渲染"
+        time.sleep(1.2)
+
+        # ================= 桌面 =================
+        layout = js(
+            """
+            (() => {
+              const side = document.querySelector('.chat-side').getBoundingClientRect();
+              const main = document.querySelector('.chat-main').getBoundingClientRect();
+              const items = [...document.querySelectorAll('.chat-item')].map((el) => ({
+                name: el.querySelector('.chat-item__name')?.textContent.trim(),
+                preview: el.querySelector('.chat-item__preview')?.textContent.trim(),
+                badge: el.querySelector('.chat-item__badge')?.textContent.trim() || '',
+              }));
+              return { side: side.width, main: main.width, items, overflow: document.documentElement.scrollWidth };
+            })()
+            """
+        )
+        check(layout["side"] > 100 and layout["main"] > 300, f"左右两栏（{layout['side']}/{layout['main']}）")
+        names = [x["name"] for x in layout["items"]]
+        check("阿蓝" in names and "周末小组" in names, f"会话列表有单聊与群聊（{names}）")
+        check(any(x["badge"] for x in layout["items"]), "未读会话有角标")
+        check(any("周六" in (x["preview"] or "") for x in layout["items"]), "群聊预览显示最后一条")
+
+        # 打开单聊
+        js(f"document.querySelector('.chat-item[data-conv=\"{direct_id}\"]').click()")
+        assert wait_for("!!document.querySelector('.chat-feed .msg')", 20), "消息没加载"
+        time.sleep(1.2)
+        check(js("location.hash") == f"#/chat/{direct_id}", f"地址栏同步（{js('location.hash')}）")
+
+        bubbles = js(
+            """
+            (() => {
+              const msgs = [...document.querySelectorAll('.chat-feed .msg')];
+              const imgs = [...document.querySelectorAll('.msg__image img')];
+              return {
+                count: msgs.length,
+                mine: msgs.filter((m) => m.classList.contains('msg--mine')).length,
+                texts: msgs.map((m) => (m.querySelector('.msg__text')?.textContent || '').trim()).filter(Boolean),
+                files: document.querySelectorAll('.msg-file').length,
+                download: document.querySelectorAll('.msg-file [data-act="download"]').length,
+                imgLoaded: imgs.length ? imgs.every((i) => i.complete && i.naturalWidth > 0) : false,
+                sticker: document.querySelectorAll('.msg__sticker').length,
+                more: document.querySelectorAll('.msg__more').length,
+                overflow: document.documentElement.scrollWidth,
+              };
+            })()
+            """
+        )
+        check(bubbles["count"] >= 4, f"四条消息都渲染了（{bubbles['count']}）")
+        check(bubbles["mine"] >= 2, f"自己的消息靠右（{bubbles['mine']} 条 mine）")
+        check(any("在吗" in t for t in bubbles["texts"]), "对方文字显示出来了")
+        check(bubbles["files"] == 1 and bubbles["download"] == 1, "文件卡片带下载按钮")
+        check(bubbles["imgLoaded"], "图片消息真的加载出来了")
+        check(bubbles["sticker"] == 1, "表情消息渲染成小图")
+        check(bubbles["overflow"] <= W + 1, f"桌面无横向溢出（{bubbles['overflow']}）")
+
+        # 回车发消息
+        js(
+            """
+            (() => {
+              const input = document.querySelector('.chat-compose__input textarea');
+              input.focus();
+              input.value = '界面测试：回车发送';
+              input.dispatchEvent(new Event('input', { bubbles: true }));
+            })()
+            """
+        )
+        before = js("document.querySelectorAll('.chat-feed .msg').length")
+        js(
+            """
+            (() => {
+              const input = document.querySelector('.chat-compose__input textarea');
+              input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+            })()
+            """
+        )
+        check(wait_for(f"document.querySelectorAll('.chat-feed .msg').length > {before}", 12),
+              "回车后新消息出现在列表里")
+        time.sleep(0.4)
+        check(js("document.querySelector('.chat-compose__input textarea').value") == "",
+              "发送后输入框被清空")
+
+        # 表情面板
+        js("document.querySelector('[data-act=\"open-stickers\"]').click()")
+        check(wait_for("!document.querySelector('[data-sticker-panel]').hidden", 8), "表情面板能打开")
+        check(wait_for("document.querySelectorAll('.sticker-item').length > 0", 8), "面板里有已存的表情")
+        before = js("document.querySelectorAll('.chat-feed .msg').length")
+        js("document.querySelector('.sticker-item__btn').click()")
+        check(wait_for(f"document.querySelectorAll('.chat-feed .msg').length > {before}", 12),
+              "点表情直接发出去")
+        check(js("document.querySelector('[data-sticker-panel]').hidden") is True,
+              "发完表情面板自动收起")
+
+        # 消息菜单
+        js(
+            """
+            (() => {
+              const btn = [...document.querySelectorAll('.chat-feed .msg .msg__more')][0];
+              btn.click();
+            })()
+            """
+        )
+        check(wait_for("!!document.querySelector('.popover')", 8), "点「⋯」弹出菜单")
+        menu = js("[...document.querySelectorAll('.popover .menu-item')].map((b) => b.textContent.trim())")
+        check(any("转发" in x for x in menu), f"菜单有转发（{menu}）")
+        check(any("举报" in x for x in menu) or any("撤回" in x for x in menu), "菜单有举报或撤回")
+
+        # 撤回自己发的文字消息（菜单里选「撤回」）
+        idx = js(
+            """
+            (() => {
+              const msgs = [...document.querySelectorAll('.chat-feed .msg')];
+              const i = msgs.findIndex((m) => m.classList.contains('msg--mine') && m.querySelector('.msg__text'));
+              return i;
+            })()
+            """
+        )
+        if idx is not None and idx >= 0:
+            js(f"document.querySelectorAll('.chat-feed .msg .msg__more')[{idx}].click()")
+            assert wait_for("!!document.querySelector('.popover')", 8), "菜单没出来"
+            js(
+                """
+                (() => {
+                  const btn = [...document.querySelectorAll('.popover .menu-item')].find((b) => b.textContent.trim() === '撤回');
+                  if (btn) btn.click();
+                })()
+                """
+            )
+            assert wait_for("!!document.querySelector('.dialog') || !!document.querySelector('[data-dialog]')", 8), "确认框没出来"
+            clicked = js(
+                """
+                (() => {
+                  const btns = [...document.querySelectorAll('.dialog button, [data-dialog] button')];
+                  const ok = btns.find((b) => /撤回/.test(b.textContent));
+                  if (ok) { ok.click(); return true; }
+                  return false;
+                })()
+                """
+            )
+            check(clicked is True, "撤回确认框可点")
+            check(wait_for("!!document.querySelector('.msg__recalled')", 12), "撤回后显示「已撤回」")
+        else:
+            check(False, "没找到自己发的文字消息（撤回用例跳过）")
+
+        # 群聊
+        js(f"document.querySelector('.chat-item[data-conv=\"{group_id}\"]').click()")
+        assert wait_for("!!document.querySelector('.chat-thread__title')", 15), "群聊没打开"
+        time.sleep(1)
+        group = js(
+            """
+            (() => ({
+              title: document.querySelector('.chat-thread__title')?.textContent.trim(),
+              sub: document.querySelector('.chat-thread__sub')?.textContent.trim(),
+              sys: [...document.querySelectorAll('.msg__system')].map((n) => n.textContent.trim()),
+              info: !!document.querySelector('[data-act="group-info"]'),
+            }))()
+            """
+        )
+        check(group["title"] == "周末小组", f"群名显示正确（{group['title']}）")
+        check("3" in (group["sub"] or ""), f"头部显示成员数（{group['sub']}）")
+        check(any("创建了群聊" in x for x in group["sys"]), f"有建群系统消息（{group['sys']}）")
+        check(group["info"], "群聊头部有「群聊信息」入口")
+        js("document.querySelector('[data-act=\"group-info\"]').click()")
+        check(wait_for("!!document.querySelector('.group-info__row')", 8), "群信息弹窗能打开")
+        shot("chat-desktop-group.png")
+        js("document.querySelector('.picker-backdrop')?.remove()")
+
+        # 返回单聊并截图
+        js(f"document.querySelector('.chat-item[data-conv=\"{direct_id}\"]').click()")
+        time.sleep(1.2)
+        shot("chat-desktop.png")
+
+        # ================= 手机 =================
+        send("Emulation.setDeviceMetricsOverride", width=MW, height=MH, deviceScaleFactor=2, mobile=True)
+        send("Emulation.setTouchEmulationEnabled", enabled=True, maxTouchPoints=5)
+        js("location.hash = '#/chat'")
+        time.sleep(1.6)
+        mobile = js(
+            """
+            (() => {
+              const side = document.querySelector('.chat-side');
+              const main = document.querySelector('.chat-main');
+              return {
+                sideShown: side ? getComputedStyle(side).display !== 'none' : false,
+                mainShown: main ? getComputedStyle(main).display !== 'none' : false,
+                overflow: document.documentElement.scrollWidth,
+                width: window.innerWidth,
+              };
+            })()
+            """
+        )
+        check(mobile["sideShown"] and not mobile["mainShown"], "手机上先只显示会话列表")
+        check(mobile["overflow"] <= MW + 1, f"手机列表页无横向溢出（{mobile['overflow']}）")
+
+        js(f"document.querySelector('.chat-item[data-conv=\"{direct_id}\"]').click()")
+        assert wait_for("document.querySelector('.chat-body').classList.contains('is-thread')", 15), "没进消息流"
+        time.sleep(1.2)
+        thread = js(
+            """
+            (() => {
+              const back = document.querySelector('[data-act="back"]');
+              return {
+                mainShown: getComputedStyle(document.querySelector('.chat-main')).display !== 'none',
+                sideShown: getComputedStyle(document.querySelector('.chat-side')).display !== 'none',
+                backShown: back ? back.getBoundingClientRect().width > 0 : false,
+                overflow: document.documentElement.scrollWidth,
+                compose: !!document.querySelector('.chat-compose__input textarea'),
+              };
+            })()
+            """
+        )
+        check(thread["mainShown"] and not thread["sideShown"], "点会话后只显示消息流")
+        check(thread["backShown"], "手机上有返回按钮")
+        check(thread["compose"], "手机上有输入框")
+        check(thread["overflow"] <= MW + 1, f"手机消息流无横向溢出（{thread['overflow']}）")
+        shot("chat-mobile.png")
+
+        js("document.querySelector('[data-act=\"back\"]').click()")
+        time.sleep(1)
+        check(js("!document.querySelector('.chat-body').classList.contains('is-thread')"), "返回后回到列表")
+        check(js("location.hash") == "#/chat", f"返回后地址回到 #/chat（{js('location.hash')}）")
+        shot("chat-mobile-list.png")
+    finally:
+        try:
+            proc.terminate()
+        except Exception:
+            pass
+
+    passed = sum(1 for ok, _ in CHECKS if ok)
+    for ok, msg in CHECKS:
+        print(("  OK  " if ok else "  NG  ") + msg)
+    print(f"\n聊天界面：{passed}/{len(CHECKS)}")
+    if passed != len(CHECKS):
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

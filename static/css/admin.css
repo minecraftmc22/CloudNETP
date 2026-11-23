@@ -1142,3 +1142,33 @@
   flex-wrap: wrap;
   margin-top: 12px;
 }
+
+/* 聊天举报：理由与操作列（宽度有限，允许折行） */
+.admin-reason {
+  font-size: 12px;
+  color: var(--text-2);
+  line-height: 1.5;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.admin-row__ops {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  justify-content: flex-end;
+}
+/* 被举报消息用两行展示：第一行「昵称 · 会话」，第二行是原文快照 */
+.admin-user__main {
+  display: flex;
+  flex-direction: column;
+  /* flex 子项默认 min-width:auto，会被长快照撑开 → 省略号失效、文字硬切边 */
+  min-width: 0;
+}
+.admin-row .admin-user__meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}

@@ -1227,3 +1227,18 @@
 .quick-up {
   animation: quick-rise 260ms var(--ease-fluent) both;
 }
+
+/* 「对方的用户名」右边的「选好友」：输入框吃掉剩余宽度，按钮定宽 */
+.quick-field__row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.quick-field__row .input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.quick-field__row .btn {
+  flex: 0 0 auto;
+}

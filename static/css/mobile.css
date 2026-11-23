@@ -1177,3 +1177,25 @@
     display: flex !important;
   }
 }
+
+/* ------------------------------------------------------------
+   聊天举报行：手机上也要看得到举报理由
+   ------------------------------------------------------------
+   表格在 ≤1180 / ≤860 会隐藏第 3、4 列（理由、时间），审核时
+   只剩快照就没法判断该不该下架。这里让理由在快照下方另起一行，
+   整行宽度铺满；特异性与上面隐藏列的 :not(...) 规则同级，靠
+   文件顺序（mobile.css 最后加载）覆盖。
+   ------------------------------------------------------------ */
+@media (max-width: 1180px) {
+  .admin-body .admin-row--creport:not(.admin-row--head) > .admin-reason {
+    display: -webkit-box;
+    grid-column: 1 / -1;
+    margin-top: 6px;
+  }
+  /* 理由整行铺满会把操作按钮挤到后面另起一行，这里把按钮钉回第一行右侧 */
+  .admin-body .admin-row--creport:not(.admin-row--head) > .admin-row__ops {
+    grid-row: 1;
+    grid-column: 2;
+    align-self: start;
+  }
+}

@@ -111,7 +111,7 @@ def _compose_database_url() -> str:
 class Settings:
     # ---- 应用 ----
     APP_NAME: str = _get("APP_NAME", "CloudNETP")
-    VERSION: str = "0.4.31"
+    VERSION: str = "0.5.0"
     DEBUG: bool = _get_bool("DEBUG", True)
 
     # ---- 监听与对外地址 ----
@@ -333,6 +333,15 @@ class Settings:
     def background_dir(self) -> Path:
         """自定义背景图：storage/backgrounds/<user_id>-<随机>.webp"""
         return self.STORAGE_DIR / "backgrounds"
+
+    @property
+    def chat_dir(self) -> Path:
+        """聊天图片与表情包：storage/chat/img-*.webp / stk-*.webp
+
+        不进 blob 表、不占用户配额：都是为了「点开就说」的小图，
+        走内容寻址没有收益，反而让删表情时要小心引用计数。
+        """
+        return self.STORAGE_DIR / "chat"
 
     # ---- 主库 / 次库 ----
     @property

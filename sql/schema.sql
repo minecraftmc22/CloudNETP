@@ -342,3 +342,98 @@ CREATE TABLE IF NOT EXISTS notices (
   CONSTRAINT fk_notice_user FOREIGN KEY (user_id)
     REFERENCES users (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- ------------------------------------------------------------
+-- 聊天会话：单聊与群聊同表（kind 区分，direct_key 保证一对只建一次）
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS chat_conversations (
+  id              BIGINT      NOT NULL AUTO_INCREMENT,
+  kind            VARCHAR(8)  NOT NULL DEFAULT 'direct',
+  title           VARCHAR(60) NOT NULL DEFAULT '',
+  owner_id        BIGINT      NOT NULL,
+  direct_key      VARCHAR(40) NULL COMMENT '单聊去重键「小id-大id」，群聊为 NULL',
+  last_message_id BIGINT      NULL,
+  last_message_at DATETIME    NULL,
+  created_at      DATETIME    NOT NULL,
+  updated_at      DATETIME    NOT NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_conv_direct (direct_key),
+  KEY idx_conv_updated (updated_at),
+  CONSTRAINT ck_conv_kind CHECK (kind IN ('direct', 'group'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- ------------------------------------------------------------
+-- 会话成员：last_read_id 记「读到哪条」，未读数按它之后的消息算
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS chat_members (
+  conversation_id BIGINT      NOT NULL,
+  user_id         BIGINT      NOT NULL,
+  role            VARCHAR(8)  NOT NULL DEFAULT 'member',
+  last_read_id    BIGINT      NOT NULL DEFAULT 0,
+  joined_at       DATETIME    NOT NULL,
+  PRIMARY KEY (conversation_id, user_id),
+  KEY idx_member_user (user_id),
+  CONSTRAINT ck_member_role CHECK (role IN ('owner', 'member')),
+  CONSTRAINT fk_member_conv FOREIGN KEY (conversation_id)
+    REFERENCES chat_conversations (id) ON DELETE CASCADE,
+  CONSTRAINT fk_member_user FOREIGN KEY (user_id)
+    REFERENCES users (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- ------------------------------------------------------------
+-- 聊天消息：撤回只置 recalled_at 并清空 body/payload，不删行
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS chat_messages (
+  id              BIGINT      NOT NULL AUTO_INCREMENT,
+  conversation_id BIGINT      NOT NULL,
+  sender_id       BIGINT      NOT NULL,
+  kind            VARCHAR(8)  NOT NULL DEFAULT 'text',
+  body            MEDIUMTEXT  NOT NULL,
+  payload         MEDIUMTEXT  NULL COMMENT 'JSON：图片 {name,width,height} / 文件 {nodes[]} / 表情 {name,stickerId}',
+  forwarded_from  BIGINT      NULL,
+  recalled_at     DATETIME    NULL,
+  created_at      DATETIME    NOT NULL,
+  PRIMARY KEY (id),
+  KEY idx_msg_conv (conversation_id, id),
+  KEY idx_msg_sender (sender_id, created_at),
+  CONSTRAINT ck_msg_kind CHECK (kind IN ('text', 'image', 'file', 'sticker', 'system')),
+  CONSTRAINT fk_msg_conv FOREIGN KEY (conversation_id)
+    REFERENCES chat_conversations (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- ------------------------------------------------------------
+-- 个人表情包：每人上限由后台设置（sticker_max_per_user，默认 100）
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS stickers (
+  id         BIGINT      NOT NULL AUTO_INCREMENT,
+  user_id    BIGINT      NOT NULL,
+  name       VARCHAR(40) NOT NULL DEFAULT '',
+  file       VARCHAR(80) NOT NULL,
+  size       INT         NOT NULL DEFAULT 0,
+  created_at DATETIME    NOT NULL,
+  PRIMARY KEY (id),
+  KEY idx_sticker_user (user_id),
+  CONSTRAINT fk_sticker_user FOREIGN KEY (user_id)
+    REFERENCES users (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- ------------------------------------------------------------
+-- 聊天举报：snapshot 保留举报时的原文，撤回也洗不掉证据
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS chat_reports (
+  id              BIGINT       NOT NULL AUTO_INCREMENT,
+  message_id      BIGINT       NOT NULL,
+  conversation_id BIGINT       NOT NULL,
+  reporter_id     BIGINT       NOT NULL,
+  target_id       BIGINT       NOT NULL,
+  reason          VARCHAR(200) NOT NULL DEFAULT '',
+  snapshot        TEXT         NOT NULL,
+  status          VARCHAR(8)   NOT NULL DEFAULT 'pending',
+  handled_by      BIGINT       NULL,
+  handled_at      DATETIME     NULL,
+  created_at      DATETIME     NOT NULL,
+  PRIMARY KEY (id),
+  KEY idx_creport_status (status, created_at),
+  KEY idx_creport_target (target_id),
+  CONSTRAINT ck_creport_status CHECK (status IN ('pending', 'approved', 'rejected'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;

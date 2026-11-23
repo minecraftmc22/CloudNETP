@@ -54,6 +54,10 @@ DEFAULTS: dict[str, str] = {
     "seo_keywords": "",
     "seo_image": "",
     "seo_base_url": "",
+    # 聊天：每人最多存多少张表情包、多久内能撤回（0 = 不限制）、群里最多多少人
+    "sticker_max_per_user": "100",
+    "chat_recall_minutes": "10",
+    "chat_group_max_members": "200",
 }
 
 

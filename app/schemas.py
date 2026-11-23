@@ -482,6 +482,10 @@ class AdminSettingsIn(CamelModel):
     seo_keywords: str | None = Field(default=None, max_length=200)
     seo_image: str | None = Field(default=None, max_length=500)
     seo_base_url: str | None = Field(default=None, max_length=200)
+    # 聊天：表情包上限、撤回时限（0 = 不限制）、群成员上限
+    sticker_max_per_user: int | None = Field(default=None, ge=1, le=2000)
+    chat_recall_minutes: int | None = Field(default=None, ge=0, le=1440)
+    chat_group_max_members: int | None = Field(default=None, ge=2, le=2000)
 
 
 class AdminQuickCleanupIn(CamelModel):
@@ -660,3 +664,57 @@ class FriendRequestIn(CamelModel):
 class NoticeReadIn(CamelModel):
     # 不给 ids = 全部标记已读
     ids: list[int] | None = None
+
+
+# --------------------------------------------------------------------------- #
+# 聊天
+# --------------------------------------------------------------------------- #
+class ChatDirectIn(CamelModel):
+    """开一个单聊。已经开过就复用（不会重复建会话）。"""
+
+    user_id: int = Field(ge=1)
+
+
+class ChatGroupIn(CamelModel):
+    title: str = Field(default="", max_length=60)
+    # 群成员（不含自己）
+    member_ids: list[int] = Field(min_length=1, max_length=200)
+
+
+class ChatGroupPatch(CamelModel):
+    title: str = Field(min_length=1, max_length=60)
+
+
+class ChatMembersIn(CamelModel):
+    user_ids: list[int] = Field(min_length=1, max_length=100)
+
+
+class ChatSendIn(CamelModel):
+    # text / image / file / sticker；system 只能由服务端写
+    kind: Literal["text", "image", "file", "sticker"] = "text"
+    body: str = Field(default="", max_length=4000)
+    # image: {name, width, height} / sticker: {stickerId} / file: {nodeIds}
+    payload: dict | None = None
+
+
+class ChatReadIn(CamelModel):
+    # 不给 = 直接读到会话最后一条
+    message_id: int | None = Field(default=None, ge=0)
+
+
+class ChatForwardIn(CamelModel):
+    conversation_ids: list[int] = Field(min_length=1, max_length=10)
+
+
+class ChatReportIn(CamelModel):
+    reason: str = Field(min_length=1, max_length=200)
+
+
+class ChatReportHandleIn(CamelModel):
+    # 处理附言（下架原因会转给发送者）
+    reason: str = Field(default="", max_length=200)
+
+
+class StickerIn(CamelModel):
+    name: str = Field(default="", max_length=40)
+

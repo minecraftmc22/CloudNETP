@@ -11,6 +11,7 @@ import { absTime } from "../ui/ban.js";
 import { Dialog } from "../ui/dialog.js";
 import { openMenu } from "../ui/menu.js";
 import { copyText } from "../ui/share.js";
+import { refreshNoticeBadge } from "../ui/notice.js";
 import { Toast } from "../ui/toast.js";
 import { checkForUpdates, updateResultHtml, applyResultHtml } from "../ui/update.js";
 
@@ -26,6 +27,7 @@ const TABS = [
   { id: "overview", label: "概览", icon: "i-chart" },
   { id: "users", label: "用户", icon: "i-user" },
   { id: "reports", label: "举报审核", icon: "i-alert" },
+  { id: "chat", label: "聊天举报", icon: "i-chat" },
   { id: "appeals", label: "申诉审核", icon: "i-shield" },
   { id: "feedback", label: "意见反馈", icon: "i-mail" },
   { id: "logs", label: "审计日志", icon: "i-clock" },
@@ -596,6 +598,7 @@ export function renderAdmin(root, { tab } = {}) {
     actions: null,
     users: { page: 1, query: "", filter: "all", total: 0 },
     reports: { page: 1, filter: "pending", total: 0 },
+    chatReports: { page: 1, filter: "pending", total: 0 },
     appeals: { page: 1, filter: "pending", total: 0 },
     feedback: { page: 1, filter: "pending", total: 0 },
     logs: { page: 1, query: "", action: "", userId: null, username: "", total: 0 },
@@ -1404,6 +1407,164 @@ export function renderAdmin(root, { tab } = {}) {
     }
 
     loadReports();
+  }
+
+  /* ---------------------------------------------------------------- */
+  /* 聊天举报                                                          */
+  /* ---------------------------------------------------------------- */
+  async function showChatReports() {
+    const FILTERS = [
+      { id: "pending", label: "待处理" },
+      { id: "approved", label: "已下架" },
+      { id: "rejected", label: "已驳回" },
+      { id: "all", label: "全部" },
+    ];
+    panel.innerHTML = H`
+      <div class="admin-toolbar">
+        <div class="admin-chips">
+          ${FILTERS.map(
+            (f) =>
+              H`<button class="admin-chip ${state.chatReports.filter === f.id ? "is-active" : ""}" type="button" data-filter="${f.id}">${t(f.label)}</button>`
+          ).join("")}
+        </div>
+        <div class="grow"></div>
+        <span class="admin-count" data-count></span>
+      </div>
+      <div class="admin-hint">${t("通过会清空这条消息的内容并通知发送者；驳回会把结果告诉举报人。撤回后的消息也留着举报时的原文快照。")}</div>
+      <div data-table>${loading()}</div>
+      <div class="admin-pager" data-pager></div>`;
+
+    const tableEl = panel.querySelector("[data-table]");
+    const pagerEl = panel.querySelector("[data-pager]");
+    const countEl = panel.querySelector("[data-count]");
+
+    panel.querySelectorAll("[data-filter]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        state.chatReports.filter = btn.dataset.filter;
+        state.chatReports.page = 1;
+        panel.querySelectorAll("[data-filter]").forEach((b) => b.classList.toggle("is-active", b === btn));
+        load();
+      });
+    });
+
+    async function handle(report, approve) {
+      const ok = await Dialog.confirm({
+        title: approve ? t("下架这条消息") : t("驳回这条举报"),
+        message: approve
+          ? t("消息内容会被清空，对方会看到「已撤回」，发送者与举报人都会收到通知。")
+          : t("消息保留，举报人会收到「未发现问题」的通知。"),
+        confirmText: approve ? t("下架") : t("驳回"),
+        danger: approve,
+      });
+      if (!ok) return;
+      try {
+        await api.post(`/api/admin/chat-reports/${report.id}/${approve ? "approve" : "reject"}`, {
+          reason: "",
+        });
+        Toast.success(approve ? t("已下架") : t("已驳回"));
+        load();
+        void refreshNoticeBadge();
+      } catch (err) {
+        Toast.error(err?.message || t("操作失败"));
+      }
+    }
+
+    const STATUS = {
+      pending: H`<span class="admin-badge is-warn">待处理</span>`,
+      approved: H`<span class="admin-badge is-banned">已下架</span>`,
+      rejected: H`<span class="admin-badge">已驳回</span>`,
+    };
+
+    function rowHtml(item) {
+      return H`
+        <div class="admin-row admin-row--creport" data-id="${item.id}">
+          <span class="admin-user">
+            <span class="admin-user__avatar"><svg class="icon"><use href="#i-chat"/></svg></span>
+            <span class="admin-user__main">
+              <span class="admin-user__name">${escapeHtml(item.target?.displayName || "")} <span class="muted">· ${escapeHtml(item.conversationTitle || "")}</span></span>
+              <span class="admin-user__meta">${escapeHtml(item.snapshot || "")}</span>
+            </span>
+          </span>
+          <span class="muted">${escapeHtml(item.reporter?.displayName || "")}</span>
+          <span class="admin-reason">${escapeHtml(item.reason || "")}</span>
+          <span class="muted">${formatTime(item.createdAt)}</span>
+          <span>${STATUS[item.status] || item.status}</span>
+          <span class="admin-row__ops">
+            ${
+              item.status === "pending"
+                ? H`<button class="icon-btn" type="button" data-approve title="${t("下架")}">
+                     <svg class="icon"><use href="#i-check"/></svg></button>
+                   <button class="icon-btn" type="button" data-reject title="${t("驳回")}">
+                     <svg class="icon"><use href="#i-close"/></svg></button>`
+                : ""
+            }
+          </span>
+        </div>`;
+    }
+
+    async function load() {
+      tableEl.innerHTML = loading();
+      const params = new URLSearchParams({
+        page: String(state.chatReports.page),
+        pageSize: String(PAGE_SIZE),
+        status: state.chatReports.filter,
+      });
+      let data;
+      try {
+        data = await api.get(`/api/admin/chat-reports?${params}`);
+      } catch (err) {
+        tableEl.innerHTML = errorBlock(err.message);
+        pagerEl.innerHTML = "";
+        return;
+      }
+      if (state.tab !== "chat") return;
+      state.chatReports.total = data.total;
+      countEl.textContent = t("{n} 条举报", { n: data.total });
+      setSub(
+        `${t("{n} 条聊天举报", { n: data.total })} · ${t(
+          FILTERS.find((f) => f.id === state.chatReports.filter)?.label || "全部"
+        )}`
+      );
+
+      if (!data.items.length) {
+        tableEl.innerHTML = H`
+          <div class="empty">
+            <div class="empty__art"><svg class="icon"><use href="#i-chat"/></svg></div>
+            <div class="empty__title">${t("没有聊天举报")}</div>
+            <div class="empty__desc">${t("用户在聊天里举报消息后会出现在这里等待审核。")}</div>
+          </div>`;
+        pagerEl.innerHTML = "";
+        return;
+      }
+
+      tableEl.innerHTML = H`
+        <div class="admin-table">
+          <div class="admin-row admin-row--head">
+            <span>被举报消息</span><span>举报人</span><span>理由</span><span>时间</span>
+            <span>状态</span><span></span>
+          </div>
+          ${data.items.map(rowHtml).join("")}
+        </div>`;
+
+      tableEl.querySelectorAll(".admin-row[data-id]").forEach((row) => {
+        const report = data.items.find((item) => item.id === Number(row.dataset.id));
+        if (!report) return;
+        row.querySelector("[data-approve]")?.addEventListener("click", () => void handle(report, true));
+        row.querySelector("[data-reject]")?.addEventListener("click", () => void handle(report, false));
+      });
+
+      pagerEl.innerHTML = pagerHtml(state.chatReports.page, data.total, PAGE_SIZE);
+      pagerEl.querySelectorAll("[data-page]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const page = Number(btn.dataset.page);
+          if (!page || page === state.chatReports.page) return;
+          state.chatReports.page = page;
+          load();
+        });
+      });
+    }
+
+    load();
   }
 
   function reportRowHtml(report) {
@@ -2652,6 +2813,40 @@ export function renderAdmin(root, { tab } = {}) {
         <div class="admin-hint">分片大小只影响新上传；回收站填 0 表示不自动清理（仍可手动清空）。</div>
         <div class="admin-card__foot">
           <button class="btn btn--accent" type="button" data-save="limits">保存限制</button>
+        </div>
+      </section>
+
+      <section class="settings-card" data-card="chat">
+        <div class="settings-card__head"><svg class="icon icon--s"><use href="#i-chat"/></svg>聊天</div>
+        <div class="admin-form-grid">
+          <label class="field">
+            <span class="field__label">每人表情包上限</span>
+            <span class="textbox admin-unit">
+              <input data-key="stickerMaxPerUser" data-kind="number" data-multiplier="1" type="number" min="1" max="2000" step="1"
+                     value="${settings.stickerMaxPerUser}">
+              <span class="admin-unit__suffix">张</span>
+            </span>
+          </label>
+          <label class="field">
+            <span class="field__label">撤回时限</span>
+            <span class="textbox admin-unit">
+              <input data-key="chatRecallMinutes" data-kind="number" data-multiplier="1" type="number" min="0" max="1440" step="1"
+                     value="${settings.chatRecallMinutes}">
+              <span class="admin-unit__suffix">分钟</span>
+            </span>
+          </label>
+          <label class="field">
+            <span class="field__label">群成员上限</span>
+            <span class="textbox admin-unit">
+              <input data-key="chatGroupMaxMembers" data-kind="number" data-multiplier="1" type="number" min="2" max="2000" step="1"
+                     value="${settings.chatGroupMaxMembers}">
+              <span class="admin-unit__suffix">人</span>
+            </span>
+          </label>
+        </div>
+        <div class="admin-hint">撤回时限填 0 表示不限制；表情包上限只影响新增，已经存下的不会自动删。聊天图片与表情存在 storage/chat，不占用户配额。</div>
+        <div class="admin-card__foot">
+          <button class="btn btn--accent" type="button" data-save="chat">保存聊天设置</button>
         </div>
       </section>
 
@@ -3960,6 +4155,7 @@ export function renderAdmin(root, { tab } = {}) {
     if (name === "overview") showOverview();
     else if (name === "users") showUsers();
     else if (name === "reports") showReports();
+    else if (name === "chat") showChatReports();
     else if (name === "appeals") showAppeals();
     else if (name === "feedback") showFeedback();
     else if (name === "logs") showLogs();

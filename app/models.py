@@ -501,6 +501,144 @@ class Friendship(Base):
     )
 
 
+class ChatConversation(Base):
+    """会话：单聊与群聊同表，kind 区分。
+
+    - direct：两人一对一。direct_key 存「小 id-大 id」，唯一索引保证同一对只建一次
+    - group：群聊。title 是群名，owner_id 是群主（可以邀请/移除成员）
+
+    单聊的标题、头像都不落库：取对方的昵称与头像，改了名这里自动跟着变。
+    """
+
+    __tablename__ = "chat_conversations"
+
+    id: Mapped[int] = mapped_column(AutoPK, primary_key=True, autoincrement=True)
+    kind: Mapped[str] = mapped_column(String(8), nullable=False, default="direct")
+    title: Mapped[str] = mapped_column(String(60), nullable=False, default="")
+    owner_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    # 单聊去重键："12-15"（小的 id 在前）；群聊为 NULL（唯一索引允许多个 NULL）
+    direct_key: Mapped[str | None] = mapped_column(String(40), nullable=True, unique=True)
+    # 列表页最后一条消息的冗余，省一次 N+1 查询；消息被撤回时只改 body，不改指针
+    last_message_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    last_message_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
+
+    __table_args__ = (
+        CheckConstraint("kind IN ('direct', 'group')", name="ck_conv_kind"),
+        Index("idx_conv_updated", "updated_at"),
+    )
+
+
+class ChatMember(Base):
+    """会话成员。last_read_id 记到「哪条消息已读」，未读数按它之后的消息数算。"""
+
+    __tablename__ = "chat_members"
+
+    conversation_id: Mapped[int] = mapped_column(
+        ForeignKey("chat_conversations.id", ondelete="CASCADE"), primary_key=True
+    )
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    role: Mapped[str] = mapped_column(String(8), nullable=False, default="member")
+    last_read_id: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    joined_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
+    # 退群用软标记？不：直接删行。历史消息仍在，sender_id 由消息表自己记着
+    __table_args__ = (
+        CheckConstraint("role IN ('owner', 'member')", name="ck_member_role"),
+        Index("idx_member_user", "user_id"),
+    )
+
+
+class ChatMessage(Base):
+    """一条聊天消息。
+
+    kind：
+    - text    正文在 body
+    - image   图片消息，payload 存 {name,width,height,size}，走 /api/chat/media
+    - sticker 表情包，payload 存 {name,stickerId}
+    - file    网盘文件/文件夹，payload 存 {nodes:[{id,name,size,mime,icon}],count,size}
+    - system  系统提示（建群、入群、退群），正文在 body
+
+    撤回不删行：置 recalled_at 并清空 body/payload，前端显示「已撤回」。
+    举报要留证据，所以举报时把当时的内容快照抄进 chat_reports.snapshot。
+    """
+
+    __tablename__ = "chat_messages"
+
+    id: Mapped[int] = mapped_column(AutoPK, primary_key=True, autoincrement=True)
+    conversation_id: Mapped[int] = mapped_column(
+        ForeignKey("chat_conversations.id", ondelete="CASCADE"), nullable=False
+    )
+    sender_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    kind: Mapped[str] = mapped_column(String(8), nullable=False, default="text")
+    body: Mapped[str] = mapped_column(
+        Text().with_variant(MEDIUMTEXT(), "mysql"), nullable=False, default=""
+    )
+    # JSON 文本；结构见类注释
+    payload: Mapped[str | None] = mapped_column(
+        Text().with_variant(MEDIUMTEXT(), "mysql"), nullable=True
+    )
+    # 转发来源（原消息 id），只做溯源展示
+    forwarded_from: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    recalled_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
+
+    __table_args__ = (
+        CheckConstraint(
+            "kind IN ('text', 'image', 'file', 'sticker', 'system')", name="ck_msg_kind"
+        ),
+        Index("idx_msg_conv", "conversation_id", "id"),
+        Index("idx_msg_sender", "sender_id", "created_at"),
+    )
+
+
+class Sticker(Base):
+    """个人表情包：每人最多 N 张（N 由后台设置，默认 100）。
+
+    文件单独存在 storage/chat/ 下（不进 blob 表、不占配额）：表情包是几百 KB 的小图，
+    走 blob 的内容寻址没有收益，反而让「删表情」要小心引用计数。
+    """
+
+    __tablename__ = "stickers"
+
+    id: Mapped[int] = mapped_column(AutoPK, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(String(40), nullable=False, default="")
+    file: Mapped[str] = mapped_column(String(80), nullable=False)
+    size: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
+
+
+class ChatReport(Base):
+    """聊天消息举报：审核对象是一条消息，snapshot 保留举报时看到的原文。"""
+
+    __tablename__ = "chat_reports"
+
+    id: Mapped[int] = mapped_column(AutoPK, primary_key=True, autoincrement=True)
+    message_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    conversation_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    reporter_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    # 被举报的发送者
+    target_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    reason: Mapped[str] = mapped_column(String(200), nullable=False, default="")
+    # 举报那一刻的消息内容（kind + 正文 + 文件名摘要），撤回也洗不掉
+    snapshot: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    # pending / approved / rejected
+    status: Mapped[str] = mapped_column(String(8), nullable=False, default="pending", index=True)
+    handled_by: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    handled_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
+
+    __table_args__ = (
+        CheckConstraint("status IN ('pending', 'approved', 'rejected')", name="ck_creport_status"),
+        Index("idx_creport_status", "status", "created_at"),
+    )
+
+
 class Notice(Base):
     """消息中心：一条通知只属于一个用户（管理员类通知在事件发生时按人展开）。
 
