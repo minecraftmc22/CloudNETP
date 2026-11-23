@@ -1958,4 +1958,7 @@ export default {
   "快传：取件码 / 发给用户": "Quick transfer: codes / send to a user",
   "让 CDP娘 按你的确认生成取件码，或用取件码把文件转存进网盘 / 给出下载链接；也可以把文件直接发给站内用户（对方同意后才收下）。开了它，对话里会先问你「是不是这个文件、发给谁」": "Let CDP娘 create a pickup code after confirming with you, or save files into your drive / return download links from a code; she can also send files straight to another user on this site (they only receive it after accepting). She will always confirm which file and which recipient first.",
   "谨慎开启": "Enable with care",
+  "移到「{name}」": 'Move to "{name}"',
+  "已移到「{name}」": 'Moved to "{name}"',
+  "已把 {n} 项移到「{name}」": 'Moved {n} items to "{name}"',
 };

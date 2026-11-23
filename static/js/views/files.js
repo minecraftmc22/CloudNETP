@@ -8,6 +8,7 @@ import { Dialog } from "../ui/dialog.js";
 import { Toast } from "../ui/toast.js";
 import { openMenu } from "../ui/menu.js";
 import { DROP_MAX_FILES, collectDropped, dirOf, ensureDropTree } from "../ui/drop-tree.js";
+import { enableDragMove } from "../ui/drag-move.js";
 import { pickFolder } from "../ui/picker.js";
 import { runTask } from "../ui/tasks.js";
 import { canPreview, openViewer } from "../ui/viewer.js";
@@ -256,7 +257,10 @@ export function renderFiles(root) {
       .map(
         (item, index) => H`
         <button class="crumb__item ${index === state.breadcrumb.length - 1 ? "is-current" : ""}"
-                type="button" data-crumb-id="${item.id ?? ""}">${escapeHtml(item.id == null ? t(item.name) : item.name)}</button>
+                type="button" data-crumb-id="${item.id ?? ""}"
+                data-drop-folder="${item.id ?? ""}" data-drop-name="${escapeHtml(
+                  item.id == null ? t(item.name) : item.name
+                )}">${escapeHtml(item.id == null ? t(item.name) : item.name)}</button>
         ${index < state.breadcrumb.length - 1 ? '<span class="crumb__sep"><svg class="icon"><use href="#i-chevron"/></svg></span>' : ""}`
       )
       .join("");
@@ -310,13 +314,24 @@ export function renderFiles(root) {
     return H`${formatBytes(item.size)} · ${formatTime(item.updatedAt)}`;
   }
 
+  /**
+   * 拖动移动用的属性：每个条目都是可拖源（data-drag-id），
+   * 文件夹额外是投放目标（data-drop-folder / data-drop-name）。
+   */
+  function dragAttrs(item) {
+    const base = ` data-drag-id="${item.id}"`;
+    return item.type === "folder"
+      ? `${base} data-drop-folder="${item.id}" data-drop-name="${escapeHtml(item.name)}"`
+      : base;
+  }
+
   function renderGrid() {
     return H`<div class="file-grid">
       ${state.items
         .map(
           (item, index) => H`
         <div class="tile ${state.selected.has(item.id) ? "is-selected" : ""} ${state.cursor === index ? "is-cursor" : ""}"
-             data-id="${item.id}" data-type="${item.type}" data-index="${index}" tabindex="0" role="button">
+             data-id="${item.id}" data-type="${item.type}" data-index="${index}"${dragAttrs(item)} tabindex="0" role="button">
           <div class="tile__icon" data-kind="${(item.icon || "i-file").slice(2)}"><svg class="icon"><use href="#${item.icon || "i-file"}"/></svg></div>
           <div class="tile__name" title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</div>
           <div class="tile__meta">${escapeHtml(metaOf(item))}</div>
@@ -346,7 +361,7 @@ export function renderFiles(root) {
         .map(
           (item, index) => H`
         <div class="frow ${state.selected.has(item.id) ? "is-selected" : ""}"
-             data-id="${item.id}" data-type="${item.type}" data-index="${index}" tabindex="0" role="button">
+             data-id="${item.id}" data-type="${item.type}" data-index="${index}"${dragAttrs(item)} tabindex="0" role="button">
           <span class="frow__check"><input type="checkbox" ${state.selected.has(item.id) ? "checked" : ""} tabindex="-1"></span>
           <span class="frow__icon" data-kind="${(item.icon || "i-file").slice(2)}"><svg class="icon"><use href="#${item.icon || "i-file"}"/></svg></span>
           <span class="frow__name">
@@ -523,17 +538,10 @@ export function renderFiles(root) {
     }
   }
 
-  async function moveItems(items) {
+  /** 真正执行移动：拖放和「移动到…」对话框共用这一段 */
+  async function applyMove(items, target, { destName = "" } = {}) {
     if (!items.length) return;
-    // 正在移动的文件夹不能当目标（含自身与子孙，后端也会拦），这里一次把它们全传进去：
-    // 只传第一项的话，另外几个还会留在候选里，看着像「能移进自己」，也容易让人以为漏了文件
-    const movingFolderIds = items.filter((item) => item.type === "folder").map((item) => item.id);
-    const target = await pickFolder({
-      title: items.length > 1 ? H`移动 ${items.length} 项到` : "移动到",
-      excludeIds: movingFolderIds,
-    });
-    if (target === undefined) return; // 取消；null 表示移到根目录
-    if (target === state.parentId && !state.searchMode) {
+    if (!state.searchMode && target === state.parentId) {
       Toast.info("已经在当前目录了");
       return;
     }
@@ -549,10 +557,36 @@ export function renderFiles(root) {
       Toast.error(`${result.failed} 项移动失败`);
     } else if (result.canceled) {
       Toast.info(`已停止，成功移动 ${result.done} 项`);
+    } else if (destName) {
+      Toast.success(
+        items.length > 1
+          ? t("已把 {n} 项移到「{name}」", { n: items.length, name: destName })
+          : t("已移到「{name}」", { name: destName })
+      );
     } else {
       Toast.success(items.length > 1 ? H`已移动 ${items.length} 项` : "已移动");
     }
     if (result.done) await load({ keepScroll: true });
+  }
+
+  async function moveItems(items) {
+    if (!items.length) return;
+    // 正在移动的文件夹不能当目标（含自身与子孙，后端也会拦），这里一次把它们全传进去：
+    // 只传第一项的话，另外几个还会留在候选里，看着像「能移进自己」，也容易让人以为漏了文件
+    const movingFolderIds = items.filter((item) => item.type === "folder").map((item) => item.id);
+    const target = await pickFolder({
+      title: items.length > 1 ? H`移动 ${items.length} 项到` : "移动到",
+      excludeIds: movingFolderIds,
+    });
+    if (target === undefined) return; // 取消；null 表示移到根目录
+    await applyMove(items, target);
+  }
+
+  /** 拖动松手：把拖起来的那批（可能是多选）移进目标文件夹 */
+  function onDropMove({ ids, targetId, targetName }) {
+    const items = ids.map(findItem).filter(Boolean);
+    if (!items.length) return;
+    void applyMove(items, targetId, { destName: targetName });
   }
 
   async function deleteItems(items) {
@@ -918,6 +952,22 @@ export function renderFiles(root) {
     },
     on
   );
+
+  // 拖动移动：拖到别的文件夹上松手（鼠标直接拖；触屏长按 280ms 再拖）
+  enableDragMove({
+    root,
+    scroller: bodyEl,
+    signal: view.signal,
+    getIds: (el) => {
+      const id = Number(el.dataset.dragId);
+      // 拖的这项目前在多选里 → 把整批带走；不在多选里 → 只拖它自己
+      if (state.selected.has(id) && state.selected.size > 1) return [...state.selected];
+      return [id];
+    },
+    // 目标是「当前所在目录」→ 不画高亮也不发请求
+    isNoop: (id) => !state.searchMode && id === state.parentId,
+    onDrop: onDropMove,
+  });
 
   // 键盘
   const onKey = (event) => {

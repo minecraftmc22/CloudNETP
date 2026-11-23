@@ -977,3 +977,105 @@
   height: 14px;
   border-width: 2px;
 }
+
+/* ------------------------------------------------------------
+   拖动移动
+   ------------------------------------------------------------ */
+/* 拖动靠指针事件：别让浏览器顺手把文件名当文本选中（手机上长按会弹选择菜单） */
+.tile,
+.frow {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* 被拖起来的原件淡出，跟手的是下面那份克隆 */
+.is-dragging {
+  opacity: 0.38;
+}
+
+.drag-ghost {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 90;
+  pointer-events: none;
+  /* 拖起来的东西要看得清：底子填成不透明的浮层色（--layer-1 本身是半透明的，
+     直接用它会让底下的格子透上来，两份文字糊成一片） */
+  background-color: var(--dialog-surface);
+  background-image: none;
+  opacity: 0.98;
+  overflow: hidden;
+  box-shadow: var(--shadow-3);
+  transition: none;
+  will-change: transform;
+}
+/* 克隆上的「更多」按钮没有意义，还会在卡片角上留个灰块 */
+.drag-ghost .tile__more,
+.drag-ghost .frow__more,
+.drag-ghost .frow__check {
+  display: none;
+}
+.drag-ghost__count {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #fff;
+  background: var(--accent-grad);
+  box-shadow: var(--shadow-1);
+}
+
+/* 「移到「XX」」小标签：手机上前景被手指挡着，得靠它确认要放到哪 */
+.drag-hint {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 91;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--stroke-hair);
+  background: var(--dialog-surface);
+  color: var(--text-1);
+  font-size: 12px;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: var(--shadow-2);
+}
+.drag-hint[hidden] {
+  display: none;
+}
+
+/* 目标文件夹：整块亮起来，别只描一圈细边（列表行太矮，看不清） */
+.tile.is-drop-target,
+.frow.is-drop-target {
+  border-color: var(--accent);
+  background-color: color-mix(in srgb, var(--accent) 16%, transparent);
+  background-image: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent);
+}
+.tile.is-drop-target {
+  transform: none;
+}
+.frow.is-drop-target {
+  border-color: var(--accent);
+}
+/* 面包屑也能接：把文件拖回上层目录 */
+.crumb__item.is-drop-target {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+/* 拖起来期间全局换成「抓取中」，鼠标划过文件也不会变成手型 */
+body.is-drag-moving,
+body.is-drag-moving * {
+  cursor: grabbing !important;
+}
