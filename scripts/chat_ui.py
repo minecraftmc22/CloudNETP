@@ -31,7 +31,7 @@ urllib.request.install_opener(urllib.request.build_opener(urllib.request.ProxyHa
 from PIL import Image  # noqa: E402
 from sqlalchemy import delete, select, update  # noqa: E402
 
-from app import db_failover, storage  # noqa: E402
+from app import db_failover, profile_service as ps, storage  # noqa: E402
 from app.config import settings  # noqa: E402
 from app.models import (  # noqa: E402
     Blob,
@@ -167,6 +167,10 @@ def seed() -> tuple[str, int, int]:
                 updated_at=utcnow(),
             )
         )
+        # 给 B 一张头像：A（普通用户）在会话列表里应该看得见，这条同时钉住
+        # /api/avatar 的读取权限（曾经只有本人和管理员能读，普通用户看到 404）
+        if not b.avatar:
+            b.avatar = ps.save_avatar(b.id, png_bytes(256, 256, (90, 150, 230)))
         db.commit()
         return (
             create_token(a.id, a.token_version),
@@ -321,6 +325,23 @@ def main() -> None:
         check("阿蓝" in names and "周末小组" in names, f"会话列表有单聊与群聊（{names}）")
         check(any(x["badge"] for x in layout["items"]), "未读会话有角标")
         check(any("周六" in (x["preview"] or "") for x in layout["items"]), "群聊预览显示最后一条")
+
+        # 对方头像：普通用户（A）也要能加载出 B 的头像图，而不是 404 破图
+        ava = js(
+            """
+            (() => {
+              const img = document.querySelector('.chat-ava img.avatar-img');
+              if (!img) return { none: true };
+              return {
+                none: false,
+                loaded: img.complete && img.naturalWidth > 0,
+                src: img.getAttribute('src') || '',
+              };
+            })()
+            """
+        )
+        check(not ava.get("none"), "会话列表给单聊画了头像图")
+        check(ava.get("loaded") is True, f"普通用户能看到对方头像（{ava.get('src')}）")
 
         # 打开单聊
         js(f"document.querySelector('.chat-item[data-conv=\"{direct_id}\"]').click()")
@@ -482,6 +503,9 @@ def main() -> None:
             )
             check(not any("撤回" in x for x in stale_menu),
                   f"超时的消息菜单里没有「撤回」（{stale_menu}）")
+            # 菜单是 hover 之外的浮层，不关掉会挡住后面点会话列表
+            js("document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))")
+            check(wait_for("!document.querySelector('.popover')", 5), "按 Esc 能关掉菜单")
         else:
             check(False, f"过期消息没能打开菜单（{opened}）")
         # 还原时限与时间戳，后面的用例还要按默认走
@@ -496,6 +520,9 @@ def main() -> None:
             cdb.close()
 
         # 群聊
+        assert wait_for(
+            f"!!document.querySelector('.chat-item[data-conv=\"{group_id}\"]')", 15
+        ), "会话列表里没有群聊"
         js(f"document.querySelector('.chat-item[data-conv=\"{group_id}\"]').click()")
         assert wait_for("!!document.querySelector('.chat-thread__title')", 15), "群聊没打开"
         time.sleep(1)

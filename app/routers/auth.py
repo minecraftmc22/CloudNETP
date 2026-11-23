@@ -1146,14 +1146,15 @@ def get_background(
 @router.get("/avatar/{name}")
 def get_avatar(
     name: str,
-    user: User = Depends(get_current_user),
+    _user: User = Depends(get_current_user),
 ):
-    """只允许读自己的头像：文件名前缀就是所有者 id。
+    """登录用户都能读任意头像：好友列表、聊天、群成员都要显示对方的头像。
 
-    管理员例外——后台用户列表要显示每个账号的头像。
+    以前只放行「文件名以自己 id 开头」的，管理员例外，于是普通用户看好友头像
+    一律 404「头像不存在」。放开后也不怕遍历：文件名是 `<用户 id>-<12 位随机 hex>`，
+    随机段枚举不出来，且换头像就换 URL。真正防穿越的是 avatar_path 里的
+    AVATAR_NAME_RE（只允许 id-12hex.webp|png），与调用者身份无关。
     """
-    if not name.startswith(f"{user.id}-") and user.role != 1:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "头像不存在")
     path = ps.avatar_path(name)
     if path is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "头像不存在")

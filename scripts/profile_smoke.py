@@ -145,7 +145,9 @@ def main() -> int:
 
     other = avatar_url.replace(str(user["id"]) + "-", "999999-")
     status, _, _ = api.get(other)
-    check("别人的头像 URL 取不到（404）", status == 404, status)
+    # 头像不再按「自己的 id 前缀」限权：登录用户都能读任意头像，
+    # 这里取不到只是因为换了 id 之后文件不存在。
+    check("换成别人的 id 后取不到（该文件不存在）", status == 404, status)
 
     status, _, _ = api.put_raw("/api/me/avatar", b"not-an-image-at-all")
     check("非图片数据被拒绝（400）", status == 400, status)
