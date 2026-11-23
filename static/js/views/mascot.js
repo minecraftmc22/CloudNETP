@@ -1,118 +1,118 @@
 /**
- * CDP娘（#/mascot，手机底部导航的第三项）
+ * CDP娘（#/mascot，底部导航的第三项）
  *
- * 这一页相当于她的「名片 + 快捷入口」：
- * - 显示当前的 AI 接口状态（用默认接口 / 自己的模型 / 未配置）
- * - 一键打开对话（复用右下角那个浮层，历史记录、长期记忆都在）
- * - 直达设置里的「看板娘」页签，换模型、调大小、开关闭
+ * 这一页就是「她站在你面前」：Live2D 整只搬进页面中间，下面直接是对话框。
+ * 聊天复用右下角那个面板（历史记录、长期记忆、工具胶囊、token 圆环都在），
+ * 只是换成整页内联布局，所以不需要第二套聊天逻辑。
  *
- * 看板娘本体还是右下角那个固定层，这里不复制一份 Live2D 实例 ——
- * 两份 canvas 会同时跑动画，手机发热还费电。
+ * 注意：Live2D 不复制实例 —— 把 #mascot 本体搬进页面，离开时再搬回 body。
+ * 两份 canvas 同时跑动画在手机上又热又费电。
  */
 import { api } from "../api.js";
 import { H, t } from "../i18n.js";
-import { openMascotChat } from "../ui/mascot-chat.js";
-import { Toast } from "../ui/toast.js";
+import { getMascotController } from "../ui/live2d.js";
+import { mountMascotChatInline, startNewMascotChat, unmountMascotChatInline } from "../ui/mascot-chat.js";
 
-const TIPS = [
-  {
-    icon: "i-search",
-    title: "找文件",
-    desc: "「上个月那份报表放哪了？」——按名字、类型或时间帮你翻出来",
-  },
-  {
-    icon: "i-chart",
-    title: "看容量",
-    desc: "剩余空间、哪个文件夹最占地方，问一句就有结论",
-  },
-  {
-    icon: "i-palette",
-    title: "换主题色",
-    desc: "发一张图或者说个颜色，她能把界面主题一起换掉",
-  },
-  {
-    icon: "i-bolt",
-    title: "整理与分享",
-    desc: "新建文件夹、移动重命名、生成取件码，都能让她代劳",
-  },
-];
+/** 记住这一页有没有挂上去过，route() 里据此收尾 */
+let mounted = false;
+/** 看板娘是否已经搬进页面（深链进来时她可能还没初始化） */
+let embedded = false;
 
 export function renderMascotPage(root) {
   root.innerHTML = H`
-    <div class="view-head">
-      <div class="view-title"><svg class="icon"><use href="#i-spark"/></svg>CDP娘</div>
-      <span class="view-sub">你的专属数据管家</span>
-    </div>
-    <div class="view-body">
-      <div class="friend-body">
-        <section class="mascot-hero">
-          <div class="mascot-hero__avatar">
-            <img src="/assets/brand-avatar.png" alt="CDP娘" width="108" height="108">
-          </div>
-          <div class="mascot-hero__name">CDP娘</div>
-          <div class="mascot-hero__badge" data-status>${t("正在检查 AI 接口…")}</div>
-          <p class="mascot-hero__desc">
-            ${t("住在云盘右下角的小管家。可以和她聊文件、要统计、换主题色，也可以只是打个招呼。")}
-          </p>
-          <div class="mascot-hero__ops">
-            <button class="btn btn--accent" type="button" data-act="chat">
-              <svg class="icon icon--s"><use href="#i-chat"/></svg>${t("和她聊天")}
-            </button>
-            <button class="btn btn--subtle" type="button" data-act="settings">
-              <svg class="icon icon--s"><use href="#i-settings"/></svg>${t("看板娘设置")}
-            </button>
-          </div>
-        </section>
-
-        <section class="mascot-tips">
-          ${TIPS.map(
-            (tip) => H`<div class="mascot-tip">
-              <span class="mascot-tip__icon"><svg class="icon icon--s"><use href="#${tip.icon}"/></svg></span>
-              <div>
-                <div class="mascot-tip__title">${t(tip.title)}</div>
-                <div class="mascot-tip__desc">${t(tip.desc)}</div>
-              </div>
-            </div>`
-          ).join("")}
-        </section>
-
-        <p class="friend-hint">
-          ${t("她的记性可以关：设置 → 看板娘里能关掉长期记忆、历史对话和工具权限。")}
-        </p>
+    <div class="cdp-page">
+      <div class="view-head cdp-head">
+        <div class="view-title"><svg class="icon"><use href="#i-spark"/></svg>CDP娘</div>
+        <span class="cdp-head__status" data-status>${t("正在检查 AI 接口…")}</span>
+        <button class="icon-btn cdp-head__gear" type="button" data-act="settings"
+                title="${t("看板娘设置")}" aria-label="${t("看板娘设置")}">
+          <svg class="icon icon--s"><use href="#i-settings"/></svg>
+        </button>
+      </div>
+      <div class="cdp-hero" data-cdp-hero>
+        <div class="cdp-hero__stage" data-cdp-stage></div>
+        <button class="cdp-new" type="button" data-act="new">
+          <svg class="icon icon--s"><use href="#i-plus"/></svg><span>${t("开启新对话")}</span>
+        </button>
       </div>
     </div>`;
 
-  const statusEl = root.querySelector("[data-status]");
+  const stage = root.querySelector("[data-cdp-stage]");
+  const hero = root.querySelector("[data-cdp-hero]");
 
-  function paintStatus(cfg) {
-    if (!statusEl) return;
-    const aiOn = cfg?.aiEnabled !== false;
-    const ready = Boolean(cfg?.ready);
-    const model = cfg?.model || cfg?.defaultModel || "";
-    if (!aiOn) {
-      statusEl.textContent = t("管理员关闭了 AI 对话");
-      statusEl.classList.add("is-off");
-    } else if (ready) {
-      statusEl.textContent = model ? t("已连接 · {model}", { model }) : t("已连接");
-      statusEl.classList.remove("is-off");
-    } else {
-      statusEl.textContent = t("还没配置模型，去设置里填一下");
-      statusEl.classList.add("is-off");
-    }
+  // 深链直接进 #/mascot 时，route() 可能早于看板娘初始化：等她准备好再搬
+  function embed() {
+    if (embedded || !root.isConnected) return;
+    const controller = getMascotController();
+    if (!controller) return;
+    controller.embed(stage);
+    embedded = true;
   }
+  embed();
+  if (!embedded) window.addEventListener("mascot:ready", embed, { once: true });
 
-  api
-    .get("/api/ai/config")
-    .then((data) => paintStatus(data?.config || {}))
-    .catch(() => paintStatus(null));
+  mountMascotChatInline(hero);
+  mounted = true;
+  trackCompose(hero);
 
-  root.querySelector('[data-act="chat"]').addEventListener("click", () => {
-    openMascotChat();
-    // 手机上对话是整屏抽屉，给个提示免得以为页面没反应
-    if (window.innerWidth <= 768) Toast.info(t("CDP娘 已弹出，直接说话就行"));
-  });
-
+  root.querySelector('[data-act="new"]').addEventListener("click", () => startNewMascotChat());
   root.querySelector('[data-act="settings"]').addEventListener("click", () => {
     location.hash = "#/settings/mascot";
   });
+
+  paintStatus(root.querySelector("[data-status]"));
+}
+
+/** 离开这一页（route() 清空视图之前调用）：面板搬回 body，她也搬回右下角 */
+export function unmountMascotPage() {
+  if (!mounted && !embedded) return;
+  mounted = false;
+  embedded = false;
+  footObs?.disconnect();
+  footObs = null;
+  unmountMascotChatInline();
+  getMascotController()?.unembed();
+}
+
+/** 输入框会长高（多行 / 贴图预览），舞台要跟着让位，否则她的脚会伸到卡片下面 */
+let footObs = null;
+
+function trackCompose(hero) {
+  const compose = hero.querySelector(".mchat__compose");
+  if (!compose) return;
+  const apply = () => {
+    // 卡片高度 + 底部 10px 外边距 + 一点呼吸空间
+    const height = Math.round(compose.getBoundingClientRect().height) + 18;
+    hero.style.setProperty("--cdp-foot", `${height}px`);
+  };
+  apply();
+  if (!("ResizeObserver" in window)) return;
+  footObs?.disconnect();
+  footObs = new ResizeObserver(apply);
+  footObs.observe(compose);
+}
+
+function paintStatus(statusEl) {
+  if (!statusEl) return;
+  api
+    .get("/api/ai/config")
+    .then((data) => {
+      const cfg = data?.config || {};
+      const aiOn = cfg.aiEnabled !== false;
+      const model = cfg.model || cfg.defaultModel || "";
+      if (!aiOn) {
+        statusEl.textContent = t("管理员关闭了 AI 对话");
+        statusEl.classList.add("is-off");
+      } else if (cfg.ready) {
+        statusEl.textContent = model ? t("已连接 · {model}", { model }) : t("已连接");
+        statusEl.classList.remove("is-off");
+      } else {
+        statusEl.textContent = t("还没配置模型，去设置里填一下");
+        statusEl.classList.add("is-off");
+      }
+    })
+    .catch(() => {
+      statusEl.textContent = t("AI 接口状态未知");
+      statusEl.classList.add("is-off");
+    });
 }

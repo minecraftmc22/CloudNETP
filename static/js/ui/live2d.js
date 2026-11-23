@@ -32,6 +32,13 @@ const FILL = 1;
 
 const scriptCache = new Map();
 
+/** 页面上唯一那只看板娘：CDP娘 页要把她整只搬进页面里（不复制第二个实例） */
+let activeMascot = null;
+
+export function getMascotController() {
+  return activeMascot;
+}
+
 function loadScript(src) {
   if (scriptCache.has(src)) return scriptCache.get(src);
   const task = new Promise((resolve, reject) => {
@@ -126,6 +133,8 @@ export function initLive2DMascot({ stage, host, bubble, pick, pickLabel, onPoke,
     started: false,
     destroyed: false,
     offset: readSavedPos(),
+    // 非空 = 正被她所在的那一页「收养」（CDP娘 页），现场是 { hidden, container }
+    embedded: null,
   };
 
   const controller = {
@@ -134,6 +143,12 @@ export function initLive2DMascot({ stage, host, bubble, pick, pickLabel, onPoke,
     show,
     destroy,
     next,
+    embed: (container) => embed(container),
+    unembed,
+    refit: () => fit(),
+    get embedded() {
+      return Boolean(state.embedded);
+    },
     get models() {
       return state.models;
     },
@@ -359,6 +374,74 @@ export function initLive2DMascot({ stage, host, bubble, pick, pickLabel, onPoke,
     applyOffset();
   }
 
+  /* ---------------- 被页面收养（CDP娘 页） ----------------
+     不复制第二个 Live2D 实例：直接把 #mascot 整只搬进页面里的舞台容器，
+     交给 CSS 撑满容器，走之前再搬回 body 恢复右下角悬浮。
+     手机上 #mascot 本来是 display:none（views.css），所以这一步也是
+     「手机上第一次真正看见她活动」的入口。 */
+
+  let embedTimer = 0;
+  let embedRaf = 0;
+  let embedObs = null;
+
+  function embed(container) {
+    if (!host || !container) return false;
+    if (state.embedded) unembed();
+    state.embedded = {
+      hidden: host.classList.contains("is-hidden"),
+      container,
+    };
+    host.classList.add("is-embedded");
+    // 用户之前把看板娘收起来过：这一页是她自己的名片，仍然请她出来
+    host.classList.remove("is-hidden");
+    container.appendChild(host);
+    // 页面里她是「站着」的，不跟右下角锚点的平移量
+    document.documentElement.style.setProperty("--mascot-dx", "0px");
+    document.documentElement.style.setProperty("--mascot-dy", "0px");
+    setActive(true);
+
+    // 搬完要等布局落定再量，否则量到的还是 display:none 时的 0 宽高
+    window.cancelAnimationFrame(embedRaf);
+    embedRaf = window.requestAnimationFrame(() => {
+      embedRaf = window.requestAnimationFrame(() => {
+        embedRaf = 0;
+        fit();
+      });
+    });
+    window.clearTimeout(embedTimer);
+    embedTimer = window.setTimeout(fit, 200);
+
+    if ("ResizeObserver" in window) {
+      if (embedObs) embedObs.disconnect();
+      embedObs = new ResizeObserver(() => onResize());
+      embedObs.observe(container);
+    }
+    return true;
+  }
+
+  function unembed() {
+    const info = state.embedded;
+    if (!host || !info) return false;
+    state.embedded = null;
+    window.clearTimeout(embedTimer);
+    window.cancelAnimationFrame(embedRaf);
+    embedRaf = 0;
+    if (embedObs) {
+      embedObs.disconnect();
+      embedObs = null;
+    }
+    host.classList.remove("is-embedded");
+    document.body.appendChild(host);
+    if (info.hidden) host.classList.add("is-hidden");
+    setActive(!host.classList.contains("is-hidden"));
+    // 回到右下角：把之前记住的偏移重新落一遍
+    applyOffset(true);
+    window.requestAnimationFrame(fit);
+    window.setTimeout(fit, 140);
+    rememberCenter();
+    return true;
+  }
+
   function setActive(active) {
     state.active = Boolean(active);
     if (!state.app) return;
@@ -489,6 +572,8 @@ export function initLive2DMascot({ stage, host, bubble, pick, pickLabel, onPoke,
 
   /** 把看板娘挪回「记忆里那个占屏比例」，偏移不够就夹回可用范围 */
   function restoreCenter() {
+    // 被页面收养时她的位置由容器决定，没有「占屏比例」可言
+    if (state.embedded) return;
     if (!centerFrac || !host || host.classList.contains("is-hidden")) return;
     const r = host.getBoundingClientRect();
     if (!r.width || !r.height) return;
@@ -521,11 +606,17 @@ export function initLive2DMascot({ stage, host, bubble, pick, pickLabel, onPoke,
   }
 
   let drag = null;
+  // 页面收养时没有「拖动」的概念，只记一下按下的位置，抬手时判断是不是戳了一下
+  let tap = null;
 
   function onHostDown(event) {
     if (!host || host.classList.contains("is-hidden")) return;
     if (event.pointerType === "mouse" && event.button !== 0) return;
     if (event.target.closest("[data-mascot-pick]")) return;
+    if (state.embedded) {
+      tap = { x: event.clientX, y: event.clientY };
+      return;
+    }
     drag = {
       sx: event.clientX,
       sy: event.clientY,
@@ -573,7 +664,19 @@ export function initLive2DMascot({ stage, host, bubble, pick, pickLabel, onPoke,
     if (!canceled) pokeAt(event.clientX, event.clientY);
   }
 
-  const onHostUp = (event) => endDrag(event, false);
+  const onHostUp = (event) => {
+    if (state.embedded) {
+      const start = tap;
+      tap = null;
+      // 手指没怎么移动才算「戳一下」，否则就是在划页面
+      if (start && Math.hypot(event.clientX - start.x, event.clientY - start.y) < 14) {
+        pokeAt(event.clientX, event.clientY);
+      }
+      return;
+    }
+    endDrag(event, false);
+  };
+
   const onHostCancel = (event) => endDrag(event, true);
 
   // 落盘一次：旧版本留下的偏移可能已经越界，夹回来的值顺手写回去，别每次加载都重算
@@ -616,6 +719,8 @@ export function initLive2DMascot({ stage, host, bubble, pick, pickLabel, onPoke,
 
   function onHostWheel(event) {
     if (!host || host.classList.contains("is-hidden")) return;
+    // 在页面里她是「站在那儿」的，滚轮留给页面滚动，别改她的大小
+    if (state.embedded) return;
     // 关掉开关就让页面照常滚动，别把滚轮吞掉
     if (!isMascotWheelZoom()) return;
     event.preventDefault();
@@ -675,6 +780,19 @@ export function initLive2DMascot({ stage, host, bubble, pick, pickLabel, onPoke,
   let shapeRaf = 0;
 
   const onResize = () => {
+    // 被页面收养时：宽高由容器决定，只按容器尺寸重排画布，
+    // 别掺和「按视口比例回正」那套右下角锚点逻辑（会把她推出画面）
+    if (state.embedded) {
+      window.clearTimeout(fitTimer);
+      if (!fitRaf) {
+        fitRaf = window.requestAnimationFrame(() => {
+          fitRaf = 0;
+          fit();
+        });
+      }
+      fitTimer = window.setTimeout(fit, 200);
+      return;
+    }
     // 视口尺寸变了（浏览器页面缩放 / 改窗口宽高）才把位置按比例放回去；
     // 只是改看板娘大小（mascot:resize）时视口没变，不能动她的位置
     const vw = window.innerWidth;
@@ -751,6 +869,9 @@ export function initLive2DMascot({ stage, host, bubble, pick, pickLabel, onPoke,
     }, 600);
   }
 
+  activeMascot = controller;
+  // 视图可能比看板娘先渲染完（深链直接进 #/mascot），拿到实例后再通知一次
+  window.dispatchEvent(new CustomEvent("mascot:ready"));
   return controller;
 }
 

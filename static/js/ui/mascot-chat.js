@@ -74,6 +74,8 @@ const state = {
   },
   greeting: true,
   editing: null, // {uid} 正在编辑哪条已发送的消息
+  // 被 CDP娘 页「收养」时（手机端整页对话），面板不再固定在右下角
+  inline: false,
 };
 
 // 每条消息一个稳定 id：删除 / 编辑之后数组下标会变，靠它定位
@@ -188,11 +190,7 @@ function ensurePanel() {
   panel.querySelector("[data-mchat-edit-cancel]").addEventListener("click", cancelEdit);
 
   panel.querySelector("[data-mchat-close]").addEventListener("click", closeMascotChat);
-  panel.querySelector("[data-mchat-new]").addEventListener("click", () => {
-    resetChat();
-    toggleHistory(false);
-    Toast.info("开了一段新对话");
-  });
+  panel.querySelector("[data-mchat-new]").addEventListener("click", () => startNewMascotChat());
   state.historyBtn.addEventListener("click", () => toggleHistory());
   panel
     .querySelector("[data-mchat-history-close]")
@@ -315,6 +313,8 @@ function ensurePanel() {
 function followMascot() {
   const panel = state.panel;
   const mascot = document.getElementById("mascot");
+  // 嵌在页面里：位置交给 CSS（.mchat.is-embedded），别写死行内坐标
+  if (state.inline) return;
   if (!panel || !mascot || !state.open) return;
 
   // 手机上聊天框是整屏抽屉，位置交给 CSS
@@ -382,15 +382,57 @@ export function openMascotChat() {
   } else if (state.greeting) {
     renderGreeting();
   }
-  window.setTimeout(() => state.input?.focus(), 60);
+  // 整页对话里不自动抢焦点：一进页面就弹输入法，看板娘会被键盘顶没了
+  if (!state.inline) window.setTimeout(() => state.input?.focus(), 60);
   scrollFeed(true);
 }
 
 export function closeMascotChat() {
   if (!state.panel) return;
+  // 整页对话里没有「收起」这回事，离开页面时由 unmount 统一收尾
+  if (state.inline) return;
   state.panel.classList.remove("is-open");
   state.open = false;
   if (state.busy) stopStream();
+}
+
+/**
+ * 把对话面板挂进页面（CDP娘 页）：复用同一个面板，
+ * 历史记录、长期记忆、工具胶囊、token 圆环都跟着走，不用重写一套聊天。
+ */
+export function mountMascotChatInline(container) {
+  if (!container) return false;
+  const panel = ensurePanel();
+  state.inline = true;
+  panel.classList.add("is-embedded");
+  panel.style.left = "";
+  panel.style.top = "";
+  panel.style.right = "";
+  panel.style.bottom = "";
+  container.appendChild(panel);
+  openMascotChat();
+  return true;
+}
+
+/** 离开 CDP娘 页：面板搬回 body 并收起（对话内容留在服务端，下次接着聊） */
+export function unmountMascotChatInline() {
+  if (!state.panel || !state.inline) return false;
+  state.inline = false;
+  state.panel.classList.remove("is-embedded");
+  closeMascotChat();
+  document.body.appendChild(state.panel);
+  return true;
+}
+
+export function isMascotChatInline() {
+  return state.inline;
+}
+
+/** 页头「开启新对话」：清掉当前这段，回到问候语 */
+export function startNewMascotChat() {
+  resetChat();
+  toggleHistory(false);
+  Toast.info(t("开了一段新对话"));
 }
 
 export function toggleMascotChat() {

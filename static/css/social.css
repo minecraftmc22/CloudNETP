@@ -303,138 +303,256 @@
   padding: 0 2px;
 }
 
-/* ---------------- CDP娘页 ---------------- */
-.mascot-hero {
-  position: relative;
+/* ---------------- CDP娘页：她站在屏幕前，下面是对话框 ---------------- */
+.cdp-page {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 10px;
-  padding: 26px 20px 22px;
-  border-radius: var(--radius-xl);
-  border: 1px solid var(--stroke-hair);
-  background-color: var(--layer-2);
-  background-image: var(--accent-tint);
-  overflow: hidden;
-  text-align: center;
 }
-.mascot-hero::after {
-  content: "";
+
+.cdp-head {
+  gap: 10px;
+  align-items: center;
+}
+.cdp-head__status {
+  flex: 1;
+  min-width: 0;
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--text-3);
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cdp-head__status.is-off {
+  color: var(--warn);
+}
+.cdp-head__gear {
+  flex: none;
+  width: 30px;
+  height: 30px;
+}
+
+/* 她的舞台：整块内容区，底部留给对话框 */
+.cdp-hero {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  /* 头顶一层极淡的主题色，别让大片透明看着像没渲染出来 */
+  background-image: radial-gradient(
+    120% 72% at 50% 4%,
+    color-mix(in srgb, var(--accent) 13%, transparent),
+    transparent 64%
+  );
+}
+.cdp-hero__stage {
   position: absolute;
-  inset: -40% -20% auto;
-  height: 180px;
-  background: radial-gradient(
-    circle at 50% 0%,
-    color-mix(in srgb, var(--accent) 26%, transparent),
-    transparent 70%
+  /* 底部让出输入框的高度（--cdp-foot 由 JS 按输入框实际高度写），
+     她就站在对话框上方，不会把脚伸到卡片底下 */
+  inset: 0 0 var(--cdp-foot, 104px) 0;
+}
+
+/* 页里那只 #mascot：不再固定右下角，整只撑满舞台。
+   手机端 views.css 里本来把她 display:none 了，这里显式请出来。 */
+.cdp-hero .mascot {
+  position: absolute;
+  inset: 0;
+  /* 基础样式里她是 z-index:4（浮在所有东西之上），在页里必须压到对话框下面，
+     否则气泡和渐隐层会被她盖住，字直接糊在裙子上 */
+  z-index: 1;
+  display: block;
+  width: 100%;
+  height: 100%;
+  /* 右下角那套 translate 偏移在页里没有意义 */
+  translate: none;
+  cursor: default;
+  touch-action: pan-y;
+  transition: none;
+}
+/* 没有 Live2D 模型时退回云朵：按高度摆，别被拉成一个大方块 */
+.cdp-hero .mascot:not(.is-live) .mascot__cloud {
+  width: auto;
+  height: 62%;
+  margin: 8% auto 0;
+}
+/* 页里她的「对话 / 收起」操作条和自动冒泡都用不上，聊天就在下面 */
+.cdp-hero .mascot__bubble,
+.cdp-hero .mascot__actions {
+  display: none;
+}
+/* 「换一个模型」挪到左上角，触屏没有 hover，常驻可点 */
+.cdp-hero .mascot__pick {
+  top: 10px;
+  left: 10px;
+  right: auto;
+  bottom: auto;
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+}
+
+/* 右上角「开启新对话」 */
+.cdp-new {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: var(--radius-pill);
+  border: 1px solid color-mix(in srgb, var(--accent) 36%, var(--stroke));
+  background: var(--acrylic-strong);
+  backdrop-filter: blur(18px);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-1);
+  transition: transform var(--dur-fast) var(--ease-fluent),
+    border-color var(--dur-fast) var(--ease-standard);
+}
+.cdp-new:hover {
+  border-color: color-mix(in srgb, var(--accent) 62%, var(--stroke));
+  transform: translateY(-1px);
+}
+.cdp-new:active {
+  transform: scale(0.97);
+}
+.cdp-new .icon {
+  color: var(--accent);
+}
+
+/* ---------------- 对话面板：整页内联形态 ---------------- */
+/* 同一个 .mchat 元素，去掉浮层的边框/底色/定位，铺满她的舞台：
+   上半段透出看板娘，下半段渐变成对话区，最底下是输入框。 */
+.mchat.is-embedded {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  width: auto;
+  max-width: none;
+  height: auto;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  transform: none;
+  overflow: visible;
+  /* 空白处别挡点击：手指点在她身上还能戳一戳 */
+  pointer-events: none;
+}
+/* 页头已经有标题和「开启新对话」，面板自己的头部收起来 */
+.mchat.is-embedded .mchat__head {
+  display: none;
+}
+.mchat.is-embedded .mchat__banner {
+  /* 排到输入框正上方（像一条系统提示），别压在右上角那颗「开启新对话」上 */
+  order: 1;
+  margin: 0 10px 6px;
+  border: 1px solid var(--stroke-hair);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--dialog-surface) 92%, transparent);
+  backdrop-filter: blur(18px);
+  pointer-events: auto;
+}
+.mchat.is-embedded .mchat__feed {
+  padding: 54px 12px 6px;
+  /* 气泡浮在她身上：下半段压一层从透明到底色的渐变，字才看得清 */
+  background-image: linear-gradient(
+    to bottom,
+    transparent 0%,
+    color-mix(in srgb, var(--dialog-surface) 52%, transparent) 22%,
+    color-mix(in srgb, var(--dialog-surface) 88%, transparent) 46%,
+    color-mix(in srgb, var(--dialog-surface) 94%, transparent) 100%
   );
   pointer-events: none;
 }
-.mascot-hero__avatar {
-  position: relative;
-  width: 108px;
-  height: 108px;
-  border-radius: 34px;
-  padding: 4px;
-  background: var(--accent-grad);
-  box-shadow: 0 10px 28px color-mix(in srgb, var(--accent) 28%, transparent);
+/* 只有气泡本身接事件，空白处留给看板娘 */
+.mchat.is-embedded .mchat__feed > * {
+  pointer-events: auto;
 }
-.mascot-hero__avatar img {
-  width: 100%;
-  height: 100%;
-  border-radius: 30px;
-  object-fit: cover;
-  background: var(--layer-1);
+/* 内容少时沉到底部（贴着输入框），多了照常从下往上堆并滚动 */
+.mchat.is-embedded .mchat__feed > :first-child {
+  margin-top: auto;
 }
-.mascot-hero__name {
-  position: relative;
-  font-size: 20px;
-  font-weight: 700;
-  letter-spacing: 0.3px;
+.mchat.is-embedded .mchat__compose {
+  order: 2;
+  margin: 0 10px 10px;
+  border: 1px solid var(--stroke);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--dialog-surface) 94%, transparent);
+  backdrop-filter: blur(20px) saturate(1.3);
+  box-shadow: 0 10px 26px rgba(64, 28, 106, 0.18);
+  pointer-events: auto;
 }
-.mascot-hero__desc {
-  position: relative;
-  max-width: 30ch;
-  font-size: 12.5px;
-  color: var(--text-2);
-  line-height: 1.6;
+/* 触屏没有「Enter 发送」这回事，把那行提示让给按钮 */
+@media (pointer: coarse) {
+  .mchat.is-embedded .mchat__tip {
+    display: none;
+  }
+  .mchat.is-embedded .mchat__input {
+    font-size: 14px;
+  }
 }
-.mascot-hero__badge {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 24px;
-  padding: 0 10px;
-  border-radius: var(--radius-pill);
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
-  color: var(--accent);
-  font-size: 11.5px;
-  font-weight: 600;
+/* 提示语藏起来之后按钮会挤到左边：发送永远贴右，其它贴左 */
+.mchat.is-embedded .mchat__send {
+  margin-left: auto;
 }
-.mascot-hero__badge::before {
-  content: "";
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: currentColor;
+/* 桌面端别铺满整个 1400px 内容区，收成一列像张卡片 */
+@media (min-width: 861px) {
+  .cdp-page {
+    max-width: 720px;
+    margin: 0 auto;
+    width: 100%;
+  }
 }
-.mascot-hero__ops {
-  position: relative;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  justify-content: center;
-  margin-top: 4px;
+/* 矮屏（竖着放不下）：气泡区顶部少留一点，给模型腾高度 */
+@media (max-height: 520px) {
+  .mchat.is-embedded .mchat__feed {
+    padding-top: 46px;
+  }
+  .mchat.is-embedded .mchat__hello p {
+    font-size: 11.5px;
+    line-height: 1.55;
+    margin-bottom: 6px;
+  }
+  .mchat.is-embedded .mchat__chip {
+    padding: 3px 8px;
+    font-size: 11px;
+  }
+  .cdp-hero .mascot:not(.is-live) .mascot__cloud {
+    height: 46%;
+  }
 }
-.mascot-hero__ops .btn {
-  min-width: 128px;
-  justify-content: center;
-}
-/* 压在彩色光晕上的次级按钮：透明底会「消失」，给一层薄底与发丝边 */
-.mascot-hero__ops .btn--subtle {
-  background-color: var(--layer-3);
-  border-color: var(--stroke-hair);
-  color: var(--text-1);
-}
-
-.mascot-tips {
-  display: flex;
-  flex-direction: column;
-  border-radius: var(--radius-l);
-  border: 1px solid var(--stroke-hair);
-  background-color: var(--layer-2);
-  overflow: hidden;
-}
-.mascot-tip {
-  display: grid;
-  grid-template-columns: 30px minmax(0, 1fr);
-  gap: 10px;
-  align-items: start;
-  padding: 12px 14px;
-  border-bottom: 1px solid var(--stroke-hair);
-}
-.mascot-tip:last-child {
-  border-bottom: 0;
-}
-.mascot-tip__icon {
-  width: 30px;
-  height: 30px;
-  display: grid;
-  place-items: center;
-  border-radius: var(--radius-s);
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-  color: var(--accent);
-}
-.mascot-tip__title {
-  font-size: 13px;
-  font-weight: 600;
-}
-.mascot-tip__desc {
-  margin-top: 2px;
-  font-size: 12px;
-  color: var(--text-2);
-  line-height: 1.5;
+/* 横屏手机：改成左右分栏 —— 她在左，对话在右，别把她压成一个小头像 */
+@media (max-height: 520px) and (min-width: 600px) {
+  .cdp-hero__stage {
+    inset: 0 auto 0 0;
+    width: 40%;
+  }
+  .mchat.is-embedded {
+    left: 40%;
+  }
+  .mchat.is-embedded .mchat__feed {
+    /* 顶部留出右上角那颗「开启新对话」 */
+    padding: 46px 12px 6px;
+    background-image: linear-gradient(
+      to bottom,
+      transparent 0%,
+      color-mix(in srgb, var(--dialog-surface) 80%, transparent) 30%,
+      color-mix(in srgb, var(--dialog-surface) 94%, transparent) 100%
+    );
+  }
+  .cdp-hero .mascot:not(.is-live) .mascot__cloud {
+    height: 56%;
+  }
 }
 
 /* 手机端文件页的「我的分享 / 回收站」入口（桌面端由底部导航直达，不显示） */
@@ -508,24 +626,6 @@
     min-width: 84px;
     height: 34px;
     padding: 0 14px;
-  }
-  .mascot-hero {
-    padding: 22px 16px 18px;
-  }
-  .mascot-hero__avatar {
-    width: 92px;
-    height: 92px;
-    border-radius: 28px;
-  }
-  .mascot-hero__avatar img {
-    border-radius: 24px;
-  }
-  .mascot-hero__ops {
-    width: 100%;
-  }
-  .mascot-hero__ops .btn {
-    flex: 1 1 0;
-    min-width: 0;
   }
 }
 

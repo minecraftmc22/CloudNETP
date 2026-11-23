@@ -346,26 +346,32 @@ def main() -> None:
         )
         check(not search.get("missing") and hits["n"] >= 1, f"搜索能搜到用户（{hits['n']} 条）")
 
-        # 6) CDP娘页
-        goto("#/mascot", ".mascot-hero")
+        # 6) CDP娘页：她站在屏幕前，对话框贴在下面
+        goto("#/mascot", ".cdp-hero")
         hero = js(
             """
             (() => {
-              const name = document.querySelector('.mascot-hero__name')?.textContent.trim();
-              const badges = document.querySelector('.mascot-hero__badge')?.textContent.trim();
-              const ops = [...document.querySelectorAll('.mascot-hero__ops .btn')].map((b) => b.textContent.trim());
-              const tips = document.querySelectorAll('.mascot-tip').length;
-              return { name, badges, ops, tips };
+              const title = document.querySelector('.cdp-head .view-title')?.textContent.trim() || '';
+              const newBtn = document.querySelector('.cdp-new')?.textContent.trim() || '';
+              const host = document.querySelector('#mascot');
+              return {
+                title,
+                newBtn,
+                embed: !!document.querySelector('.mchat.is-embedded'),
+                input: !!document.querySelector('.mchat.is-embedded .mchat__input'),
+                stage: host ? host.parentElement.className : '',
+              };
             })()
             """
         )
-        check(hero["name"] == "CDP娘", f"CDP娘页标题（{hero['name']}）")
-        check(hero["tips"] >= 3, f"CDP娘页能力清单（{hero['tips']} 条）")
-        check(len(hero["ops"]) == 2, f"CDP娘页两个主按钮（{hero['ops']}）")
+        check(hero["title"].endswith("CDP娘"), f"CDP娘页标题（{hero['title']}）")
+        check("cdp-hero__stage" in hero.get("stage", ""), f"看板娘搬进了本页（{hero.get('stage')}）")
+        check(hero["embed"], "CDP娘页内嵌了对话面板")
+        check(hero["input"], "CDP娘页底部就是输入框")
+        check("开启新对话" in hero["newBtn"], f"CDP娘页有「开启新对话」（{hero['newBtn']}）")
 
-        js("document.querySelector('.mascot-hero__ops [data-act=\"chat\"]').click()")
-        opened = wait_for("!!document.querySelector('.mchat.is-open')", 8)
-        check(opened, "点「和她聊天」打开对话面板")
+        js("document.querySelector('.cdp-new').click()")
+        check(wait_for("!!document.querySelector('.mchat__hello')", 8), "点「开启新对话」回到问候语")
 
         # 7) 桌面宽度：侧栏回到 分享 / 回收站 / 关于，CDP娘不在
         send("Emulation.setDeviceMetricsOverride", width=DESK, height=900, deviceScaleFactor=1, mobile=False)

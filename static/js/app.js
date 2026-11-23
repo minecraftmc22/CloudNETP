@@ -35,7 +35,7 @@ import { disposeFilesView, renderFiles } from "./views/files.js";
 import { renderSettings } from "./views/settings.js";
 import { renderFeedback } from "./views/feedback.js";
 import { renderFriends } from "./views/friends.js";
-import { renderMascotPage } from "./views/mascot.js";
+import { renderMascotPage, unmountMascotPage } from "./views/mascot.js";
 import { renderNotices } from "./views/notices.js";
 import { renderQuick } from "./views/quick.js";
 import { renderShares } from "./views/shares.js";
@@ -319,12 +319,13 @@ function enterApp(user) {
   if (!location.hash || !location.hash.startsWith("#/") || !TITLES[hashRoute]) {
     location.hash = "#/files";
   }
+  // 看板娘要先就位：CDP娘 页渲染时会把她的本体搬进页面里
+  setupMascot(user);
   route();
 
   if (user.settings?.showPetals === false) stopPetals();
   else startPetals();
 
-  setupMascot(user);
   updateThemeIcon();
   startBanWatch();
   void autoCheckUpdates(user);
@@ -518,6 +519,8 @@ function route() {
   }
 
   const root = el("view-root");
+  // CDP娘 页把看板娘和对话框搬进了视图里，清空视图之前得先让她搬回右下角
+  unmountMascotPage();
   root.innerHTML = "";
 
   if (name === "files") renderFiles(root, { user });

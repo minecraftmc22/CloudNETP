@@ -245,7 +245,7 @@ PAGES = [
     ("07_quick", "quick", "#/quick", ".view-body"),
     ("08_notices", "notices", "#/notices", ".notice-list, .empty"),
     ("09_friends", "friends", "#/friends", ".friend-list, .empty"),
-    ("20_mascot", "mascot", "#/mascot", ".mascot-hero"),
+    ("20_mascot", "mascot", "#/mascot", ".cdp-hero"),
 ]
 
 
