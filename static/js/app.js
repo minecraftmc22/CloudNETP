@@ -34,9 +34,18 @@ import { renderAbout } from "./views/about.js";
 import { disposeFilesView, renderFiles } from "./views/files.js";
 import { renderSettings } from "./views/settings.js";
 import { renderFeedback } from "./views/feedback.js";
+import { renderFriends } from "./views/friends.js";
+import { renderMascotPage } from "./views/mascot.js";
+import { renderNotices } from "./views/notices.js";
 import { renderQuick } from "./views/quick.js";
 import { renderShares } from "./views/shares.js";
 import { renderTrash } from "./views/trash.js";
+import {
+  initNoticeBell,
+  refreshNoticeBadge,
+  startNoticeWatch,
+  stopNoticeWatch,
+} from "./ui/notice.js";
 
 /**
  * 标签页里的站点名：后台填了 SEO 标题就用它，跟服务端注入的 <title> 保持一致。
@@ -47,15 +56,24 @@ function siteTitle() {
   return meta.seoTitle || meta.appName || "CloudNETP";
 }
 
+/**
+ * 导航项：
+ * - desktopOnly：桌面侧栏有，手机底部栏没有（分享 / 回收站已下沉到「我的文件」里的按钮）
+ * - mobileOnly：只有手机底部栏有（CDP娘）
+ * 判断交给 CSS 断点，切换窗口宽度时不用重画导航。
+ */
 const NAV_ITEMS = [
   { group: "空间" },
   { route: "files", label: "我的文件", icon: "i-folder" },
-  { route: "shares", label: "我的分享", icon: "i-share" },
+  { route: "shares", label: "我的分享", icon: "i-share", desktopOnly: true },
   { route: "quick", label: "快传", icon: "i-bolt" },
-  { route: "trash", label: "回收站", icon: "i-trash" },
+  { route: "trash", label: "回收站", icon: "i-trash", desktopOnly: true },
+  { group: "互动" },
+  { route: "friends", label: "好友", icon: "i-users", badge: true },
+  { route: "mascot", label: "CDP娘", icon: "i-spark", mobileOnly: true },
   { group: "系统" },
   { route: "settings", label: "设置", icon: "i-settings" },
-  { route: "about", label: "关于", icon: "i-info" },
+  { route: "about", label: "关于", icon: "i-info", desktopOnly: true },
   { route: "admin", label: "管理后台", icon: "i-shield", adminOnly: true },
 ];
 
@@ -64,6 +82,9 @@ const TITLES = {
   shares: "我的分享",
   quick: "快传",
   trash: "回收站",
+  friends: "好友",
+  mascot: "CDP娘",
+  notices: "消息中心",
   settings: "设置",
   feedback: "意见反馈",
   about: "关于",
@@ -155,6 +176,7 @@ async function boot() {
 
 function showAuth() {
   stopBanWatch();
+  stopNoticeWatch();
   hideBanNotice();
   // 文件视图的 Delete 键监听挂在 document 上，不撤掉的话退出登录后还能触发删除
   disposeFilesView();
@@ -205,6 +227,7 @@ function showAuth() {
  */
 function showAppeal(detail, ticket) {
   stopBanWatch();
+  stopNoticeWatch();
   hideBanNotice();
   disposeFilesView();
   store.set({ user: null });
@@ -286,10 +309,13 @@ function enterApp(user) {
 
   applyNavState(!!user.settings?.navCollapsed);
   renderNav();
+  // 导航画完再启动角标轮询：好友项上的小数字要挂到刚生成的节点上
+  startNoticeWatch();
 
   // 登录成功后如果地址栏还停在 #/login 这种非视图路由上，顺手归一化到 #/files，
-  // 否则刷新页面时地址栏会一直留着一个不存在的路由
-  const hashRoute = location.hash.replace(/^#\/?/, "");
+  // 否则刷新页面时地址栏会一直留着一个不存在的路由。
+  // 只取第一段：#/admin/reports 这类带子段的地址要保留子段。
+  const hashRoute = location.hash.replace(/^#\/?/, "").split("/")[0];
   if (!location.hash || !location.hash.startsWith("#/") || !TITLES[hashRoute]) {
     location.hash = "#/files";
   }
@@ -374,12 +400,22 @@ function renderNav() {
     ${NAV_ITEMS.map((item) => {
       if (item.group) return H`<div class="nav__group">${t(item.group)}</div>`;
       if (item.adminOnly && user?.role !== 1) return "";
+      const active = current === item.route;
+      const cls = [
+        "nav-item",
+        active ? "is-active" : "",
+        item.desktopOnly ? "nav-item--desktop" : "",
+        item.mobileOnly ? "nav-item--mobile" : "",
+      ]
+        .filter(Boolean)
+        .join(" ");
       return H`
-        <a class="nav-item ${current === item.route ? "is-active" : ""}"
+        <a class="${cls}"
            href="#/${item.route}" data-route="${item.route}" data-tip="${t(item.label)}"
-           aria-label="${t(item.label)}" ${current === item.route ? 'aria-current="page"' : ""}>
+           aria-label="${t(item.label)}" ${active ? 'aria-current="page"' : ""}>
           <svg class="icon"><use href="#${item.icon}"/></svg>
           <span class="nav-item__label">${t(item.label)}</span>
+          ${item.badge ? H`<span class="nav-item__badge" data-nav-badge hidden>0</span>` : ""}
         </a>`;
     }).join("")}
     <div class="nav__spacer"></div>
@@ -444,9 +480,15 @@ function renderPlaceholder(root, { icon, title, desc }) {
     </div>`;
 }
 
+/** 路由可以带子段：#/admin/reports、#/settings/mascot —— 视图按需用它定位页签 */
+function parseRoute() {
+  const raw = location.hash.replace(/^#\/?/, "").split("?")[0];
+  const [name, sub = ""] = raw.split("/");
+  return TITLES[name] ? { name, sub } : { name: "files", sub: "" };
+}
+
 function currentRoute() {
-  const hash = location.hash.replace(/^#\/?/, "");
-  return TITLES[hash] ? hash : "files";
+  return parseRoute().name;
 }
 
 function route() {
@@ -467,6 +509,7 @@ function route() {
     startBanWatch();
   }
   const name = currentRoute();
+  const { sub } = parseRoute();
   store.set({ route: name });
 
   if (name === "admin" && user.role !== 1) {
@@ -481,10 +524,13 @@ function route() {
   else if (name === "shares") renderShares(root, { user });
   else if (name === "quick") renderQuick(root, { user });
   else if (name === "trash") renderTrash(root, { user });
-  else if (name === "settings") renderSettings(root);
+  else if (name === "friends") renderFriends(root);
+  else if (name === "mascot") renderMascotPage(root);
+  else if (name === "notices") renderNotices(root, { user });
+  else if (name === "settings") renderSettings(root, { tab: sub });
   else if (name === "feedback") renderFeedback(root);
   else if (name === "about") renderAbout(root);
-  else if (name === "admin") renderAdmin(root);
+  else if (name === "admin") renderAdmin(root, { tab: sub });
   else renderPlaceholder(root, PLACEHOLDERS.admin);
 
   document.title = `${t(TITLES[name])} · ${siteTitle()}`;
@@ -571,6 +617,7 @@ function setupUserMenu() {
       },
       items: [
         ...installMenuItems(),
+        { label: t("消息中心"), icon: "i-bell", onClick: () => (location.hash = "#/notices") },
         { label: t("设置"), icon: "i-settings", onClick: () => (location.hash = "#/settings") },
         ...(user.role === 1
           ? [{ label: t("管理后台"), icon: "i-shield", onClick: () => (location.hash = "#/admin") }]
@@ -702,6 +749,8 @@ function hideMascot() {
 watchI18n(() => {
   applyStatic();
   renderNav();
+  // 导航重建后角标节点也换了，重新画一次数字
+  if (store.get().user) void refreshNoticeBadge();
   const { user } = store.get();
   if (user) route();
 });
@@ -733,6 +782,7 @@ window.addEventListener("user:refresh", (event) => {
   paintUserChip(user);
   updateEmailTip(user);
   renderNav();
+  void refreshNoticeBadge();
 });
 
 window.addEventListener("hashchange", () => {
@@ -757,4 +807,5 @@ setupNavToggle();
 setupThemeToggle();
 setupUserMenu();
 setupEmailTip();
+initNoticeBell();
 boot();

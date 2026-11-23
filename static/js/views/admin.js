@@ -589,9 +589,10 @@ function aiCardMarkup(cfg) {
   </section>`;
 }
 
-export function renderAdmin(root) {
+export function renderAdmin(root, { tab } = {}) {
   const state = {
-    tab: "overview",
+    // 消息中心的通知可以直达某个页签（#/admin/reports），未知值退回概览
+    tab: TABS.some((x) => x.id === tab) ? tab : "overview",
     actions: null,
     users: { page: 1, query: "", filter: "all", total: 0 },
     reports: { page: 1, filter: "pending", total: 0 },
@@ -614,7 +615,7 @@ export function renderAdmin(root) {
         <div class="segmented__thumb" data-thumb></div>
         ${TABS.map(
           (tab) =>
-            H`<button class="segmented__btn ${tab.id === "overview" ? "is-active" : ""}" type="button" data-tab="${tab.id}">
+            H`<button class="segmented__btn ${tab.id === state.tab ? "is-active" : ""}" type="button" data-tab="${tab.id}">
                <svg class="icon"><use href="#${tab.icon}"/></svg>${t(tab.label)}
              </button>`
         ).join("")}
@@ -625,6 +626,7 @@ export function renderAdmin(root) {
   const panel = root.querySelector("[data-panel]");
   const subEl = root.querySelector("[data-sub]");
   const seg = root.querySelector("[data-tabs]");
+  const tabsWrap = root.querySelector(".admin-tabs");
   const thumb = root.querySelector("[data-thumb]");
   const segBtns = [...seg.querySelectorAll("[data-tab]")];
 
@@ -634,6 +636,15 @@ export function renderAdmin(root) {
     thumb.style.width = `${active.offsetWidth}px`;
     thumb.style.transform = `translateX(${active.offsetLeft - 3}px)`;
   }
+
+  /* 手机上一行放不下 9 个页签，页签条是横向滚动的：
+     两侧还有没有内容决定要不要加渐隐蒙版，否则用户不知道右边还有页签 */
+  function syncTabScroll() {
+    const max = tabsWrap.scrollWidth - tabsWrap.clientWidth;
+    tabsWrap.classList.toggle("is-scrolled", max > 1 && tabsWrap.scrollLeft > 1);
+    tabsWrap.classList.toggle("is-more", max > 1 && tabsWrap.scrollLeft < max - 1);
+  }
+  tabsWrap.addEventListener("scroll", syncTabScroll, { passive: true });
 
   function setSub(text) {
     subEl.textContent = text;
@@ -1585,9 +1596,7 @@ export function renderAdmin(root) {
         ${
           report.blobSha256
             ? H`<div class="dialog__hint">${t("哈希值：{hash}", {
-                hash: `<span class="code-display" style="display:inline;padding:2px 8px">${escapeHtml(
-                  report.blobSha256
-                )}</span>`,
+                hash: `<span class="code-display code-display--hash">${escapeHtml(report.blobSha256)}</span>`,
               })}</div>`
             : H`<div class="dialog__hint">类型：文件夹 / 合集分享</div>`
         }
@@ -3939,7 +3948,15 @@ export function renderAdmin(root) {
   function switchTab(name) {
     state.tab = name;
     segBtns.forEach((btn) => btn.classList.toggle("is-active", btn.dataset.tab === name));
-    window.requestAnimationFrame(layoutThumb);
+    window.requestAnimationFrame(() => {
+      layoutThumb();
+      syncTabScroll();
+      // 页签条可横向滚动时，把刚选中的页签带进视野（窄屏上常常点不到右边几个）
+      const active = segBtns.find((btn) => btn.dataset.tab === name);
+      if (active && tabsWrap.scrollWidth > tabsWrap.clientWidth + 1) {
+        active.scrollIntoView({ block: "nearest", inline: "center", behavior: "smooth" });
+      }
+    });
     if (name === "overview") showOverview();
     else if (name === "users") showUsers();
     else if (name === "reports") showReports();
@@ -3959,5 +3976,5 @@ export function renderAdmin(root) {
 
   // 窗口尺寸变化时 app.js 的全局 resize 监听会重排 segmented 滑块，这里不必重复挂
   window.requestAnimationFrame(layoutThumb);
-  switchTab("overview");
+  switchTab(state.tab);
 }

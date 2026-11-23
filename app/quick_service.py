@@ -24,6 +24,7 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
 from . import node_service as ns
+from . import notice_service
 from .models import (
     BlockedBlob,
     Node,
@@ -517,6 +518,26 @@ def send_files(
     db.flush()
     if pref["autoAccept"]:
         accept_send(db, receiver, qt)
+    # 接收方的消息中心也提一条：否则只有打开「快传 → 收到」才看得到
+    sender_name = (sender.display_name or sender.username) or "有人"
+    if pref["autoAccept"]:
+        notice_service.notify(
+            db,
+            receiver.id,
+            "quick",
+            f"{sender_name} 给你发了 {qt.count} 个文件",
+            "已按你的设置自动接收，存放在「快传 → 收到」",
+            "#/quick",
+        )
+    else:
+        notice_service.notify(
+            db,
+            receiver.id,
+            "quick",
+            f"{sender_name} 给你发了 {qt.count} 个文件",
+            (qt.message or "打开快传查看，同意后才会存进你的网盘"),
+            "#/quick",
+        )
     return qt
 
 

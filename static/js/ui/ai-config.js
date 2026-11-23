@@ -311,8 +311,18 @@ function configMarkup() {
             <span class="switch__track"><span class="switch__knob"></span></span>
           </span>
           <span class="ai-line__text">
-            <b>快传取件码</b>
-            <small>让 CDP娘 按你的确认生成取件码，或用取件码把文件转存进网盘 / 给出下载链接；开了它，对话里会先问你「是不是这个文件」</small>
+            <b>快传：取件码 / 发给用户</b>
+            <small>让 CDP娘 按你的确认生成取件码，或用取件码把文件转存进网盘 / 给出下载链接；也可以把文件直接发给站内用户（对方同意后才收下）。开了它，对话里会先问你「是不是这个文件、发给谁」</small>
+          </span>
+        </label>
+        <label class="ai-line ai-line--danger">
+          <span class="switch">
+            <input type="checkbox" data-ai-flag="deleteFiles" ${cfg.deleteFiles ? "checked" : ""}>
+            <span class="switch__track"><span class="switch__knob"></span></span>
+          </span>
+          <span class="ai-line__text">
+            <b>删除文件 / 清空回收站<span class="chip chip--danger">谨慎开启</span></b>
+            <small>开启后 CDP娘 可以按你的指示删文件、删文件夹、清空回收站。删除前她会把路径念给你确认，默认只放进回收站（可还原）；一旦让你说「彻底删除」就真的找不回来了。不确定时请不要勾选</small>
           </span>
         </label>
         <label class="ai-line">

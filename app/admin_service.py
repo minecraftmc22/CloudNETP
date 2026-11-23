@@ -20,7 +20,9 @@ from .models import (
     AuditLog,
     Blob,
     BlockedBlob,
+    Friendship,
     Node,
+    Notice,
     QuickTransfer,
     Share,
     ShareReport,
@@ -432,6 +434,13 @@ def purge_user(db: Session, user: User) -> dict:
         ns.release_blob(db, sha)
     db.execute(delete(UploadSession).where(UploadSession.user_id == uid))
     db.execute(delete(UserSetting).where(UserSetting.user_id == uid))
+    # 好友关系与消息：外键 CASCADE 大多能带走，SQLite 下显式删更稳
+    db.execute(
+        delete(Friendship).where(
+            or_(Friendship.requester_id == uid, Friendship.addressee_id == uid)
+        )
+    )
+    db.execute(delete(Notice).where(Notice.user_id == uid))
     db.delete(user)
     db.flush()
     return {

@@ -67,8 +67,8 @@
 @media (max-width: 640px) {
   :root {
     --titlebar-h: 44px;
-    /* 底部标签栏总高度（含上下内边距，不含安全区）——只放图标，所以比带文字时矮一截 */
-    --mobile-nav-h: 52px;
+    /* 底部标签栏总高度（含上下内边距，不含安全区）：图标 + 一行小字 */
+    --mobile-nav-h: 58px;
   }
 
   html {
@@ -124,11 +124,15 @@
     display: flex;
     flex-direction: column-reverse;
     min-height: 0;
+    /* 横向同理：子视图里只要有「按内容宽度」的东西（如后台 9 个页签），
+       min-width:auto 会把整个 shell 撑到 600px，页面就能左右拖了 */
+    min-width: 0;
   }
 
   .view-root {
     flex: 1 1 auto;
     min-height: 0;
+    min-width: 0;
     margin: 0;
     border: 0;
     border-radius: 0;
@@ -156,9 +160,10 @@
   /* 收起态（桌面端折叠过导航）在手机上必须还原成正常标签 */
   .app-body[data-nav] .nav-item {
     flex: 1 1 0;
+    min-width: 0;
     flex-direction: column;
     justify-content: center;
-    gap: 0;
+    gap: 2px;
     height: calc(var(--mobile-nav-h) - 8px);
     padding: 0;
     border-radius: 8px;
@@ -168,15 +173,21 @@
     width: 22px;
     height: 22px;
   }
-  /* 只留图标：文字对屏幕阅读器可见，视觉上藏起来 */
+  /* 图标下面带一行小字：6 个入口只留图标时「CDP娘」「好友」太抽象，
+     10px 的字刚好放得下，也还认得出来。 */
   .app-body[data-nav] .nav-item__label {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    margin: -1px;
-    padding: 0;
+    position: static;
+    width: auto;
+    height: auto;
+    margin: 0;
+    padding: 0 2px;
     overflow: hidden;
-    clip-path: inset(50%);
+    clip-path: none;
+    opacity: 0.92;
+    max-width: 100%;
+    font-size: 10px;
+    line-height: 1.25;
+    text-overflow: ellipsis;
     white-space: nowrap;
   }
   .app-body[data-nav] .nav-item .nav-item__badge {
@@ -585,8 +596,29 @@
   }
 
   /* ---------------- 管理后台 ---------------- */
+  /* 概览 / 存储的统计卡：手机上一列到底要滑好几屏，改两列（数值 + 标签都还读得清） */
+  .stat-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
   .stat-card {
-    padding: 12px 14px;
+    padding: 10px 12px 9px;
+  }
+  .stat-card__label {
+    font-size: 11px;
+    gap: 4px;
+  }
+  .stat-card__label .icon {
+    width: 12px;
+    height: 12px;
+  }
+  .stat-card__value {
+    margin-top: 4px;
+    font-size: 19px;
+  }
+  .stat-card__sub {
+    font-size: 10.5px;
+    line-height: 1.35;
   }
   .admin-toolbar {
     flex-wrap: wrap;
@@ -907,5 +939,241 @@
   .mchat__op {
     padding: 4px 9px;
     font-size: 11.5px;
+  }
+}
+
+/* ------------------------------------------------------------
+   后台页签：9 个页签在 390px 上不可能等分塞下
+   ------------------------------------------------------------
+   admin.css 的 ≤560px 规则会把它们压成等宽列，「举报审核」「申诉审核」
+   直接叠在一起、「系统设置」只剩半个字。手机上改成「按内容宽度 + 横向
+   滚动」，两端加渐隐提示还能继续滑。 */
+@media (max-width: 560px) {
+  .admin-tabs {
+    gap: 0;
+    /* 右侧不留白：最后那截页签被切掉一点，本身就是「可以滑」的提示 */
+    padding: 0 0 8px 12px;
+    /* 页签条是 flex 子项，默认 min-width:auto = max-content，
+       不显式压住会把整个视图撑到 600px 宽（页面能左右拖） */
+    min-width: 0;
+    width: 100%;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+    scroll-snap-type: x proximity;
+  }
+  .admin-tabs::-webkit-scrollbar {
+    display: none;
+  }
+  .admin-tabs .segmented {
+    flex: 0 0 auto;
+    width: auto;
+    min-width: 0;
+    grid-auto-columns: max-content;
+    padding-right: 6px;
+  }
+  .admin-tabs .segmented__btn {
+    padding: 0 11px;
+    gap: 0;
+    font-size: 12.5px;
+    white-space: nowrap;
+    scroll-snap-align: center;
+  }
+  .admin-tabs .segmented__btn .icon {
+    display: none;
+  }
+  /* 左边还有内容时淡出左端，滚到头就取消右端渐隐（由 admin.js 切 class） */
+  .admin-tabs.is-scrolled {
+    -webkit-mask-image: linear-gradient(to right, transparent, #000 18px);
+    mask-image: linear-gradient(to right, transparent, #000 18px);
+  }
+  .admin-tabs.is-scrolled.is-more {
+    -webkit-mask-image: linear-gradient(to right, transparent, #000 18px, #000 calc(100% - 22px), transparent);
+    mask-image: linear-gradient(to right, transparent, #000 18px, #000 calc(100% - 22px), transparent);
+  }
+  .admin-tabs.is-more:not(.is-scrolled) {
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 22px), transparent);
+    mask-image: linear-gradient(to right, #000 calc(100% - 22px), transparent);
+  }
+}
+
+/* ------------------------------------------------------------
+   后台表格：窄屏从「表格」变成「卡片」
+   ------------------------------------------------------------
+   原来只是把几列 display:none 掉：举报行最惨 —— 操作按钮那一列正好被
+   藏起来，窄屏上根本没法通过/驳回。所以举报行在 ≤860 就换成卡片式。 */
+@media (max-width: 860px) {
+  /* 页签条是 flex 子项，min-width 默认 auto = max-content：
+     页签比屏幕宽时会把整个视图撑开（页面能左右拖）。
+     601–860px 这一段也放不下 9 个页签，所以约束要一直给到这里。 */
+  .admin-tabs {
+    min-width: 0;
+    width: 100%;
+  }
+
+  /* 表头是给多列表格用的，卡片式布局下一行放不下也读不懂 */
+  .admin-table .admin-row--head {
+    display: none;
+  }
+
+  /* 举报行：一列到底，文件 → 哈希 → 理由 → 时间 → 操作 */
+  .admin-row--report {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+    gap: 7px;
+    padding: 12px 14px;
+  }
+  /* 1180 / 860 两个断点把中间几列藏了，卡片布局要把它们放回来。
+     选择器必须带上 `.admin-table`，否则特异性低于上面的
+     `.admin-row > :nth-child(3)`，display:none 依然生效。 */
+  .admin-table .admin-row--report > * {
+    display: block;
+  }
+  .admin-row--report .admin-user {
+    align-items: flex-start;
+  }
+  /* 文件名允许折两行，别只剩「分片演示-20…」 */
+  .admin-row--report .admin-user__name {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    white-space: normal;
+    overflow: hidden;
+    word-break: break-word;
+    line-height: 1.35;
+  }
+  .admin-row--report .admin-user__meta {
+    white-space: normal;
+    line-height: 1.4;
+  }
+  .admin-row--report .report-hash {
+    font-size: 10.5px;
+  }
+  .admin-row--report .report-reason {
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    font-size: 12.5px;
+    color: var(--text-2);
+    line-height: 1.45;
+  }
+  .admin-row--report .report-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-top: 2px;
+  }
+  .admin-row--report .report-actions .btn {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+
+  /* 审计日志：admin.css 的 ≤860 规则只给时间留 76px，
+     「2026-10-29 18:57」必被截成「2026-10-29 18…」 */
+  .log-row {
+    grid-template-columns: 8px minmax(0, 1fr) 108px;
+  }
+}
+
+@media (max-width: 640px) {
+  /* 用户行：头像 + 昵称占一行，配额进度、状态依次往下 */
+  .admin-row:not(.admin-row--head):not(.admin-row--report) {
+    grid-template-columns: minmax(0, 1fr) 34px;
+    grid-template-areas:
+      "user  more"
+      "space space"
+      "stat  stat";
+    align-items: start;
+    gap: 8px 10px;
+    padding: 12px 12px 12px 14px;
+  }
+  .admin-row:not(.admin-row--head):not(.admin-row--report) > .admin-user {
+    grid-area: user;
+  }
+  .admin-row:not(.admin-row--head):not(.admin-row--report) > .admin-space {
+    grid-area: space;
+    display: block;
+  }
+  /* 第 5 格是状态徽章（「正常」/「已封禁」） */
+  .admin-row:not(.admin-row--head):not(.admin-row--report) > :nth-child(5) {
+    grid-area: stat;
+    display: block;
+  }
+  .admin-row:not(.admin-row--head):not(.admin-row--report) > .admin-actions {
+    grid-area: more;
+    align-self: start;
+  }
+  /* 文件数 / 最近登录在手机上让位，点进详情看 */
+  .admin-row:not(.admin-row--head):not(.admin-row--report) > :nth-child(3),
+  .admin-row:not(.admin-row--head):not(.admin-row--report) > :nth-child(4) {
+    display: none;
+  }
+  .admin-row > .admin-space__num {
+    font-size: 11px;
+  }
+
+  /* 存储卡那行「逻辑占用 … · 去重后节省 …」：两段挤一行会把「（0 B）」拆开 */
+  .admin-body .admin-card__pad > .row {
+    flex-wrap: wrap;
+    gap: 4px 12px;
+  }
+  .admin-body .admin-card__pad > .row > * {
+    flex: 0 1 auto;
+    min-width: 0;
+    font-size: 11.5px;
+  }
+
+  /* 日志：手机上一行放不下「正文 + 时间」，时间挪到正文下面 */
+  .log-row {
+    grid-template-columns: 8px minmax(0, 1fr);
+    grid-template-areas:
+      "dot main"
+      "dot time";
+    align-items: start;
+    row-gap: 2px;
+    column-gap: 10px;
+    padding: 10px 12px;
+  }
+  .log-row > .log-dot {
+    grid-area: dot;
+    margin-top: 6px;
+  }
+  .log-row > .log-main {
+    grid-area: main;
+  }
+  .log-row > .log-time {
+    grid-area: time;
+    text-align: left;
+  }
+  /* 详情行原来强制单行省略，在卡片里换成最多两行 */
+  .log-detail {
+    white-space: normal;
+    word-break: break-all;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+}
+
+/* ------------------------------------------------------------
+   导航项的端可见性（桌面侧栏 / 手机底部栏）
+   ------------------------------------------------------------
+   手机底部栏只留 文件 / 快传 / CDP娘 / 好友 / （后台）/ 设置：
+   分享与回收站下沉到「我的文件」里的按钮，关于收进设置页。
+   这里用 CSS 断点控制，切窗口宽度时不用重画导航。
+   ------------------------------------------------------------ */
+.nav-item--mobile {
+  display: none !important;
+}
+
+@media (max-width: 640px) {
+  .nav-item--desktop {
+    display: none !important;
+  }
+  .nav-item--mobile {
+    display: flex !important;
   }
 }

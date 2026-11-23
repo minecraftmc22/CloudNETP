@@ -303,3 +303,42 @@ CREATE TABLE IF NOT EXISTS passkeys (
   CONSTRAINT fk_passkeys_user FOREIGN KEY (user_id)
     REFERENCES users (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- ------------------------------------------------------------
+-- 好友关系：一行一对用户，pending / accepted
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS friendships (
+  id           BIGINT       NOT NULL AUTO_INCREMENT,
+  requester_id BIGINT       NOT NULL,
+  addressee_id BIGINT       NOT NULL,
+  status       VARCHAR(12)  NOT NULL DEFAULT 'pending',
+  message      VARCHAR(120) NOT NULL DEFAULT '',
+  created_at   DATETIME     NOT NULL,
+  updated_at   DATETIME     NOT NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_friend_pair (requester_id, addressee_id),
+  KEY idx_friend_addressee (addressee_id, status),
+  KEY idx_friend_requester (requester_id),
+  CONSTRAINT fk_friend_requester FOREIGN KEY (requester_id)
+    REFERENCES users (id) ON DELETE CASCADE,
+  CONSTRAINT fk_friend_addressee FOREIGN KEY (addressee_id)
+    REFERENCES users (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- ------------------------------------------------------------
+-- 消息中心：一条通知一个收件人（管理类事件按管理员名单展开）
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS notices (
+  id         BIGINT       NOT NULL AUTO_INCREMENT,
+  user_id    BIGINT       NOT NULL,
+  kind       VARCHAR(24)  NOT NULL DEFAULT 'system',
+  title      VARCHAR(120) NOT NULL,
+  body       VARCHAR(500) NOT NULL DEFAULT '',
+  link       VARCHAR(160) NOT NULL DEFAULT '',
+  read_at    DATETIME     NULL,
+  created_at DATETIME     NOT NULL,
+  PRIMARY KEY (id),
+  KEY idx_notice_user (user_id, id),
+  CONSTRAINT fk_notice_user FOREIGN KEY (user_id)
+    REFERENCES users (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;

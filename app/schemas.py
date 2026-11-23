@@ -206,8 +206,10 @@ class AiConfigIn(CamelModel):
     read_content: bool | None = None
     write_files: bool | None = None
     move_files: bool | None = None
-    # quick_transfer = 允许生成取件码 / 用取件码取件
+    # quick_transfer = 允许生成取件码 / 用取件码取件 / 把文件发给站内用户
     quick_transfer: bool | None = None
+    # delete_files = 允许删除文件、清空回收站（不可逆，默认关闭）
+    delete_files: bool | None = None
     # theme_color = 允许按用户要求改界面主题色（单色 / 渐变 / 从背景图取色）
     theme_color: bool | None = None
     vision: bool | None = None
@@ -647,3 +649,14 @@ class AdminMailTestIn(CamelModel):
     smtp_user: str = Field(default="", max_length=254)
     smtp_pass: str = Field(default="", max_length=500)
     smtp_security: Literal["ssl", "starttls", "none"] | None = None
+
+
+class FriendRequestIn(CamelModel):
+    user_id: int = Field(ge=1)
+    # 申请附言（可选）
+    message: str = Field(default="", max_length=120)
+
+
+class NoticeReadIn(CamelModel):
+    # 不给 ids = 全部标记已读
+    ids: list[int] | None = None

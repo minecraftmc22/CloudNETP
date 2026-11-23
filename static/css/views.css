@@ -3979,6 +3979,24 @@ html[data-ai="off"] .mascot__act[data-mascot-act="chat"] {
   line-height: 1.5;
   color: var(--text-3);
 }
+/* 危险项（删除 / 清空回收站）：整行圈出来，勾之前先看到后果 */
+.ai-line--danger {
+  padding: 9px 11px;
+  margin: 0 -11px;
+  border-radius: var(--radius-m);
+  background-color: color-mix(in srgb, var(--danger) 7%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger) 24%, transparent);
+}
+.ai-line--danger .ai-line__text b {
+  color: var(--danger);
+}
+.ai-line--danger .chip {
+  height: 18px;
+  padding: 0 7px;
+  font-size: 10.5px;
+  margin-left: 6px;
+  vertical-align: 1px;
+}
 .ai-protocol {
   display: flex;
   flex-direction: column;

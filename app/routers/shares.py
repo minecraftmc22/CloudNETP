@@ -10,6 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .. import node_service as ns
+from .. import notice_service
 from .. import profile_service as ps
 from .. import share_service as ss
 from .. import storage
@@ -398,6 +399,13 @@ def report_share(
     )
     db.add(report)
     db.flush()
+    notice_service.notify_admins(
+        db,
+        "report",
+        f"新的举报待审核：{report.first_name}",
+        reason or "未填写举报理由",
+        "#/admin/reports",
+    )
     log_action(db, "share_report", None, {"shareId": share.id, "name": node.name}, request)
     db.commit()
     return {"reported": True, "id": report.id}

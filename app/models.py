@@ -17,6 +17,7 @@ from sqlalchemy import (
     SmallInteger,
     String,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy.dialects.mysql import MEDIUMTEXT
 from sqlalchemy.orm import Mapped, mapped_column
@@ -469,3 +470,57 @@ class SystemSetting(Base):
 
     k: Mapped[str] = mapped_column(String(64), primary_key=True)
     v: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class Friendship(Base):
+    """好友关系：一行代表一对用户，requester 发起、addressee 接收。
+
+    status=pending 时是「待处理的好友申请」；accepted 就是好友。
+    拒绝直接删行（不保留黑历史），这样同一对用户以后还能再加。
+    """
+
+    __tablename__ = "friendships"
+
+    id: Mapped[int] = mapped_column(AutoPK, primary_key=True, autoincrement=True)
+    requester_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    addressee_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    # pending / accepted
+    status: Mapped[str] = mapped_column(String(12), nullable=False, default="pending")
+    # 申请附言（可选，最多 120 字）
+    message: Mapped[str] = mapped_column(String(120), nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("requester_id", "addressee_id", name="uq_friend_pair"),
+        Index("idx_friend_addressee", "addressee_id", "status"),
+    )
+
+
+class Notice(Base):
+    """消息中心：一条通知只属于一个用户（管理员类通知在事件发生时按人展开）。
+
+    设计取舍：不做「公告 + 已读回执」两表，直接按收件人落行。管理类事件量很小
+    （举报/申诉/反馈），展开写反而让「已读」语义简单、查询不用 join。
+    """
+
+    __tablename__ = "notices"
+
+    id: Mapped[int] = mapped_column(AutoPK, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    # report / appeal / feedback / friend_request / friend_accept / system
+    kind: Mapped[str] = mapped_column(String(24), nullable=False, default="system")
+    title: Mapped[str] = mapped_column(String(120), nullable=False)
+    body: Mapped[str] = mapped_column(String(500), nullable=False, default="")
+    # 前端路由，例如 #/admin/reports、#/friends
+    link: Mapped[str] = mapped_column(String(160), nullable=False, default="")
+    read_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
+
+    __table_args__ = (Index("idx_notice_user", "user_id", "id"),)

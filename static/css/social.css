@@ -1,0 +1,538 @@
+/* ------------------------------------------------------------
+   消息中心 / 好友 / CDP娘页 / 手机端文件页快捷入口
+   ------------------------------------------------------------
+   与后台、设置页一样的卡片语言：层色打底 + 发丝边框 + 圆角 l，
+   底色统一走 layer-1/layer-2，跟随主题与壁纸浓度。
+   ------------------------------------------------------------ */
+
+/* ---------------- 标题栏铃铛 ---------------- */
+.notice-btn {
+  position: relative;
+}
+.notice-btn__dot {
+  position: absolute;
+  top: 5px;
+  right: 4px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: var(--radius-pill);
+  background: var(--accent-grad);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--dialog-surface) 92%, transparent);
+  pointer-events: none;
+}
+.notice-btn.has-unread .icon {
+  color: var(--accent);
+}
+
+/* ---------------- 消息中心 ---------------- */
+.notice-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-bottom: 8px;
+}
+
+.notice-pending {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px;
+}
+.notice-tile {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius-m);
+  border: 1px solid var(--stroke-hair);
+  background-color: var(--layer-2);
+  background-image: var(--accent-tint);
+  color: var(--text-1);
+  text-align: left;
+  min-width: 0;
+}
+.notice-tile:hover {
+  background-color: var(--layer-1);
+}
+.notice-tile__icon {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-s);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+}
+.notice-tile__main {
+  min-width: 0;
+  flex: 1;
+}
+.notice-tile__label {
+  display: block;
+  font-size: 12px;
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.notice-tile__num {
+  display: block;
+  font-size: 17px;
+  font-weight: 650;
+  line-height: 1.2;
+}
+.notice-tile.is-zero .notice-tile__num {
+  color: var(--text-3);
+}
+
+.notice-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-radius: var(--radius-l);
+  border: 1px solid var(--stroke-hair);
+  background-color: var(--layer-2);
+  overflow: hidden;
+}
+.notice-item {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 10px;
+  width: 100%;
+  padding: 12px 14px;
+  text-align: left;
+  background: transparent;
+  color: var(--text-1);
+  border: 0;
+  border-bottom: 1px solid var(--stroke-hair);
+  cursor: pointer;
+}
+.notice-item:last-child {
+  border-bottom: 0;
+}
+.notice-item:hover {
+  background: var(--fill-hover);
+}
+.notice-item__icon {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-s);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+}
+.notice-item__icon .icon {
+  width: 18px;
+  height: 18px;
+}
+.notice-item__main {
+  min-width: 0;
+}
+.notice-item__title {
+  display: block;
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.notice-item__body {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--text-2);
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.notice-item__time {
+  font-size: 11px;
+  color: var(--text-3);
+  white-space: nowrap;
+  padding-top: 2px;
+}
+.notice-item.is-unread {
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+.notice-item.is-unread .notice-item__icon {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+.notice-item.is-unread .notice-item__title::after {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-left: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  vertical-align: 1px;
+}
+
+.notice-foot {
+  display: flex;
+  justify-content: center;
+  padding-top: 4px;
+}
+
+/* ---------------- 好友 ---------------- */
+.friend-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-bottom: 8px;
+}
+
+.friend-search {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.friend-search .searchbox {
+  flex: 1;
+  min-width: 0;
+}
+
+.friend-list {
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--radius-l);
+  border: 1px solid var(--stroke-hair);
+  background-color: var(--layer-2);
+  overflow: hidden;
+}
+.friend-row {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--stroke-hair);
+}
+.friend-row:last-child {
+  border-bottom: 0;
+}
+.friend-row__avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--accent) 14%, var(--layer-3));
+  border: 1px solid var(--stroke-hair);
+  display: grid;
+  place-items: center;
+  color: var(--accent);
+  font-weight: 600;
+}
+.friend-row__avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.friend-row__main {
+  min-width: 0;
+}
+.friend-row__name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-1);
+  min-width: 0;
+}
+.friend-row__name span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.friend-row__meta {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.friend-row__msg {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-2);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.friend-row__ops {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.friend-row__ops .btn {
+  height: 30px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.friend-empty {
+  padding: 34px 18px;
+  text-align: center;
+  color: var(--text-3);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+.friend-empty .icon {
+  width: 34px;
+  height: 34px;
+  opacity: 0.5;
+  margin-bottom: 6px;
+}
+
+.friend-hint {
+  font-size: 12px;
+  color: var(--text-3);
+  line-height: 1.6;
+  padding: 0 2px;
+}
+
+/* ---------------- CDP娘页 ---------------- */
+.mascot-hero {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 26px 20px 22px;
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--stroke-hair);
+  background-color: var(--layer-2);
+  background-image: var(--accent-tint);
+  overflow: hidden;
+  text-align: center;
+}
+.mascot-hero::after {
+  content: "";
+  position: absolute;
+  inset: -40% -20% auto;
+  height: 180px;
+  background: radial-gradient(
+    circle at 50% 0%,
+    color-mix(in srgb, var(--accent) 26%, transparent),
+    transparent 70%
+  );
+  pointer-events: none;
+}
+.mascot-hero__avatar {
+  position: relative;
+  width: 108px;
+  height: 108px;
+  border-radius: 34px;
+  padding: 4px;
+  background: var(--accent-grad);
+  box-shadow: 0 10px 28px color-mix(in srgb, var(--accent) 28%, transparent);
+}
+.mascot-hero__avatar img {
+  width: 100%;
+  height: 100%;
+  border-radius: 30px;
+  object-fit: cover;
+  background: var(--layer-1);
+}
+.mascot-hero__name {
+  position: relative;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+}
+.mascot-hero__desc {
+  position: relative;
+  max-width: 30ch;
+  font-size: 12.5px;
+  color: var(--text-2);
+  line-height: 1.6;
+}
+.mascot-hero__badge {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+.mascot-hero__badge::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.mascot-hero__ops {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  margin-top: 4px;
+}
+.mascot-hero__ops .btn {
+  min-width: 128px;
+  justify-content: center;
+}
+/* 压在彩色光晕上的次级按钮：透明底会「消失」，给一层薄底与发丝边 */
+.mascot-hero__ops .btn--subtle {
+  background-color: var(--layer-3);
+  border-color: var(--stroke-hair);
+  color: var(--text-1);
+}
+
+.mascot-tips {
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--radius-l);
+  border: 1px solid var(--stroke-hair);
+  background-color: var(--layer-2);
+  overflow: hidden;
+}
+.mascot-tip {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--stroke-hair);
+}
+.mascot-tip:last-child {
+  border-bottom: 0;
+}
+.mascot-tip__icon {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-s);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+}
+.mascot-tip__title {
+  font-size: 13px;
+  font-weight: 600;
+}
+.mascot-tip__desc {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--text-2);
+  line-height: 1.5;
+}
+
+/* 手机端文件页的「我的分享 / 回收站」入口（桌面端由底部导航直达，不显示） */
+.files-links {
+  display: none;
+}
+
+@media (max-width: 640px) {
+  .files-links {
+    display: flex;
+    gap: 8px;
+    padding: 0 12px 10px;
+  }
+  /* 它们是从底部导航挪过来的入口，做成有底色的按钮，别看成一行普通文字 */
+  .files-links .btn {
+    flex: 1 1 0;
+    justify-content: center;
+    height: 36px;
+    font-size: 12.5px;
+    background-color: var(--layer-2);
+    background-image: var(--accent-tint);
+    border-color: var(--stroke-hair);
+    color: var(--text-1);
+  }
+  .notice-btn__dot {
+    top: 3px;
+    right: 2px;
+  }
+  .notice-body,
+  .friend-body {
+    gap: 10px;
+    padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+  }
+  .notice-pending {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  /* 时间放回右侧一列：换到第二行会多出一条空白，看着像两块内容 */
+  .notice-item {
+    grid-template-columns: 30px minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 4px 9px;
+    padding: 11px 12px;
+  }
+  .notice-item__time {
+    max-width: 82px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-align: right;
+    padding-top: 2px;
+  }
+  .notice-item__icon {
+    width: 30px;
+    height: 30px;
+  }
+  .friend-row {
+    grid-template-columns: 36px minmax(0, 1fr);
+    gap: 10px;
+    padding: 11px 12px;
+  }
+  .friend-row__avatar {
+    width: 36px;
+    height: 36px;
+  }
+  /* 操作按钮换到第二行，占满宽度，不再挤压名字 */
+  .friend-row__ops {
+    grid-column: 1 / -1;
+    justify-content: flex-end;
+  }
+  .friend-row__ops .btn {
+    flex: 0 1 auto;
+    min-width: 84px;
+    height: 34px;
+    padding: 0 14px;
+  }
+  .mascot-hero {
+    padding: 22px 16px 18px;
+  }
+  .mascot-hero__avatar {
+    width: 92px;
+    height: 92px;
+    border-radius: 28px;
+  }
+  .mascot-hero__avatar img {
+    border-radius: 24px;
+  }
+  .mascot-hero__ops {
+    width: 100%;
+  }
+  .mascot-hero__ops .btn {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+}
+
+/* 宽屏下分段控件别横贯整个内容区：四个页签摊到 1000px 会显得很空 */
+.notice-body > .segmented,
+.friend-body > .segmented {
+  align-self: flex-start;
+  width: 100%;
+  max-width: 520px;
+}

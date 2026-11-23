@@ -516,6 +516,21 @@
   color: var(--text-3);
   line-height: 1.5;
 }
+/* 64 位哈希用取件码那套「大字 + 宽字距」会撑成好几行（手机上尤其夸张）：
+   这里改成小字、无字距、可断行。带上 .dialog__hint 提高特异性，
+   否则移动端的 .code-display 覆盖规则（字号 / 字距）会盖掉它。 */
+.dialog__hint .code-display--hash {
+  display: inline;
+  margin: 0;
+  padding: 2px 8px;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-indent: 0;
+  text-align: left;
+  word-break: break-all;
+  line-height: 1.7;
+}
 
 .dialog__actions {
   display: flex;
@@ -652,6 +667,12 @@
   color: var(--accent);
   background: color-mix(in srgb, var(--accent) 12%, transparent);
   border-color: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+/* 不可逆操作的提示标签（如 AI 的删除权限） */
+.chip--danger {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  border-color: color-mix(in srgb, var(--danger) 26%, transparent);
 }
 
 /* ------------------------------------------------------------

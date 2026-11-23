@@ -284,6 +284,7 @@ from .routers import auth as auth_router  # noqa: E402
 from .routers import ban as ban_router  # noqa: E402
 from .routers import dav as dav_router  # noqa: E402
 from .routers import feedback as feedback_router  # noqa: E402
+from .routers import social as social_router  # noqa: E402
 from .routers import live2d as live2d_router  # noqa: E402
 from .routers import nodes as nodes_router  # noqa: E402
 from .routers import passkeys as passkeys_router  # noqa: E402
@@ -303,6 +304,7 @@ app.include_router(admin_router.router)
 app.include_router(dav_router.router)
 app.include_router(live2d_router.router)
 app.include_router(feedback_router.router)
+app.include_router(social_router.router)
 app.include_router(update_router.router)
 app.include_router(ai_router.router)
 

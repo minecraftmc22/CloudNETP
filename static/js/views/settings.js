@@ -167,7 +167,7 @@ async function prepareBackground(file) {
   return { blob: blob || file, bitmap: bmp };
 }
 
-export function renderSettings(root) {
+export function renderSettings(root, { tab } = {}) {
   // #view-root 是常驻节点，挂它/window 上的监听要自己收尾，否则每次进设置页都会叠一套
   settingsViewAbort?.abort();
   const view = new AbortController();
@@ -2669,10 +2669,11 @@ export function renderSettings(root) {
   // 首帧别让滑块从「0 宽、贴在左上角」滑出来：先关掉过渡排一次，下一帧恢复
   if (tabThumb) tabThumb.style.transition = "none";
 
-  // 记住上次的页签（localStorage，按设备记）；i18n 切语言整页重绘后也回到同一页
-  let initialTab = "appearance";
+  // 记住上次的页签（localStorage，按设备记）；i18n 切语言整页重绘后也回到同一页。
+  // 带子段的地址（#/settings/mascot，CDP娘页的「看板娘设置」）优先。
+  let initialTab = tab || "appearance";
   try {
-    initialTab = localStorage.getItem("settings-tab") || "appearance";
+    initialTab = tab || localStorage.getItem("settings-tab") || "appearance";
   } catch {
     /* 读不到就停在第一页 */
   }

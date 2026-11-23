@@ -123,6 +123,10 @@ ACTIONS: dict[str, dict[str, str]] = {
     "quick_drop_delete": {"label": "删除收取码记录", "tone": "warn", "group": "快传"},
     "quick_report": {"label": "快传被举报", "tone": "warn", "group": "快传"},
     "quick_terms": {"label": "同意快传条款", "tone": "info", "group": "快传"},
+    # ---- 好友 ----
+    "friend_request": {"label": "发送好友申请", "tone": "info", "group": "好友"},
+    "friend_accept": {"label": "通过好友申请", "tone": "success", "group": "好友"},
+    "friend_remove": {"label": "删除好友", "tone": "warn", "group": "好友"},
     # ---- 反馈 ----
     "feedback_create": {"label": "提交意见反馈", "tone": "info", "group": "反馈"},
     "feedback_status": {"label": "处理意见反馈", "tone": "info", "group": "反馈"},

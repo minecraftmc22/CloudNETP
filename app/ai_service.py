@@ -73,6 +73,8 @@ DEFAULT_SYSTEM_PROMPTS: dict[str, str] = {
 - **工具边界**：你只能使用系统实际提供给你的工具。没有开对应的权限（例如「查看文件内容」）时，就请管理员去「设置 → 看板娘 → 对话设置」里勾选；不要假装读过文件内容，也不要假装已经改动了文件。开了「查看文件内容」后，网盘里的图片可以用看图工具直接看，看到什么说什么，不要凭空猜画面；音频/视频可以用标签工具读内嵌元数据（标题、艺术家、专辑、时长、分辨率、封面信息），但你听不到声音也看不到画面，不要描述媒体内容本身。
 - **快传取件码**：用户让你「把某个文件弄个取件码」时，先用搜索/列目录找到候选，把**完整路径**念给用户确认（例如「是『照片/合影.jpg』这个吗？」），用户确认后才调用生成取件码的工具；用户没确认就不要调用。一次可以选多个文件，但要逐个报清楚。生成后把 6 位码和有效期一起告诉用户，并提醒「拿到码的人都能下载」。
 - **帮用户取件**：用户给你取件码时，用取件工具处理。没有说明要做什么就先列清单问一句「要转存到网盘还是直接下载？」；说「放到 XXX」就转存到那个目录（目录不存在可以新建），说「直接下载」就把下载链接给出来。取件失败（过期、次数用完、码不对）时如实说明，不要编造成功。
+- **发给其他用户**：用户说「发给某某人」时用站内快传工具。先确认收件人的**用户名**（不是昵称）和要发的**完整路径**，缺哪个就问哪个；然后一句话复述「把 A、B 发给 XXX」等用户点头，再调用。发完告诉用户「对方同意后才会进他的网盘」，不要说得像已经送到了。对方关了接收、被封禁、空间不足时，如实转述原因，不要重试。
+- **删除文件**：删东西前一定先把完整路径逐条念给用户，等用户明确说「删」再调用工具。默认只放进回收站（可以还原），要彻底删除必须由用户主动说「彻底删掉 / 不恢复」，才传 permanent=true。清空回收站不可恢复：先把回收站清单列给用户，拿到明确的「清空」答复后才带 confirm=true 调用；用户只是让你看看回收站时不要动手。删完回报删了哪几项、空间变化，并提示「在回收站里还能还原」（彻底删除时说明无法恢复）。永远不要为了「顺便整理一下」而自行删除用户没点名的东西。
 - **回复语言**：始终用简体中文回答。
 # Workflow (交互流程)
 1. **日常打招呼**：“嘀嘀——系统就绪！管理员，今天有什么数据需要我帮你守护呀？”
@@ -101,6 +103,8 @@ You have long pink twin tails and a springy ahoge (a radar antenna) on top of yo
 - **Tool boundaries**: You may only use the tools the system actually provides. If a permission is off (for example "view file contents"), ask the Admin to enable it in Settings → Mascot → Chat settings. Never pretend you read a file's contents, and never pretend you already changed a file. Once "view file contents" is on, images in the drive can be opened with the image tool — describe only what you actually see, never guess. Audio/video files can be inspected through their embedded tags (title, artist, album, duration, resolution, cover info), but you cannot hear or watch them — never describe the media itself.
 - **Quick Transfer pickup codes**: When the user asks you to "make a pickup code for some file", first locate candidates with search/listing and read the **full path** back for confirmation (e.g. "Do you mean 'Photos/group.jpg'?"). Only call the pickup-code tool after the user confirms. Never call it unprompted. Multiple files are fine, but name each one. Report the 6-character code and expiry, and remind them that anyone with the code can download.
 - **Picking up files for the user**: When the user gives you a pickup code, use the pickup tool. If they did not say what to do, list the files and ask "save them to your drive, or download?". If they say "put it in XXX", save into that folder (create it if missing); if they say "download", give the download links. If the code is wrong, expired, or out of downloads, say so honestly — never fake success.
+- **Sending files to another user**: When the user says "send this to so-and-so", use the in-site transfer tool. Confirm the recipient's **username** (not their nickname) and the **full paths** first, and ask for whatever is missing. Then restate "send A, B to XXX" in one line and wait for a nod before calling. Afterwards say the files only land in their drive after they accept — never imply delivery already happened. If the recipient disabled receiving, is banned, or lacks space, relay the reason honestly instead of retrying.
+- **Deleting files**: Before deleting anything, read the full paths back one by one and wait for an explicit "delete". By default items only go to the recycle bin (restorable); pass permanent=true only when the user explicitly asks for a permanent delete. Emptying the recycle bin is irreversible: list what is in there, get an explicit "empty it", and only then call with confirm=true. Never delete anything the user did not name just to "tidy up". After deleting, report which items went and how the usage changed, and mention that they can still be restored from the recycle bin (or that a permanent delete cannot).
 - **Language**: Always answer in English.
 # Workflow
 1. **Greeting**: "Beep beep — systems online! What data shall I guard for you today, Admin?"
@@ -133,8 +137,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "readContent": False,
     "writeFiles": False,
     "moveFiles": False,
-    # 快传：生成取件码 / 用取件码取件（会把文件暴露给拿到码的人，默认关闭）
+    # 快传：生成取件码 / 用取件码取件 / 把文件发给站内用户（会外流，默认关闭）
     "quickTransfer": False,
+    # 删除：文件移入回收站、彻底删除、清空回收站（不可逆，默认关闭）
+    "deleteFiles": False,
     # 主题色：按用户要求改界面强调色（只动自己的配色，不碰文件），默认关闭
     "themeColor": False,
     "vision": False,
@@ -227,6 +233,7 @@ def load_config(db: Session, user_id: int) -> dict:
     cfg["writeFiles"] = bool(cfg.get("writeFiles", False))
     cfg["moveFiles"] = bool(cfg.get("moveFiles", False))
     cfg["quickTransfer"] = bool(cfg.get("quickTransfer", False))
+    cfg["deleteFiles"] = bool(cfg.get("deleteFiles", False))
     cfg["themeColor"] = bool(cfg.get("themeColor", False))
     cfg["vision"] = bool(cfg.get("vision", False))
     cfg["thinking"] = bool(cfg.get("thinking", False))
@@ -308,6 +315,7 @@ def effective_config(db: Session, user_id: int) -> tuple[dict, str]:
         merged["writeFiles"] = cfg["writeFiles"]
         merged["moveFiles"] = cfg["moveFiles"]
         merged["quickTransfer"] = cfg["quickTransfer"]
+        merged["deleteFiles"] = cfg["deleteFiles"]
         merged["themeColor"] = cfg["themeColor"]
         merged["maxRounds"] = cfg["maxRounds"]
         return merged, "default"
@@ -351,6 +359,7 @@ def save_config(db: Session, user_id: int, patch: dict) -> dict:
         "writeFiles",
         "moveFiles",
         "quickTransfer",
+        "deleteFiles",
         "themeColor",
         "vision",
         "thinking",
@@ -903,6 +912,9 @@ TOOL_LABELS = {
     "move_item": "移动",
     "create_pickup_code": "生成取件码",
     "pickup_files": "取件",
+    "send_to_user": "快传发送",
+    "delete_item": "删除",
+    "empty_trash": "清空回收站",
     "set_theme_color": "改主题色",
 }
 
@@ -987,6 +999,64 @@ MOVE_TOOL_SPECS: list[dict] = [
     },
 ]
 
+# 删除：唯一会「少东西」的一组工具。默认关闭，设置页里明确标注为危险项。
+# 默认进回收站（可还原），只有用户明确说要彻底删才走 permanent。
+DELETE_TOOL_SPECS: list[dict] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "delete_item",
+            "description": (
+                "删除文件或文件夹。默认只是移进回收站（用户随时能还原）；"
+                "permanent=true 才是彻底删除、无法恢复。"
+                "调用前必须把要删的完整路径逐条念给用户，等用户明确说「删」之后再调用；"
+                "一次删多个也要逐个报清楚。名字不确定时先搜索并列出来问，不要猜。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "paths": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "要删除的文件 / 文件夹完整路径列表",
+                    },
+                    "permanent": {
+                        "type": "boolean",
+                        "description": "true = 彻底删除（不可恢复）；默认 false，只放进回收站",
+                    },
+                },
+                "required": ["paths"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "empty_trash",
+            "description": (
+                "彻底删除回收站里的内容（不可恢复）。names 留空 = 清空整个回收站，"
+                "给了 names 就只删回收站里同名的那几项。"
+                "这是不可逆操作：必须先把回收站清单念给用户、拿到明确的「清空 / 删掉」答复，"
+                "再传 confirm=true 调用；用户只是让你「看看回收站」时不要调用。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "names": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "只清理这几项（回收站里显示的名字）；留空等于全部清空",
+                    },
+                    "confirm": {
+                        "type": "boolean",
+                        "description": "用户已确认清单并同意彻底删除时传 true（必须是 true 才会执行）",
+                    },
+                },
+            },
+        },
+    },
+]
+
 QUICK_TOOL_SPECS: list[dict] = [
     {
         "type": "function",
@@ -1041,6 +1111,35 @@ QUICK_TOOL_SPECS: list[dict] = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "send_to_user",
+            "description": (
+                "用站内快传把文件 / 文件夹发给另一个用户（对方同意后才收进他的网盘，"
+                "对方关掉了「接收快传文件」就发不过去）。"
+                "to 填对方用户名；记不住用户名时填好友的昵称也行（只会在你已通过的好友里找）。"
+                "调用前先把找到的完整路径与收件人念给用户确认，确认后再调用；"
+                "文件夹会整棵发送。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "paths": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "要发送的文件 / 文件夹完整路径列表，例如 ['照片/合影.jpg']",
+                    },
+                    "to": {"type": "string", "description": "收件人的用户名"},
+                    "message": {
+                        "type": "string",
+                        "description": "随文件附一句说明，可留空",
+                    },
+                },
+                "required": ["paths", "to"],
+            },
+        },
+    },
 ]
 
 # 主题色：单色 / 渐变，也可以直接按用户当前的背景图取色。
@@ -1092,10 +1191,10 @@ THEME_TOOL_SPECS: list[dict] = [
 
 WRITE_TOOL_NAMES = {
     spec["function"]["name"]
-    for spec in WRITE_TOOL_SPECS + MOVE_TOOL_SPECS + QUICK_TOOL_SPECS + THEME_TOOL_SPECS
+    for spec in WRITE_TOOL_SPECS + MOVE_TOOL_SPECS + QUICK_TOOL_SPECS + THEME_TOOL_SPECS + DELETE_TOOL_SPECS
 }
 
-# 工具需要的权限：read 需要「查看文件内容」，write/move/quick/theme 各自要用户勾选
+# 工具需要的权限：read 需要「查看文件内容」，write/move/quick/delete/theme 各自要用户勾选
 TOOL_PERMISSION = {
     "read_text": "read",
     "read_image": "read",
@@ -1107,6 +1206,9 @@ TOOL_PERMISSION = {
     "move_item": "move",
     "create_pickup_code": "quick",
     "pickup_files": "quick",
+    "send_to_user": "quick",
+    "delete_item": "delete",
+    "empty_trash": "delete",
     "set_theme_color": "theme",
 }
 
@@ -1129,6 +1231,8 @@ def tool_specs(cfg: dict) -> list[dict]:
         specs.extend(MOVE_TOOL_SPECS)
     if cfg.get("quickTransfer"):
         specs.extend(QUICK_TOOL_SPECS)
+    if cfg.get("deleteFiles"):
+        specs.extend(DELETE_TOOL_SPECS)
     if cfg.get("themeColor"):
         specs.extend(THEME_TOOL_SPECS)
     return specs
@@ -1226,6 +1330,15 @@ def _folder_label(value: Any) -> str:
     return "/".join(parts) if parts else "我的文件"
 
 
+def _trash_tops(db: Session, user_id: int) -> list[Node]:
+    """回收站里的顶层条目（父节点也在回收站里的不算，否则同一棵子树会被数两遍）。"""
+    rows = db.scalars(
+        select(Node).where(Node.user_id == user_id, Node.deleted_at.is_not(None))
+    ).all()
+    ids = {node.id for node in rows}
+    return [node for node in rows if node.parent_id is None or node.parent_id not in ids]
+
+
 def _run_tool(
     db: Session, user: User, name: str, args: dict, perms: dict | None = None
 ) -> str | ToolResult:
@@ -1246,6 +1359,10 @@ def _run_tool(
     if need == "quick" and not perms.get("quick"):
         raise ToolError(
             "管理员没有开启「快传取件码」权限，请先到 设置 → 看板娘 → 对话设置 里勾选"
+        )
+    if need == "delete" and not perms.get("delete"):
+        raise ToolError(
+            "管理员没有开启「删除文件与清空回收站」权限，请先到 设置 → 看板娘 → 对话设置 里勾选"
         )
     if need == "theme" and not perms.get("theme"):
         raise ToolError(
@@ -1644,6 +1761,172 @@ def _run_tool(
         lines.append("要我转存到网盘，还是直接给下载链接？")
         return "\n".join(lines)
 
+    if name == "send_to_user":
+        from . import quick_service as qs
+
+        raw = args.get("paths")
+        if isinstance(raw, str):
+            raw = [raw]
+        paths = [str(item).strip() for item in (raw or []) if str(item).strip()]
+        if not paths:
+            raise ToolError("要给出至少一个文件路径")
+        target = str(args.get("to") or "").strip().lstrip("@")
+        if not target:
+            raise ToolError("要给出收件人的用户名")
+        # 用户名优先；对不上时在「已通过的好友」里按昵称找一次 ——
+        # 用户嘴里说的是「发给小明」，模型手里不一定有人家的用户名
+        if db.scalars(select(User).where(func.lower(User.username) == target.lower())).first() is None:
+            from . import friend_service as fsv
+
+            mates = fsv.list_all(db, user)["friends"]
+            hits = [
+                mate
+                for mate in mates
+                if target.lower() in str(mate["displayName"]).lower()
+                or target.lower() in str(mate["username"]).lower()
+            ]
+            if len(hits) == 1:
+                target = str(hits[0]["username"])
+            elif len(hits) > 1:
+                detail = "、".join(f"{h['displayName']}（{h['username']}）" for h in hits[:6])
+                raise ToolError(f"「{target}」匹配到多个好友：{detail}，请给出用户名")
+
+        nodes: list[Node] = []
+        labels: list[str] = []
+        for path in paths:
+            node = _resolve_path(db, user.id, path)
+            if node is None:
+                raise ToolError(f"找不到「{path}」")
+            nodes.append(node)
+            labels.append(_node_label(db, user.id, node))
+        try:
+            qt = qs.send_files(
+                db,
+                user,
+                nodes,
+                to_username=target,
+                message=str(args.get("message") or "").strip() or None,
+            )
+        except HTTPException as exc:
+            db.rollback()
+            raise ToolError(str(exc.detail)) from None
+
+        peer = db.get(User, qt.peer_id)
+        peer_name = (peer.display_name or peer.username) if peer else target
+        log_action(
+            db,
+            "ai_tool",
+            user.id,
+            {"tool": name, "to": target, "count": qt.count, "size": qt.size},
+        )
+        db.commit()
+        names = "、".join(labels[:5]) + ("…" if len(labels) > 5 else "")
+        state = "已自动收进对方网盘" if qt.send_status != "pending" else "等对方同意后才会进他的网盘"
+        return (
+            f"已通过站内快传给「{peer_name}（{target}）」发送 {qt.count} 项（{_fmt_size(qt.size)}）：{names}\n"
+            f"状态：{state}；对方会在消息中心收到提醒。"
+        )
+
+    # ---------------- 删除（需勾选「删除文件与清空回收站」） ----------------
+    if name == "delete_item":
+        raw = args.get("paths")
+        if isinstance(raw, str):
+            raw = [raw]
+        paths = [str(item).strip() for item in (raw or []) if str(item).strip()]
+        if not paths:
+            raise ToolError("要给出至少一个文件路径")
+        permanent = bool(args.get("permanent"))
+
+        removed: list[str] = []
+        trashed = 0
+        purged = 0
+        for path in paths:
+            node = _resolve_path(db, user.id, path)
+            if node is None:
+                raise ToolError(f"找不到「{path}」")
+            label = _node_label(db, user.id, node)
+            if permanent:
+                # 先标删再 purge：purge 走 trash_subtree_ids，只认已经带删除标记的子树
+                node_service.soft_delete(db, user, node)
+                db.flush()
+                purged += node_service.purge_node(db, user, node)
+            else:
+                trashed += node_service.soft_delete(db, user, node)
+            removed.append(label)
+        node_service.recalc_usage(db, user)
+        log_action(
+            db,
+            "ai_tool",
+            user.id,
+            {"tool": name, "paths": removed[:20], "permanent": permanent},
+        )
+        db.commit()
+
+        names = "、".join(removed[:5]) + ("…" if len(removed) > 5 else "")
+        if permanent:
+            return (
+                f"已彻底删除：{names}（共 {purged} 个条目，无法恢复）。"
+                f"当前已用空间 {_fmt_size(user.used_bytes or 0)}。"
+            )
+        return (
+            f"已删除：{names}（共 {trashed} 个条目，已放进回收站，需要的话可以还原）。"
+            f"当前已用空间 {_fmt_size(user.used_bytes or 0)}。"
+        )
+
+    if name == "empty_trash":
+        if not args.get("confirm"):
+            raise ToolError(
+                "清空回收站不可恢复：请先把回收站里的条目列给用户，"
+                "等用户明确同意后再带 confirm=true 调用"
+            )
+        raw = args.get("names")
+        if isinstance(raw, str):
+            raw = [raw]
+        wanted = [str(item).strip() for item in (raw or []) if str(item).strip()]
+
+        tops = _trash_tops(db, user.id)
+        if wanted:
+            chosen: list[Node] = []
+            for label in wanted:
+                hits = [node for node in tops if node.name.lower() == label.lower()]
+                if not hits:
+                    # 用户/模型常常只记得一部分名字，退一步按包含匹配
+                    hits = [node for node in tops if label.lower() in node.name.lower()]
+                if not hits:
+                    available = "、".join(node.name for node in tops[:8]) or "回收站是空的"
+                    raise ToolError(f"回收站里没有「{label}」。现有：{available}")
+                if len(hits) > 1:
+                    detail = "、".join(
+                        f"{node.name}（{node.deleted_at.strftime('%m-%d %H:%M') if node.deleted_at else ''}）"
+                        for node in hits[:6]
+                    )
+                    raise ToolError(f"「{label}」在回收站里匹配到多项：{detail}，请说得更具体一些")
+                chosen.append(hits[0])
+        else:
+            chosen = tops
+
+        if not chosen:
+            return "回收站已经是空的，没有需要清理的内容。"
+
+        total = 0
+        names = []
+        for node in chosen:
+            names.append(node.name)
+            total += node_service.purge_node(db, user, node)
+        node_service.recalc_usage(db, user)
+        log_action(
+            db,
+            "ai_tool",
+            user.id,
+            {"tool": name, "items": names[:20], "removed": total},
+        )
+        db.commit()
+        shown = "、".join(names[:5]) + ("…" if len(names) > 5 else "")
+        return (
+            f"已彻底删除回收站里的 {len(chosen)} 项（{shown}），共 {total} 个条目，无法恢复。"
+            f"当前已用空间 {_fmt_size(user.used_bytes or 0)}。"
+        )
+
     raise ToolError(f"没有这个工具：{name}")
 
 
@@ -1841,6 +2124,7 @@ def _stream_openai(
         "write": bool(cfg.get("writeFiles")),
         "move": bool(cfg.get("moveFiles")),
         "quick": bool(cfg.get("quickTransfer")),
+        "delete": bool(cfg.get("deleteFiles")),
         "theme": bool(cfg.get("themeColor")),
         "vision": bool(cfg.get("vision")),
     }
@@ -2081,6 +2365,7 @@ def _stream_anthropic(
         "write": bool(cfg.get("writeFiles")),
         "move": bool(cfg.get("moveFiles")),
         "quick": bool(cfg.get("quickTransfer")),
+        "delete": bool(cfg.get("deleteFiles")),
         "theme": bool(cfg.get("themeColor")),
         "vision": bool(cfg.get("vision")),
     }

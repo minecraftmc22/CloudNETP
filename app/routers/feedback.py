@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
 from .. import feedback_service as fs
+from .. import notice_service
 from ..db import get_db
 from ..deps import get_current_user, require_admin
 from ..models import Feedback, User, utcnow
@@ -40,6 +41,14 @@ def submit_feedback(
         title=payload.title,
         content=payload.content,
         contact=payload.contact,
+    )
+    # 管理员消息中心：新反馈进来就提醒一次（后台处理完 pending 计数自然归零）
+    notice_service.notify_admins(
+        db,
+        "feedback",
+        f"新的意见反馈：{row.title or fs.KIND_LABELS.get(row.kind, row.kind)}",
+        (payload.content or "").strip()[:120],
+        "#/admin/feedback",
     )
     db.commit()
     db.refresh(row)

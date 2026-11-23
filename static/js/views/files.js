@@ -102,6 +102,20 @@ export function renderFiles(root) {
       </div>
     </div>
 
+    <!-- 手机端：分享与回收站不再占底部导航，改成这里的两个入口（桌面端隐藏） -->
+    <div class="files-links" data-mobile-only>
+      <a class="btn btn--subtle" href="#/shares">
+        <svg class="icon icon--s"><use href="#i-share"/></svg>${t("我的分享")}
+      </a>
+      ${
+        store.get().user?.settings?.trashEnabled === false
+          ? ""
+          : H`<a class="btn btn--subtle" href="#/trash">
+        <svg class="icon icon--s"><use href="#i-trash"/></svg>${t("回收站")}
+      </a>`
+      }
+    </div>
+
     <div class="files-stage">
       <div class="view-body" data-body></div>
       <div class="files-loading" data-loading hidden>

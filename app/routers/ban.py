@@ -16,6 +16,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .. import ban_service
+from .. import notice_service
 from ..config import settings
 from ..db import get_db
 from ..deps import require_admin
@@ -131,6 +132,14 @@ def submit_appeal(
         created_at=utcnow(),
     )
     db.add(row)
+    db.flush()
+    notice_service.notify_admins(
+        db,
+        "appeal",
+        "新的封禁申诉待审核",
+        (message or "").strip()[:120],
+        "#/admin/appeals",
+    )
     log_action(db, "ban_appeal_submit", user.id, {"length": len(message)}, request)
     db.commit()
     db.refresh(row)
