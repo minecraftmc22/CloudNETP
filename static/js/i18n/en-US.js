@@ -2020,6 +2020,7 @@ export default {
   "举报这条消息": "Report this message",
   "撤回这条消息": "Recall this message",
   "撤回后对方也会看到「已撤回」，内容不会留在聊天里。": "The other side will see it was recalled; the content won't stay in the chat.",
+  "撤回后对方也会看到「已撤回」，内容不会留在聊天里。发送后 {n} 分钟内可撤回。": "The other side will see it was recalled; the content won't stay in the chat. You can recall within {n} minutes of sending.",
   "撤回失败": "Recall failed",
   "已保存 {n} 项到「{folder}」": "Saved {n} items to \"{folder}\"",
   "聊天文件": "Chat files",

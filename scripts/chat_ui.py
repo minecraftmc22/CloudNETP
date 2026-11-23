@@ -20,6 +20,7 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
+from datetime import timedelta
 from pathlib import Path
 
 import websocket
@@ -28,7 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 urllib.request.install_opener(urllib.request.build_opener(urllib.request.ProxyHandler({})))
 
 from PIL import Image  # noqa: E402
-from sqlalchemy import delete, select  # noqa: E402
+from sqlalchemy import delete, select, update  # noqa: E402
 
 from app import db_failover, storage  # noqa: E402
 from app.config import settings  # noqa: E402
@@ -46,6 +47,7 @@ from app.models import (  # noqa: E402
     utcnow,
 )
 from app.security import create_token, hash_password  # noqa: E402
+from app.settings_store import set_value  # noqa: E402
 
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8131
 BASE = f"http://127.0.0.1:{PORT}"
@@ -440,6 +442,58 @@ def main() -> None:
             check(wait_for("!!document.querySelector('.msg__recalled')", 12), "撤回后显示「已撤回」")
         else:
             check(False, "没找到自己发的文字消息（撤回用例跳过）")
+
+        # 撤回时限：超时的消息，菜单里就不该再出现「撤回」
+        code, data = call(f"/api/chat/conversations/{direct_id}/messages", ta, "POST",
+                          {"kind": "text", "body": "这条很快就会过期"})
+        stale_id = (data.get("message") or {}).get("id")
+        cdb = db_failover.current_sessionmaker()()
+        try:
+            set_value(cdb, "chat_recall_minutes", "1")
+            cdb.execute(
+                update(ChatMessage)
+                .where(ChatMessage.id == stale_id)
+                .values(created_at=utcnow() - timedelta(minutes=3))
+            )
+            cdb.commit()
+        finally:
+            cdb.close()
+        js("location.reload()")
+        check(wait_for("document.querySelectorAll('.chat-feed .msg').length > 0", 25),
+              "刷新后重新拉到消息")
+        time.sleep(1.2)
+        opened = js(
+            f"""
+            (() => {{
+              const msg = [...document.querySelectorAll('.chat-feed .msg')]
+                .find((m) => m.dataset.mid === '{stale_id}');
+              if (!msg) return 'no-msg';
+              const btn = msg.querySelector('.msg__more');
+              if (!btn) return 'no-btn';
+              btn.click();
+              return 'ok';
+            }})()
+            """
+        )
+        if opened == "ok":
+            assert wait_for("!!document.querySelector('.popover')", 8), "过期消息的菜单没出来"
+            stale_menu = js(
+                "[...document.querySelectorAll('.popover .menu-item')].map((b) => b.textContent.trim())"
+            )
+            check(not any("撤回" in x for x in stale_menu),
+                  f"超时的消息菜单里没有「撤回」（{stale_menu}）")
+        else:
+            check(False, f"过期消息没能打开菜单（{opened}）")
+        # 还原时限与时间戳，后面的用例还要按默认走
+        cdb = db_failover.current_sessionmaker()()
+        try:
+            set_value(cdb, "chat_recall_minutes", "10")
+            cdb.execute(
+                update(ChatMessage).where(ChatMessage.id == stale_id).values(created_at=utcnow())
+            )
+            cdb.commit()
+        finally:
+            cdb.close()
 
         # 群聊
         js(f"document.querySelector('.chat-item[data-conv=\"{group_id}\"]').click()")

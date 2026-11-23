@@ -475,8 +475,15 @@ def _system_message(db: Session, conv: ChatConversation, text: str) -> ChatMessa
 
 
 def message_payload(
-    db: Session, msg: ChatMessage, senders: dict[int, User] | None = None
+    db: Session,
+    msg: ChatMessage,
+    senders: dict[int, User] | None = None,
+    recall_window: int | None = None,
 ) -> dict[str, Any]:
+    """recall_window：可撤回的时间窗（秒），None/0 表示不限。
+
+    撤回时限算在服务端，前端只看 recallable —— 客户端时钟不准时也不会误判。
+    """
     if senders is not None and msg.sender_id in senders:
         sender = senders[msg.sender_id]
     elif msg.sender_id:
@@ -490,6 +497,9 @@ def message_payload(
             payload = json.loads(msg.payload)
         except Exception:
             payload = None
+    recallable = not recalled and msg.kind != "system"
+    if recallable and recall_window:
+        recallable = (utcnow() - msg.created_at).total_seconds() <= recall_window
     return {
         "id": msg.id,
         "conversationId": msg.conversation_id,
@@ -498,6 +508,7 @@ def message_payload(
         "payload": payload,
         "sender": user_card(sender) if msg.sender_id else None,
         "recalled": recalled,
+        "recallable": recallable,
         "forwardedFrom": msg.forwarded_from,
         "createdAt": iso(msg.created_at),
     }
@@ -525,8 +536,9 @@ def list_messages(
     if not after_id:
         rows.reverse()
     senders = _users(db, [m.sender_id for m in rows if m.sender_id])
+    window = recall_minutes(db) * 60 or None
     return {
-        "items": [message_payload(db, m, senders) for m in rows],
+        "items": [message_payload(db, m, senders, window) for m in rows],
         "hasMore": len(rows) == limit and not after_id,
     }
 

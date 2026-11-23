@@ -314,4 +314,6 @@ def chat_friends(db: DbSession, user: CurrentUser) -> dict:
         "friends": cs.friends_for_picker(db, user),
         "stickerLimit": cs.sticker_max(db),
         "groupLimit": cs.group_max(db),
+        # 撤回时限（分钟，0 = 不限）：前端据此决定菜单里给不给「撤回」
+        "recallMinutes": cs.recall_minutes(db),
     }

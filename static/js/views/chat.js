@@ -39,6 +39,8 @@ export function renderChat(root, { sub = "" } = {}) {
     friends: [],
     stickerLimit: 100,
     groupLimit: 200,
+    // 撤回时限（分钟，0 = 不限），由 /api/chat/friends 下发
+    recallMinutes: 10,
     stickers: [],
     stickerOpen: false,
     busy: false,
@@ -617,11 +619,14 @@ export function renderChat(root, { sub = "" } = {}) {
       onClick: () => forwardMessage(msg),
     });
     if (mine) {
-      items.push({
-        label: t("撤回"),
-        icon: "i-restore",
-        onClick: () => recallMessage(msg),
-      });
+      // recallable 由服务端按时限算好；超过时限就不给这一项，免得点进去才被拒
+      if (msg.recallable !== false) {
+        items.push({
+          label: t("撤回"),
+          icon: "i-restore",
+          onClick: () => recallMessage(msg),
+        });
+      }
     } else {
       items.push({
         label: t("举报这条消息"),
@@ -634,9 +639,14 @@ export function renderChat(root, { sub = "" } = {}) {
   }
 
   async function recallMessage(msg) {
+    const limit = state.recallMinutes;
     const ok = await Dialog.confirm({
       title: t("撤回这条消息"),
-      message: t("撤回后对方也会看到「已撤回」，内容不会留在聊天里。"),
+      message: limit
+        ? t("撤回后对方也会看到「已撤回」，内容不会留在聊天里。发送后 {n} 分钟内可撤回。", {
+            n: limit,
+          })
+        : t("撤回后对方也会看到「已撤回」，内容不会留在聊天里。"),
       confirmText: t("撤回"),
       danger: true,
     });
@@ -781,6 +791,7 @@ export function renderChat(root, { sub = "" } = {}) {
       state.friends = data.friends || [];
       state.stickerLimit = data.stickerLimit || state.stickerLimit;
       state.groupLimit = data.groupLimit || state.groupLimit;
+      state.recallMinutes = data.recallMinutes ?? state.recallMinutes;
     } catch {
       state.friends = [];
     }

@@ -16,13 +16,14 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+from datetime import timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 urllib.request.install_opener(urllib.request.build_opener(urllib.request.ProxyHandler({})))
 
 from PIL import Image  # noqa: E402
-from sqlalchemy import delete, select  # noqa: E402
+from sqlalchemy import delete, select, update  # noqa: E402
 
 from app import db_failover, storage  # noqa: E402
 from app.config import settings  # noqa: E402
@@ -338,6 +339,50 @@ def main() -> None:
     hit = next((m for m in (data.get("items") or []) if m["id"] == msg1_id), None)
     check((hit or {}).get("recalled") is True, "对方看到的是「已撤回」")
     check(not (hit or {}).get("body"), "已撤回的消息不带正文")
+
+    # ---- 撤回时限：后台设的分钟数要真的管用，前端也要拿到 ----
+    code, data = call("/api/chat/friends", ta)
+    check((data or {}).get("recallMinutes") == 10, f"选人面板带回撤回时限（{(data or {}).get('recallMinutes')}）")
+
+    code, data = call(f"/api/chat/conversations/{conv_id}/messages", ta, "POST",
+                      {"kind": "text", "body": "这条专门用来测撤回时限"})
+    limit_id = (data.get("message") or {}).get("id")
+    check((data.get("message") or {}).get("recallable") is True, "刚发的消息标记为可撤回")
+
+    # 后台把时限改成 1 分钟：管理员改完，聊天侧立刻读到
+    code, data = call("/api/admin/settings", tn, "PATCH", {"chatRecallMinutes": 1})
+    check(code == 200, f"管理员改撤回时限（{code}）")
+    check((data.get("settings") or {}).get("chatRecallMinutes") == 1, "设置回显新的撤回时限")
+    code, data = call("/api/chat/friends", ta)
+    check((data or {}).get("recallMinutes") == 1,
+          f"聊天侧立刻读到新时限（{(data or {}).get('recallMinutes')}）")
+
+    # 把消息挪到 2 分钟前 → 不可撤回，接口也拒
+    db.execute(
+        update(ChatMessage)
+        .where(ChatMessage.id == limit_id)
+        .values(created_at=utcnow() - timedelta(minutes=2))
+    )
+    db.commit()
+    code, data = call(f"/api/chat/conversations/{conv_id}/messages", ta)
+    hit = next((m for m in (data.get("items") or []) if m["id"] == limit_id), None)
+    check((hit or {}).get("recallable") is False, "超过时限的消息标记为不可撤回")
+    code, data = call(f"/api/chat/messages/{limit_id}/recall", ta, "POST", {})
+    check(code == 400, f"超过时限撤回被拒（{code}）")
+
+    # 时限 0 = 不限：同一条老消息又能撤回
+    code, data = call("/api/admin/settings", tn, "PATCH", {"chatRecallMinutes": 0})
+    check(code == 200, f"时限改成 0（{code}）")
+    code, data = call(f"/api/chat/conversations/{conv_id}/messages", ta)
+    hit = next((m for m in (data.get("items") or []) if m["id"] == limit_id), None)
+    check((hit or {}).get("recallable") is True, "时限填 0 表示不限，老消息也可撤回")
+    code, data = call(f"/api/chat/messages/{limit_id}/recall", ta, "POST", {})
+    check(code == 200, f"不限时限时撤回成功（{code}）")
+
+    # 还原默认值，后面的断言按 10 分钟走
+    code, data = call("/api/admin/settings", tn, "PATCH", {"chatRecallMinutes": 10})
+    check(code == 200 and (data.get("settings") or {}).get("chatRecallMinutes") == 10,
+          f"撤回时限还原为 10（{code}）")
 
     code, data = call(f"/api/chat/messages/{file_msg_id}/forward", tb, "POST",
                       {"conversationIds": [conv_id]})
