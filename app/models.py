@@ -99,6 +99,32 @@ class Passkey(Base):
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
+class LoginSession(Base):
+    """登录设备（会话）：一行 = 一台设备上的一次登录。
+
+    token 里带 `s`（sid）声明，``get_current_user`` 每次请求按 sid 查这一行：
+    `revoked_at` 非空即已下线。单个设备的下线走这里，不再需要全局 bump
+    `token_version`（那个仍然保留：改密码 / 被管理员踢时一步作废所有会话）。
+    旧 token 没有 `s` 声明（升级前签发），继续按原逻辑放行直到自然过期。
+    """
+
+    __tablename__ = "login_sessions"
+
+    id: Mapped[int] = mapped_column(AutoPK, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    # 随机会话标识：签名保证不可伪造，库里这一行保证可撤销
+    sid: Mapped[str] = mapped_column(String(24), unique=True, nullable=False)
+    # 解析 UA 得到的「Windows · Chrome」；原始 UA 截断留存备查
+    device: Mapped[str] = mapped_column(String(120), nullable=False, default="")
+    ua: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    ip: Mapped[str] = mapped_column(String(45), nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
 class UserSetting(Base):
     __tablename__ = "user_settings"
 

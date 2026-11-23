@@ -26,6 +26,7 @@ from .. import lyrics_config
 from .. import lyrics_service
 from .. import mail_config
 from .. import mail_service
+from .. import session_service
 from .. import netease_auth as ng
 from .. import node_service as ns
 from .. import profile_service as ps
@@ -262,6 +263,7 @@ def reset_password(
     target.password_hash = hash_password(temp)
     target.dav_ha1 = da.ha1(target.username, temp)  # WebDAV 用 Digest，得同步
     target.token_version += 1  # 踢掉该用户所有已登录设备
+    session_service.revoke_all(db, target.id)  # 设备列表同步成事实
     log_action(db, "admin_user_password", me.id, {"target": target.username}, request)
     db.commit()
     return {"password": temp, "username": target.username}

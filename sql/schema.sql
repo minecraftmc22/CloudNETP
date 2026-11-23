@@ -456,3 +456,23 @@ CREATE TABLE IF NOT EXISTS chat_reports (
   KEY idx_creport_target (target_id),
   CONSTRAINT ck_creport_status CHECK (status IN ('pending', 'approved', 'rejected'))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- ------------------------------------------------------------
+-- 登录设备（会话）：token 带 sid，单设备可撤销；revoked_at 非空即已下线
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS login_sessions (
+  id           BIGINT       NOT NULL AUTO_INCREMENT,
+  user_id      BIGINT       NOT NULL,
+  sid          VARCHAR(24)  NOT NULL,
+  device       VARCHAR(120) NOT NULL DEFAULT '',
+  ua           VARCHAR(255) NOT NULL DEFAULT '',
+  ip           VARCHAR(45)  NOT NULL DEFAULT '',
+  created_at   DATETIME     NOT NULL,
+  last_seen_at DATETIME     NOT NULL,
+  revoked_at   DATETIME     NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_lsession_sid (sid),
+  KEY idx_lsession_user (user_id),
+  CONSTRAINT fk_lsession_user FOREIGN KEY (user_id)
+    REFERENCES users (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;

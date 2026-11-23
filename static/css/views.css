@@ -985,6 +985,16 @@ a.setting-row--link:hover .setting-row__chevron {
   margin-top: 2px;
 }
 
+/* 设备项：标签里放「当前设备」chip，别让省略号把它吃掉 */
+.device-item .passkey-item__label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.device-item .passkey-item__label .chip {
+  flex: none;
+}
+
 /* WebDAV 挂载地址 */
 .dav-addr {
   display: flex;

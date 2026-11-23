@@ -105,12 +105,21 @@ def _sign(payload: bytes) -> str:
     return _b64e(hmac.new(settings.SECRET_KEY.encode(), payload, hashlib.sha256).digest())
 
 
-def create_token(user_id: int, token_version: int, ttl: int | None = None) -> str:
+def create_token(
+    user_id: int, token_version: int, ttl: int | None = None, sid: str | None = None
+) -> str:
+    """`sid` 是会话标识（login_sessions.sid）：带上它，单个设备才能被单独下线。
+
+    不带 sid 的旧式 token（升级前签发的、测试脚本直签的）继续有效，
+    只是「设备管理」里看不到、也不能被单独撤销。
+    """
     payload = {
         "u": user_id,
         "v": token_version,
         "exp": int(time.time()) + (ttl or settings.SESSION_TTL_SECONDS),
     }
+    if sid:
+        payload["s"] = sid
     raw = json.dumps(payload, separators=(",", ":")).encode()
     return f"{_b64e(raw)}.{_sign(raw)}"
 

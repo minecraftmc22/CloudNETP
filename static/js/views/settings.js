@@ -898,6 +898,25 @@ export function renderSettings(root, { tab } = {}) {
           </div>
         </section>
 
+        <section class="settings-card" data-card="devices">
+          <div class="settings-card__head"><svg class="icon icon--s"><use href="#i-monitor"/></svg>${t("登录设备管理")}</div>
+          <div class="settings-card__body">
+            <p class="setting-panel__hint">${
+              t("每一台登录过的设备都会记在这里。发现不是自己的设备，可以单独下线它。")
+            }</p>
+            <div class="passkey-list" data-device-list>
+              <p class="setting-panel__hint">正在读取…</p>
+            </div>
+            <div class="setting-row">
+              <div class="setting-row__main">
+                <div class="setting-row__label">${t("下线其他设备")}</div>
+                <div class="setting-row__desc">${t("把除当前设备以外的登录全部下线，对方下次请求就会掉线")}</div>
+              </div>
+              <button class="btn" type="button" data-act="revoke-others">${t("下线其他设备")}</button>
+            </div>
+          </div>
+        </section>
+
         <section class="settings-card settings-card--danger" data-card="danger">
           <div class="settings-card__head"><svg class="icon icon--s"><use href="#i-alert"/></svg>${t("危险区域")}</div>
           <div class="settings-card__body">
@@ -1355,6 +1374,93 @@ export function renderSettings(root, { tab } = {}) {
   });
 
   /* 通行密钥 */
+  /* --- 登录设备管理 --- */
+  function renderDevices(items) {
+    const box = q("[data-device-list]");
+    if (!box) return;
+    if (!items.length) {
+      box.innerHTML = H`<p class="setting-panel__hint">${t("还没有登录记录")}</p>`;
+      return;
+    }
+    box.innerHTML = items
+      .map(
+        (item) => H`<div class="passkey-item device-item${item.current ? " device-item--current" : ""}">
+          <div class="passkey-item__main">
+            <div class="passkey-item__label">
+              ${escapeHtml(item.device || t("未知设备"))}
+              ${item.current ? H`<span class="chip chip--accent">${t("当前设备")}</span>` : ""}
+            </div>
+            <div class="passkey-item__meta">${t("最近活跃 {time} · IP {ip}", {
+              time: formatTime(item.lastSeenAt),
+              ip: escapeHtml(item.ip || "—"),
+            })}</div>
+          </div>
+          ${
+            item.current
+              ? ""
+              : H`<button class="btn btn--subtle" type="button" data-act="device-revoke"
+                  data-sid="${item.id}">${t("下线")}</button>`
+          }
+        </div>`
+      )
+      .join("");
+    const othersBtn = q('[data-act="revoke-others"]');
+    if (othersBtn) othersBtn.disabled = items.every((x) => x.current);
+  }
+
+  async function refreshDevices() {
+    try {
+      const data = await api.get("/api/me/sessions");
+      renderDevices(data.items || []);
+    } catch {
+      const box = q("[data-device-list]");
+      if (box) box.innerHTML = H`<p class="setting-panel__hint">${t("设备列表读取失败")}</p>`;
+    }
+  }
+
+  q("[data-device-list]")?.addEventListener("click", async (event) => {
+    const btn = event.target.closest('[data-act="device-revoke"]');
+    if (!btn) return;
+    const sid = btn.dataset.sid;
+    const ok = await Dialog.confirm({
+      title: t("下线这台设备"),
+      message: t("下线后那台设备上的登录立刻失效，需要重新输入密码才能进。"),
+      confirmText: t("下线"),
+      danger: true,
+    });
+    if (!ok) return;
+    btn.disabled = true;
+    try {
+      await api.del(`/api/me/sessions/${encodeURIComponent(sid)}`);
+      Toast.success(t("已下线"));
+      await refreshDevices();
+    } catch (err) {
+      Toast.error(err?.message || t("下线失败"));
+      btn.disabled = false;
+    }
+  });
+
+  q('[data-act="revoke-others"]')?.addEventListener("click", async (event) => {
+    const btn = event.currentTarget;
+    const ok = await Dialog.confirm({
+      title: t("下线其他设备"),
+      message: t("除当前这台以外，其它所有设备都会被下线。"),
+      confirmText: t("下线其他设备"),
+      danger: true,
+    });
+    if (!ok) return;
+    btn.disabled = true;
+    try {
+      const res = await api.post("/api/me/sessions/revoke-others", {});
+      Toast.success(res.revoked ? t("已下线 {n} 台设备", { n: res.revoked }) : t("没有其它登录设备"));
+      await refreshDevices();
+    } catch (err) {
+      Toast.error(err?.message || t("下线失败"));
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
   function renderPasskeys(list) {
     const box = q("[data-passkey-list]");
     if (!box) return;
@@ -1500,6 +1606,7 @@ export function renderSettings(root, { tab } = {}) {
 
   paintTwofa();
   refreshSecurity();
+  refreshDevices();
 
 
   root.querySelector('[data-act="dav-help"]')?.addEventListener("click", () => {

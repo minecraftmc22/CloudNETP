@@ -12,6 +12,7 @@ ACTIONS: dict[str, dict[str, str]] = {
     "login": {"label": "登录", "tone": "info", "group": "账号"},
     "login_failed": {"label": "登录失败", "tone": "warn", "group": "账号"},
     "logout": {"label": "退出登录", "tone": "info", "group": "账号"},
+    "session_revoke": {"label": "下线登录设备", "tone": "warn", "group": "账号"},
     "change_password": {"label": "修改密码", "tone": "warn", "group": "账号"},
     "profile_update": {"label": "修改资料", "tone": "info", "group": "账号"},
     "avatar_update": {"label": "更换头像", "tone": "info", "group": "账号"},

@@ -54,6 +54,7 @@ from ..security import (
     check_origin,
     client_ip,
     create_token,
+    decode_token,
     email_problem,
     hash_password,
     normalize_email,
@@ -67,6 +68,7 @@ from ..security import (
     verify_pending,
     verify_reset,
 )
+from .. import session_service
 from ..user_service import ensure_settings, log_action, user_payload
 
 router = APIRouter(prefix="/api", tags=["auth"])
@@ -141,8 +143,17 @@ def _banned_response(user: User) -> JSONResponse:
     return res
 
 
-def _set_session(response: Response, user: User) -> None:
-    token = create_token(user.id, user.token_version)
+def _set_session(db: Session, response: Response, user: User, request: Request) -> None:
+    """发会话 Cookie。每次登录都落一条 login_sessions（设备管理能看到）。
+
+    在 token_version 已经 bump 过的场景（改密码 / 换绑邮箱），调用方先
+    revoke_all 把旧会话标记下线，这里再给当前设备签新的。
+    """
+    row = session_service.start_session(db, user, request)
+    # get_db 请求结束只 close 不 commit，这行必须自己提交，否则设备记录
+    # 会跟着请求一起回滚，token 里的 sid 查不到、下一次请求就 401
+    db.commit()
+    token = create_token(user.id, user.token_version, sid=row.sid)
     response.set_cookie(
         key=settings.COOKIE_NAME,
         value=token,
@@ -152,6 +163,12 @@ def _set_session(response: Response, user: User) -> None:
         secure=settings.cookie_secure,
         path="/",
     )
+
+
+def _current_sid(request: Request) -> str | None:
+    token = request.cookies.get(settings.COOKIE_NAME)
+    payload = decode_token(token) if token else None
+    return str(payload["s"]) if payload and payload.get("s") else None
 
 
 @router.get("/meta")
@@ -301,7 +318,7 @@ def register(
     log_action(db, "register", user.id, {"firstAdmin": is_first}, request)
     db.commit()
 
-    _set_session(response, user)
+    _set_session(db, response, user, request)
     return {"user": user_payload(db, user), "firstAdmin": is_first}
 
 
@@ -375,7 +392,7 @@ def login(
         db.commit()
 
     _finish_login(db, user, request, "password" if not user.two_factor_enabled else "password_2fa_skipped")
-    _set_session(response, user)
+    _set_session(db, response, user, request)
     return {"user": user_payload(db, user)}
 
 
@@ -591,7 +608,7 @@ def two_factor_verify_email(
 
     _burn_nonce(nonce)
     _finish_login(db, user, request, "2fa_email")
-    _set_session(response, user)
+    _set_session(db, response, user, request)
     return {"user": user_payload(db, user)}
 
 
@@ -677,7 +694,7 @@ def two_factor_passkey_verify(
     log_action(db, "passkey_used", user.id, {"passkeyId": row.id}, request)
     _burn_nonce(ticket_nonce)
     _finish_login(db, user, request, "2fa_passkey")
-    _set_session(response, user)
+    _set_session(db, response, user, request)
     return {"user": user_payload(db, user)}
 
 
@@ -828,6 +845,7 @@ def reset_password(
     user.password_hash = hash_password(payload.password)
     user.dav_ha1 = da.ha1(user.username, payload.password)
     user.token_version += 1  # 旧会话全部失效
+    session_service.revoke_all(db, user.id)
     log_action(db, "password_reset", user.id, None, request)
     db.commit()
     return {"ok": True, "username": user.username}
@@ -838,10 +856,51 @@ def logout(
     request: Request, response: Response, user: User = Depends(get_current_user), db: Session = Depends(get_db)
 ) -> dict:
     check_origin(request)
+    sid = _current_sid(request)
+    if sid:
+        session_service.revoke_sid(db, user.id, sid)
     log_action(db, "logout", user.id, None, request)
     db.commit()
     response.delete_cookie(settings.COOKIE_NAME, path="/")
     return {"ok": True}
+
+
+# --------------------------------------------------------------------------- #
+# 登录设备管理：列表 / 下线单个 / 下线其它
+# --------------------------------------------------------------------------- #
+@router.get("/me/sessions")
+def list_sessions(
+    request: Request, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+) -> dict:
+    return session_service.list_payload(db, user, _current_sid(request))
+
+
+@router.delete("/me/sessions/{sid}")
+def revoke_session(
+    sid: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    check_origin(request)
+    session_service.revoke_one(db, user, sid, _current_sid(request))
+    log_action(db, "session_revoke", user.id, {"sid": sid[:8]}, request)
+    db.commit()
+    return {"ok": True}
+
+
+@router.post("/me/sessions/revoke-others")
+def revoke_other_sessions(
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    check_origin(request)
+    count = session_service.revoke_others(db, user, _current_sid(request))
+    if count:
+        log_action(db, "session_revoke", user.id, {"others": count}, request)
+    db.commit()
+    return {"ok": True, "revoked": count}
 
 
 @router.post("/me/delete")
@@ -953,6 +1012,7 @@ def update_email(
         # 邮箱也是登录标识（登录按 username/email 查人），换绑等于身份凭证变了：
         # 让其它设备上的旧会话失效，当前设备重新签一次避免把自己踢掉
         user.token_version += 1
+        session_service.revoke_all(db, user.id)
 
     log_action(
         db,
@@ -963,7 +1023,7 @@ def update_email(
     )
     db.commit()
     if rebind:
-        _set_session(response, user)
+        _set_session(db, response, user, request)
     return {"user": user_payload(db, user)}
 
 
@@ -1331,8 +1391,9 @@ def change_password(
     user.password_hash = hash_password(payload.new_password)
     user.dav_ha1 = da.ha1(user.username, payload.new_password)
     user.token_version += 1  # 踢掉其它设备
+    session_service.revoke_all(db, user.id)
     log_action(db, "change_password", user.id, {"via": "email" if email_ok else "captcha"}, request)
     db.commit()
 
-    _set_session(response, user)
+    _set_session(db, response, user, request)
     return {"ok": True}

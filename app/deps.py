@@ -24,6 +24,17 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "账号不存在")
     if int(payload.get("v", 0)) != user.token_version:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "登录状态已失效，请重新登录")
+    sid = payload.get("s")
+    if sid:
+        # 设备管理：token 携带会话 id，被下线（撤销）的会话下一次请求立刻失效。
+        # 旧式 token 没有 s 声明，走原来的逻辑直到自然过期。
+        from . import session_service
+
+        row = session_service.find_by_sid(db, str(sid))
+        if not row or row.user_id != user.id or row.revoked_at is not None:
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "登录已在其它操作中下线，请重新登录")
+        if session_service.touch(db, row):
+            db.commit()
     if user.banned:
         from . import ban_service
 
