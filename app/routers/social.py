@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, Query, Request, status
 from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
+from .. import chat_service as chat_svc
 from .. import friend_service as fsv
 from .. import notice_service as ns
 from ..db import get_db
@@ -77,6 +78,8 @@ def clear_read_notices(request: Request, db: DbSession, user: CurrentUser) -> di
 def list_friends(db: DbSession, user: CurrentUser) -> dict:
     data = fsv.list_all(db, user)
     data["pending"] = ns.pending_for(db, user)
+    # 已拉黑的人：好友关系已断，得单独给个入口才能解除
+    data["blocked"] = chat_svc.list_blocks(db, user)
     return data
 
 

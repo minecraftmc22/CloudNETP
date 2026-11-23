@@ -187,7 +187,8 @@ export function renderChat(root, { sub = "" } = {}) {
           node.folder
             ? H`<span class="msg-file__hint">${t("保存后可查看")}</span>`
             : H`<button class="btn btn--subtle msg-file__btn" type="button"
-                     data-act="download" data-mid="${messageId}" data-index="${index}">${t("下载")}</button>`
+                     data-act="download" data-mid="${messageId}" data-index="${index}"
+                     data-name="${escapeHtml(node.name)}">${t("下载")}</button>`
         }
       </div>`;
   }
@@ -308,17 +309,19 @@ export function renderChat(root, { sub = "" } = {}) {
           <div class="sticker-grid" data-sticker-grid></div>
         </div>
         <div class="chat-compose__bar">
-          <button class="chat-tool" type="button" data-act="pick-file" title="${t("发送网盘文件")}">
-            <svg class="icon"><use href="#i-folder"/></svg>
-          </button>
-          <button class="chat-tool" type="button" data-act="pick-image" title="${t("发送图片")}">
-            <svg class="icon"><use href="#i-image"/></svg>
-          </button>
-          <button class="chat-tool" type="button" data-act="open-stickers" title="${t("表情包")}">
-            <svg class="icon"><use href="#i-smile"/></svg>
-          </button>
           <div class="textarea chat-compose__input">
             <textarea data-input rows="1" maxlength="2000" placeholder="${t("说点什么…（Enter 发送，Shift+Enter 换行）")}"></textarea>
+            <div class="chat-compose__tools">
+              <button class="chat-tool" type="button" data-act="pick-file" title="${t("发送网盘文件")}">
+                <svg class="icon"><use href="#i-folder"/></svg>
+              </button>
+              <button class="chat-tool" type="button" data-act="pick-image" title="${t("发送图片")}">
+                <svg class="icon"><use href="#i-image"/></svg>
+              </button>
+              <button class="chat-tool" type="button" data-act="open-stickers" title="${t("表情包")}">
+                <svg class="icon"><use href="#i-smile"/></svg>
+              </button>
+            </div>
           </div>
           <button class="btn btn--accent chat-send" type="button" data-act="send">
             <svg class="icon icon--s"><use href="#i-send"/></svg><span>${t("发送")}</span>
@@ -339,6 +342,18 @@ export function renderChat(root, { sub = "" } = {}) {
     };
     input.addEventListener("input", fit);
     fit();
+    if (conv.canSend === false) {
+      // 被拉黑 / 拉黑了对方：发不出去，就别让人把字打完再被拒
+      input.disabled = true;
+      input.placeholder = conv.blockedByPeer
+        ? t("对方已拒收你的消息")
+        : t("你已把对方拉黑，无法发送消息");
+      mainEl.querySelectorAll(".chat-compose__tools .chat-tool").forEach((btn) => {
+        btn.disabled = true;
+      });
+      const sendBtn = mainEl.querySelector('[data-act="send"]');
+      if (sendBtn) sendBtn.disabled = true;
+    }
   }
 
   function paintFeed() {
@@ -564,7 +579,7 @@ export function renderChat(root, { sub = "" } = {}) {
     grid.innerHTML = state.stickers
       .map(
         (s) => H`
-      <span class="sticker-item">
+      <span class="sticker-item" data-sticker-id="${s.id}">
         <button class="sticker-item__btn" type="button" data-act="send-sticker" data-id="${s.id}" title="${escapeHtml(s.name)}">
           <img src="${escapeHtml(s.url)}" alt="${escapeHtml(s.name)}" loading="lazy">
         </button>
@@ -584,6 +599,119 @@ export function renderChat(root, { sub = "" } = {}) {
     if (state.stickerOpen) void loadStickers();
   }
 
+  async function deleteSticker(id, name = "") {
+    const ok = await Dialog.confirm({
+      title: t("删除表情"),
+      message: name ? t("把「{name}」从我的表情里删掉？", { name }) : t("从我的表情里删掉这张？"),
+      confirmText: t("删除"),
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await api.del(`/api/chat/stickers/${id}`);
+      state.stickers = state.stickers.filter((s) => s.id !== id);
+      paintStickers();
+      Toast.success(t("已删除表情"));
+    } catch (err) {
+      Toast.error(err?.message || t("删除失败"));
+    }
+  }
+
+  /* ---------------------------------------------------------------- */
+  /* 会话右键：清空 / 删除 / 拉黑                                       */
+  /* ---------------------------------------------------------------- */
+  function leaveThread() {
+    state.current = null;
+    state.messages = [];
+    bodyEl.classList.remove("is-thread");
+    history.replaceState(null, "", "#/chat");
+    paintThread();
+  }
+
+  async function clearChat(conv) {
+    const ok = await Dialog.confirm({
+      title: t("清空聊天记录"),
+      message: t("只清空你这一侧的记录，对方的聊天不受影响。"),
+      confirmText: t("清空"),
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await api.post(`/api/chat/conversations/${conv.id}/clear`, {});
+      if (state.current?.id === conv.id) {
+        state.messages = [];
+        state.lastId = 0;
+        state.hasMore = false;
+        paintFeed();
+      }
+      await loadConversations({ silent: true });
+      Toast.success(t("已清空"));
+    } catch (err) {
+      Toast.error(err?.message || t("清空失败"));
+    }
+  }
+
+  async function deleteChat(conv) {
+    const group = conv.kind === "group";
+    const ok = await Dialog.confirm({
+      title: group ? t("退出群聊") : t("删除聊天"),
+      message: group
+        ? t("退出后不会收到这个群的消息，重新加入要群主再邀请一次。")
+        : t("聊天会从列表里消失，记录清空。对方再发消息时会重新出现。"),
+      confirmText: group ? t("退出") : t("删除"),
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await api.del(`/api/chat/conversations/${conv.id}`);
+      if (state.current?.id === conv.id) leaveThread();
+      await loadConversations({ silent: true });
+      Toast.success(group ? t("已退出群聊") : t("已删除聊天"));
+    } catch (err) {
+      Toast.error(err?.message || t("操作失败"));
+    }
+  }
+
+  async function blockPeer(conv) {
+    if (!conv.peerId) return;
+    const ok = await Dialog.confirm({
+      title: t("拉黑并删除"),
+      message: t("会同时删掉好友关系，你们互相都发不了消息。之后可以在好友页解除。"),
+      confirmText: t("拉黑"),
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await api.post("/api/chat/blocks", { userId: conv.peerId });
+      if (state.current?.id === conv.id) leaveThread();
+      await loadConversations({ silent: true });
+      Toast.success(t("已拉黑并删除好友"));
+    } catch (err) {
+      Toast.error(err?.message || t("操作失败"));
+    }
+  }
+
+  function openConvMenu(conv, x, y) {
+    const items = [
+      { label: t("清空聊天记录"), icon: "i-restore", onClick: () => clearChat(conv) },
+      {
+        label: conv.kind === "group" ? t("退出群聊") : t("删除聊天"),
+        icon: conv.kind === "group" ? "i-logout" : "i-trash",
+        danger: true,
+        onClick: () => deleteChat(conv),
+      },
+    ];
+    if (conv.kind === "direct" && conv.peerId && conv.canSend !== false) {
+      items.push({
+        label: t("拉黑并删除好友"),
+        icon: "i-lock",
+        danger: true,
+        onClick: () => blockPeer(conv),
+      });
+    }
+    openMenu({ x, y, items });
+  }
+
   /* ---------------------------------------------------------------- */
   /* 消息操作：撤回 / 转发 / 举报 / 保存                                */
   /* ---------------------------------------------------------------- */
@@ -592,8 +720,12 @@ export function renderChat(root, { sub = "" } = {}) {
   }
 
   function openMessageMenu(button, msg) {
-    const mine = msg.sender?.id === me.id;
     const rect = button.getBoundingClientRect();
+    openMessageMenuAt(msg, rect.left, rect.bottom + 6, button);
+  }
+
+  function openMessageMenuAt(msg, x, y, anchor = null) {
+    const mine = msg.sender?.id === me.id;
     const items = [];
     if (msg.kind === "text" && msg.body) {
       items.push({
@@ -606,10 +738,22 @@ export function renderChat(root, { sub = "" } = {}) {
         },
       });
     }
+    if (msg.kind === "sticker" && !mine) {
+      items.push({
+        label: t("添加到我的表情"),
+        icon: "i-star",
+        onClick: () => saveSticker(msg),
+      });
+    }
     if (msg.kind === "file") {
       items.push({
-        label: t("保存到我的文件"),
+        label: t("下载文件"),
         icon: "i-download",
+        onClick: () => downloadMessageFiles(msg),
+      });
+      items.push({
+        label: t("保存到我的文件"),
+        icon: "i-folder",
         onClick: () => saveFiles(msg),
       });
     }
@@ -635,7 +779,41 @@ export function renderChat(root, { sub = "" } = {}) {
         onClick: () => reportMessage(msg),
       });
     }
-    openMenu({ x: rect.left, y: rect.bottom + 6, items, anchor: button });
+    openMenu({ x, y, items, anchor });
+  }
+
+  async function saveSticker(msg) {
+    try {
+      const data = await api.post(`/api/chat/messages/${msg.id}/sticker`, {});
+      Toast[data.created === false ? "info" : "success"](
+        data.created === false ? t("这个表情已经在你的表情里了") : t("已添加到我的表情")
+      );
+      if (state.stickerOpen) await loadStickers();
+    } catch (err) {
+      Toast.error(err?.message || t("添加失败"));
+    }
+  }
+
+  async function downloadMessageFiles(msg) {
+    const nodes = (msg.payload || {}).nodes || [];
+    const files = nodes.filter((node) => !node.folder);
+    if (!files.length) {
+      Toast.info(t("文件夹请用「保存到我的文件」"));
+      return;
+    }
+    for (let i = 0; i < files.length; i += 1) {
+      const node = files[i];
+      const index = nodes.indexOf(node);
+      const a = document.createElement("a");
+      a.href = `/api/chat/messages/${msg.id}/files/${index}`;
+      a.download = node.name || "";
+      a.rel = "noopener";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      // 浏览器对连续触发的多个下载有节流，多个文件之间稍微错开
+      if (i < files.length - 1) await new Promise((resolve) => setTimeout(resolve, 300));
+    }
   }
 
   async function recallMessage(msg) {
@@ -1131,6 +1309,53 @@ export function renderChat(root, { sub = "" } = {}) {
     void openConversation(btn.dataset.conv);
   });
 
+  listEl.addEventListener("contextmenu", (event) => {
+    const row = event.target.closest("[data-conv]");
+    if (!row) return;
+    event.preventDefault();
+    const conv = state.convs.find((c) => c.id === Number(row.dataset.conv));
+    if (!conv) return;
+    openConvMenu(conv, event.clientX, event.clientY);
+  });
+
+  mainEl.addEventListener("contextmenu", (event) => {
+    // 表情面板里的表情：右键直接删 / 直接发
+    const item = event.target.closest("[data-sticker-id]");
+    if (item) {
+      event.preventDefault();
+      const id = Number(item.dataset.stickerId);
+      const sticker = state.stickers.find((s) => s.id === id);
+      openMenu({
+        x: event.clientX,
+        y: event.clientY,
+        items: [
+          {
+            label: t("发送这个表情"),
+            icon: "i-send",
+            onClick: () => {
+              toggleStickers(false);
+              void send("sticker", { stickerId: id });
+            },
+          },
+          {
+            label: t("删除表情"),
+            icon: "i-trash",
+            danger: true,
+            onClick: () => deleteSticker(id, sticker?.name),
+          },
+        ],
+      });
+      return;
+    }
+    // 消息（含表情气泡）：右键等同点「更多」
+    const msgEl = event.target.closest(".msg[data-mid]");
+    if (!msgEl || msgEl.classList.contains("msg--system")) return;
+    const msg = messageById(msgEl.dataset.mid);
+    if (!msg) return;
+    event.preventDefault();
+    openMessageMenuAt(msg, event.clientX, event.clientY);
+  });
+
   mainEl.addEventListener("click", (event) => {
     // 图片/表情点击放大：放在最前面，放大层自己的关闭按钮单独处理
     const zoom = event.target.closest('[data-act="zoom"]');
@@ -1150,7 +1375,7 @@ export function renderChat(root, { sub = "" } = {}) {
       const url = `/api/chat/messages/${btn.dataset.mid}/files/${btn.dataset.index}`;
       const a = document.createElement("a");
       a.href = url;
-      a.download = "";
+      a.download = btn.dataset.name || "";
       a.rel = "noopener";
       document.body.appendChild(a);
       a.click();
@@ -1201,17 +1426,7 @@ export function renderChat(root, { sub = "" } = {}) {
       return;
     }
     if (act === "del-sticker") {
-      const id = Number(btn.dataset.id);
-      void (async () => {
-        try {
-          await api.del(`/api/chat/stickers/${id}`);
-          state.stickers = state.stickers.filter((s) => s.id !== id);
-          paintStickers();
-          Toast.success(t("已删除表情"));
-        } catch (err) {
-          Toast.error(err?.message || t("删除失败"));
-        }
-      })();
+      void deleteSticker(Number(btn.dataset.id));
       return;
     }
     if (act === "group-info") {
@@ -1253,10 +1468,10 @@ export function renderChat(root, { sub = "" } = {}) {
 
   async function addStickers(files) {
     if (!files.length) return;
-    if (state.stickers.length + files.length > state.stickerLimit) {
-      Toast.error(t("表情包最多存 {n} 张，先删几张再加", { n: state.stickerLimit }));
-      return;
-    }
+    // 不做「现有 + 本次数量 > 上限」的预判：服务端按哈希去重，重复上传
+    // 不占名额，客户端一猜反而会把本来能收的图挡掉；让后端给准确结论。
+    let added = 0;
+    let dup = 0;
     for (const file of files) {
       if (!file.type.startsWith("image/")) continue;
       if (file.size > 2 * 1024 * 1024) {
@@ -1264,14 +1479,17 @@ export function renderChat(root, { sub = "" } = {}) {
         continue;
       }
       try {
-        await api.raw("/api/chat/stickers", file, "POST");
+        const data = await api.raw("/api/chat/stickers", file, "POST");
+        if (data?.created === false) dup += 1;
+        else added += 1;
       } catch (err) {
         Toast.error(err?.message || t("「{name}」添加失败", { name: file.name }));
         break;
       }
     }
     await loadStickers();
-    Toast.success(t("表情已添加"));
+    if (added) Toast.success(t("已添加 {n} 张表情", { n: added }));
+    if (dup) Toast.info(t("有 {n} 张已经在你的表情里了", { n: dup }));
   }
 
   /* ---------------------------------------------------------------- */

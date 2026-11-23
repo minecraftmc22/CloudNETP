@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import re
@@ -23,7 +24,7 @@ from typing import Any
 
 from fastapi import HTTPException, status
 from PIL import Image, ImageOps
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from . import friend_service as fsv
@@ -31,6 +32,7 @@ from . import node_service as ns
 from . import notice_service as notice
 from .config import settings
 from .models import (
+    ChatBlock,
     ChatConversation,
     ChatMember,
     ChatMessage,
@@ -133,6 +135,102 @@ def members_of(db: Session, conv_id: int) -> list[ChatMember]:
 
 
 # --------------------------------------------------------------------------- #
+# 拉黑
+# --------------------------------------------------------------------------- #
+def block_pair(db: Session, me_id: int, other_id: int) -> tuple[bool, bool]:
+    """返回 (我拉黑了他, 他拉黑了我)。"""
+    rows = db.execute(
+        select(ChatBlock.blocker_id, ChatBlock.blocked_id).where(
+            or_(
+                and_(ChatBlock.blocker_id == me_id, ChatBlock.blocked_id == other_id),
+                and_(ChatBlock.blocker_id == other_id, ChatBlock.blocked_id == me_id),
+            )
+        )
+    ).all()
+    mine = any(int(b) == other_id for b, _ in rows)
+    theirs = any(int(b) == me_id for _, b in rows)
+    return mine, theirs
+
+
+def blocked_ids(db: Session, me_id: int) -> set[int]:
+    return {
+        int(x)
+        for x in db.scalars(
+            select(ChatBlock.blocked_id).where(ChatBlock.blocker_id == int(me_id))
+        ).all()
+    }
+
+
+def blocked_me_ids(db: Session, me_id: int) -> set[int]:
+    return {
+        int(x)
+        for x in db.scalars(
+            select(ChatBlock.blocker_id).where(ChatBlock.blocked_id == int(me_id))
+        ).all()
+    }
+
+
+def block_peer(db: Session, me: User, other_id: int) -> dict[str, Any]:
+    """拉黑：断好友关系 + 我的会话列表里删掉这段聊天。
+
+    「拉黑并删除」合成一步：留着一条发不出消息的会话只会让人以为功能坏了。
+    对方仍看得到历史（他的 ChatMember 不动），只是再也发不进来。
+    """
+    other_id = int(other_id)
+    if other_id == me.id:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "不能拉黑自己")
+    other = db.get(User, other_id)
+    if not other:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "用户不存在")
+    if not db.get(ChatBlock, {"blocker_id": me.id, "blocked_id": other_id}):
+        db.add(ChatBlock(blocker_id=me.id, blocked_id=other_id, created_at=utcnow()))
+    # 好友关系一并断掉；会话只在我这边隐藏
+    fsv.remove_between(db, me.id, other_id)
+    key = f"{min(me.id, other_id)}-{max(me.id, other_id)}"
+    conv = db.scalar(select(ChatConversation).where(ChatConversation.direct_key == key))
+    if conv:
+        member = member_of(db, conv.id, me.id)
+        if member:
+            latest = db.scalar(
+                select(func.max(ChatMessage.id)).where(
+                    ChatMessage.conversation_id == conv.id
+                )
+            )
+            member.cleared_id = int(latest or 0)
+            member.last_read_id = int(latest or 0)
+            member.hidden_at = utcnow()
+    db.flush()
+    return {"blocked": True, "peer": user_card(other)}
+
+
+def unblock(db: Session, me: User, other_id: int) -> dict[str, Any]:
+    row = db.get(ChatBlock, {"blocker_id": me.id, "blocked_id": int(other_id)})
+    if not row:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "没有拉黑这个人")
+    db.delete(row)
+    db.flush()
+    return {"blocked": False, "peerId": int(other_id)}
+
+
+def list_blocks(db: Session, me: User) -> list[dict[str, Any]]:
+    rows = list(
+        db.scalars(
+            select(ChatBlock)
+            .where(ChatBlock.blocker_id == me.id)
+            .order_by(ChatBlock.created_at.desc())
+        ).all()
+    )
+    users = _users(db, [row.blocked_id for row in rows])
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        user = users.get(row.blocked_id)
+        if not user:
+            continue
+        out.append(user_card(user) | {"blockedAt": iso(row.created_at)})
+    return out
+
+
+# --------------------------------------------------------------------------- #
 # 会话
 # --------------------------------------------------------------------------- #
 def _conv_payload(
@@ -143,6 +241,9 @@ def _conv_payload(
     unread: int = 0,
     members: list[ChatMember] | None = None,
     last: ChatMessage | None = None,
+    member: ChatMember | None = None,
+    i_blocked: bool = False,
+    blocked_by_peer: bool = False,
 ) -> dict[str, Any]:
     rows = members if members is not None else members_of(db, conv.id)
     users = _users(db, [row.user_id for row in rows])
@@ -155,15 +256,19 @@ def _conv_payload(
     else:
         title = conv.title or "群聊"
         avatar_url = None
+        peer = None
 
+    # 「清空聊天记录」只影响我这边：清空点之前的最后一条不该再当预览显示
+    cleared = int(getattr(member, "cleared_id", 0) or 0)
     preview = ""
-    if last is not None:
+    if last is not None and last.id > cleared:
         preview = _preview(last)
     return {
         "id": conv.id,
         "kind": conv.kind,
         "title": title,
         "avatarUrl": avatar_url,
+        "peerId": (peer or {}).get("id") if conv.kind == "direct" else None,
         "ownerId": conv.owner_id,
         "isOwner": conv.owner_id == me.id,
         "members": people,
@@ -172,6 +277,10 @@ def _conv_payload(
         "lastMessage": preview,
         "lastMessageAt": iso(conv.last_message_at or conv.created_at),
         "unread": int(unread or 0),
+        # 单聊才有：我拉黑了对方 / 对方拉黑了我（后者决定输入框能不能用）
+        "blocked": bool(i_blocked),
+        "blockedByPeer": bool(blocked_by_peer),
+        "canSend": not (i_blocked or blocked_by_peer),
         "createdAt": iso(conv.created_at),
     }
 
@@ -216,17 +325,21 @@ def unread_map(db: Session, me: User) -> dict[int, int]:
 
 
 def list_conversations(db: Session, me: User) -> dict[str, Any]:
-    conv_ids = list(
+    # 已「删除聊天」的会话不在这里出现，但成员行还在：对方发新消息时会恢复
+    members = list(
         db.scalars(
-            select(ChatMember.conversation_id).where(ChatMember.user_id == me.id)
+            select(ChatMember).where(
+                ChatMember.user_id == me.id, ChatMember.hidden_at.is_(None)
+            )
         ).all()
     )
-    if not conv_ids:
+    if not members:
         return {"items": [], "unread": 0}
+    mine_by_conv = {row.conversation_id: row for row in members}
     convs = list(
         db.scalars(
             select(ChatConversation)
-            .where(ChatConversation.id.in_(conv_ids))
+            .where(ChatConversation.id.in_(list(mine_by_conv)))
             .order_by(
                 func.coalesce(ChatConversation.last_message_at, ChatConversation.created_at).desc()
             )
@@ -248,18 +361,31 @@ def list_conversations(db: Session, me: User) -> dict[str, Any]:
         for msg in db.scalars(select(ChatMessage).where(ChatMessage.id.in_(last_ids))).all():
             lasts[msg.id] = msg
 
-    items = [
-        _conv_payload(
-            db,
-            conv,
-            me,
-            unread=unread.get(conv.id, 0),
-            members=by_conv.get(conv.id, []),
-            last=lasts.get(conv.last_message_id) if conv.last_message_id else None,
+    # 拉黑状态一次查全，别在循环里每人两条 SQL
+    i_blocked = blocked_ids(db, me.id)
+    blocked_me = blocked_me_ids(db, me.id)
+
+    items = []
+    for conv in convs:
+        member = mine_by_conv[conv.id]
+        people = by_conv.get(conv.id, [])
+        peer_ids = [row.user_id for row in people if row.user_id != me.id]
+        items.append(
+            _conv_payload(
+                db,
+                conv,
+                me,
+                unread=unread.get(conv.id, 0),
+                members=people,
+                last=lasts.get(conv.last_message_id) if conv.last_message_id else None,
+                member=member,
+                i_blocked=any(pid in i_blocked for pid in peer_ids),
+                blocked_by_peer=any(pid in blocked_me for pid in peer_ids),
+            )
         )
-        for conv in convs
-    ]
-    return {"items": items, "unread": sum(unread.values())}
+    # 隐藏的会话不参与未读统计：否则角标会指向一个列表里看不到的会话
+    total = sum(unread.get(c.id, 0) for c in convs)
+    return {"items": items, "unread": total}
 
 
 def friends_for_picker(db: Session, me: User) -> list[dict[str, Any]]:
@@ -277,9 +403,19 @@ def get_or_create_direct(db: Session, me: User, other_id: int) -> ChatConversati
         raise HTTPException(status.HTTP_404_NOT_FOUND, "用户不存在")
     if not _are_friends(db, me.id, other_id):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "先加好友才能聊天")
+    mine, theirs = block_pair(db, me.id, other_id)
+    if mine:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "你已把对方拉黑，先在好友页解除")
+    if theirs:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "对方暂时无法接收消息")
     key = f"{min(me.id, other_id)}-{max(me.id, other_id)}"
     conv = db.scalar(select(ChatConversation).where(ChatConversation.direct_key == key))
     if conv:
+        # 之前「删除聊天」过：重新打开就恢复显示
+        member = member_of(db, conv.id, me.id)
+        if member and member.hidden_at:
+            member.hidden_at = None
+            db.flush()
         return conv
     conv = ChatConversation(
         kind="direct",
@@ -523,9 +659,12 @@ def list_messages(
     after_id: int | None = None,
     limit: int = HISTORY_LIMIT,
 ) -> dict[str, Any]:
-    conv, _ = require_member(db, conversation_id, me)
+    conv, member = require_member(db, conversation_id, me)
     limit = max(1, min(HISTORY_MAX, int(limit)))
     stmt = select(ChatMessage).where(ChatMessage.conversation_id == conv.id)
+    # 「清空聊天记录」只对我生效：清空点之前的历史当作不存在
+    if member.cleared_id:
+        stmt = stmt.where(ChatMessage.id > member.cleared_id)
     if after_id:
         stmt = stmt.where(ChatMessage.id > int(after_id)).order_by(ChatMessage.id).limit(limit)
     elif before_id:
@@ -612,6 +751,12 @@ def send_message(
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "对方已注销，会话不可用")
         if not _are_friends(db, me.id, peer_id):
             raise HTTPException(status.HTTP_403_FORBIDDEN, "你们已经不是好友，无法继续聊天")
+        mine, theirs = block_pair(db, me.id, peer_id)
+        if mine:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "你已把对方拉黑，先在好友页解除")
+        if theirs:
+            # 对方的输入框还在（他看不见我拉黑了他），但消息发不进来
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "对方拒收了你的消息")
 
     kind = (kind or "text").strip()
     text = ""
@@ -653,6 +798,12 @@ def send_message(
     )
     db.add(msg)
     db.flush()
+    # 新消息让「删除过的聊天」重新回到列表（否则删掉一次就再也收不到这个人的消息）
+    db.execute(
+        update(ChatMember)
+        .where(ChatMember.conversation_id == conv.id, ChatMember.hidden_at.is_not(None))
+        .values(hidden_at=None)
+    )
     was_read = _peer_all_read(db, conv, me)
     conv.last_message_id = msg.id
     conv.last_message_at = msg.created_at
@@ -695,6 +846,41 @@ def mark_read(db: Session, me: User, conversation_id: int, message_id: int | Non
     if target > int(row.last_read_id or 0):
         row.last_read_id = target
     return {"unread": unread_map(db, me)}
+
+
+def clear_history(db: Session, me: User, conversation_id: int) -> dict[str, Any]:
+    """清空聊天记录：只动我自己的 ChatMember 边界，对方那边一条不少。"""
+    conv, row = require_member(db, conversation_id, me)
+    latest = int(
+        db.scalar(
+            select(func.max(ChatMessage.id)).where(ChatMessage.conversation_id == conv.id)
+        )
+        or 0
+    )
+    row.cleared_id = latest
+    # 顺手把已读推到最新：否则清空后角标还挂着一个看不见的未读数
+    if latest > int(row.last_read_id or 0):
+        row.last_read_id = latest
+    db.flush()
+    return {"ok": True, "clearedId": latest}
+
+
+def hide_conversation(db: Session, me: User, conversation_id: int) -> dict[str, Any]:
+    """删除聊天（单聊）：隐藏 + 清空，双方成员行都保留，对方再发消息会恢复。"""
+    conv, row = require_member(db, conversation_id, me)
+    if conv.kind == "group":
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "群聊请用「退出群聊」")
+    latest = int(
+        db.scalar(
+            select(func.max(ChatMessage.id)).where(ChatMessage.conversation_id == conv.id)
+        )
+        or 0
+    )
+    row.cleared_id = latest
+    row.last_read_id = max(int(row.last_read_id or 0), latest)
+    row.hidden_at = utcnow()
+    db.flush()
+    return {"ok": True}
 
 
 def recall(db: Session, me: User, message_id: int) -> ChatMessage:
@@ -982,11 +1168,33 @@ def list_stickers(db: Session, me: User) -> dict[str, Any]:
     }
 
 
-def add_sticker(db: Session, me: User, raw: bytes, name: str = "") -> Sticker:
-    if not raw:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "没有收到图片数据")
-    if len(raw) > STICKER_MAX_BYTES:
-        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "表情图不能超过 2 MB")
+def _sha256(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def _sticker_hash(row: Sticker) -> str:
+    """老库补列后 hash 是 NULL：按文件内容回填一次并记住。"""
+    if row.hash:
+        return row.hash
+    if not MEDIA_RE.fullmatch(row.file or ""):
+        return ""
+    path = settings.chat_dir / row.file
+    if not path.is_file():
+        return ""
+    row.hash = _sha256(path.read_bytes())
+    return row.hash
+
+
+def _store_sticker(db: Session, me: User, data: bytes, name: str) -> tuple[Sticker, bool]:
+    """归一化后的字节入库，按 sha256 去重。
+
+    哈希算在**归一化之后**的字节上：同一张图哪怕上传两次元信息不同，
+    落到 webp 也是同一串字节，去重才靠得住。
+    """
+    digest = _sha256(data)
+    for row in db.scalars(select(Sticker).where(Sticker.user_id == me.id)).all():
+        if _sticker_hash(row) == digest:
+            return row, False
     limit = sticker_max(db)
     used = int(
         db.scalar(select(func.count()).select_from(Sticker).where(Sticker.user_id == me.id)) or 0
@@ -995,21 +1203,56 @@ def add_sticker(db: Session, me: User, raw: bytes, name: str = "") -> Sticker:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST, f"表情包最多存 {limit} 张，先删几张再加"
         )
-    try:
-        data = _normalize_image(raw, max_side=STICKER_MAX_SIDE, keep_alpha=True, quality=90)
-    except Exception:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "无法识别这张图片，请用 png / gif / webp") from None
     file = _write_media("stk", data)
     row = Sticker(
         user_id=me.id,
         name=(name or "").strip()[:40] or "表情",
         file=file,
         size=len(data),
+        hash=digest,
         created_at=utcnow(),
     )
     db.add(row)
     db.flush()
-    return row
+    return row, True
+
+
+def add_sticker(db: Session, me: User, raw: bytes, name: str = "") -> tuple[Sticker, bool]:
+    if not raw:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "没有收到图片数据")
+    if len(raw) > STICKER_MAX_BYTES:
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "表情图不能超过 2 MB")
+    try:
+        data = _normalize_image(raw, max_side=STICKER_MAX_SIDE, keep_alpha=True, quality=90)
+    except Exception:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "无法识别这张图片，请用 png / gif / webp") from None
+    return _store_sticker(db, me, data, name)
+
+
+def add_sticker_from_message(db: Session, me: User, message_id: int) -> tuple[Sticker, bool]:
+    """把别人发的表情收进我的表情：复制一份独立文件，别人删了不影响我。"""
+    msg = db.get(ChatMessage, int(message_id))
+    if not msg:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "消息不存在")
+    require_member(db, msg.conversation_id, me)
+    if msg.recalled_at or msg.kind != "sticker":
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "这条消息不是表情")
+    try:
+        payload = json.loads(msg.payload or "{}")
+    except Exception:
+        payload = {}
+    name = str(payload.get("name") or "")
+    if not MEDIA_RE.fullmatch(name):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "表情文件已失效")
+    path = settings.chat_dir / name
+    if not path.is_file():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "表情文件已失效")
+    data = path.read_bytes()
+    label = str(payload.get("label") or "").strip()
+    if not label:
+        origin = db.get(Sticker, int(payload.get("stickerId") or 0))
+        label = (origin.name if origin else "") or "表情"
+    return _store_sticker(db, me, data, label)
 
 
 def delete_sticker(db: Session, me: User, sticker_id: int) -> str | None:
@@ -1029,7 +1272,14 @@ def drop_sticker_file(file: str | None) -> None:
 
 
 def total_unread(db: Session, me: User) -> int:
-    return sum(unread_map(db, me).values())
+    visible = set(
+        db.scalars(
+            select(ChatMember.conversation_id).where(
+                ChatMember.user_id == me.id, ChatMember.hidden_at.is_(None)
+            )
+        ).all()
+    )
+    return sum(n for cid, n in unread_map(db, me).items() if cid in visible)
 
 
 # --------------------------------------------------------------------------- #

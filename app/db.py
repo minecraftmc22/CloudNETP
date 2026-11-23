@@ -170,6 +170,16 @@ _COLUMN_PATCHES: dict[str, dict[str, str]] = {
         # 来自快传取件码的举报：记 quick_transfers.id（此时 share_id 为 0）
         "quick_id": "BIGINT NULL",
     },
+    "chat_members": {
+        # 「清空聊天记录」的边界：老库补列后为 0，即不隐藏任何历史
+        "cleared_id": "BIGINT NOT NULL DEFAULT 0",
+        # 「删除聊天」只对本人隐藏；老库补列后为 NULL，即照常显示
+        "hidden_at": "DATETIME NULL",
+    },
+    "stickers": {
+        # 表情去重用的哈希：老库补列后为 NULL，用到时按文件内容回填
+        "hash": "VARCHAR(64) NULL",
+    },
     "users": {
         "display_name": "VARCHAR(32) NULL",
         "bio": "VARCHAR(200) NULL",

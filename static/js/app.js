@@ -20,6 +20,7 @@ import { renderAnnounce } from "./ui/announce.js";
 import { Toast } from "./ui/toast.js";
 import { openMenu } from "./ui/menu.js";
 import { initSelectUI } from "./ui/select.js";
+import { initContextGuard } from "./ui/context.js";
 import { reset as resetUploads } from "./ui/upload-queue.js";
 import { installState, promptInstall, registerPwa } from "./pwa.js";
 import { initLive2DMascot } from "./ui/live2d.js";
@@ -129,6 +130,7 @@ function takeNextPath() {
 async function boot() {
   initI18n();
   initSelectUI();
+  initContextGuard();
   registerPwa();
   applyCachedAppearance();
   watchSystemTheme();

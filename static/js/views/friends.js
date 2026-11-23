@@ -12,18 +12,20 @@ import { avatarMarkup } from "../ui/avatar.js";
 import { Dialog } from "../ui/dialog.js";
 import { Toast } from "../ui/toast.js";
 import { refreshNoticeBadge } from "../ui/notice.js";
+import { openMenu } from "../ui/menu.js";
 
 const TABS = [
   { id: "friends", label: "好友", empty: "还没有好友，去「添加」里搜一下用户名吧" },
   { id: "incoming", label: "收到的", empty: "没有待处理的好友申请" },
   { id: "outgoing", label: "已发送", empty: "还没有发出过好友申请" },
+  { id: "blocked", label: "拉黑", empty: "还没有拉黑任何人" },
   { id: "add", label: "添加", empty: "输入用户名或昵称搜索" },
 ];
 
 export function renderFriends(root) {
   const state = {
     tab: "friends",
-    data: { friends: [], incoming: [], outgoing: [] },
+    data: { friends: [], incoming: [], outgoing: [], blocks: [] },
     query: "",
     results: [],
     searched: false,
@@ -61,6 +63,7 @@ export function renderFriends(root) {
     friends: state.data.friends.length,
     incoming: state.data.incoming.length,
     outgoing: state.data.outgoing.length,
+    blocked: state.data.blocks.length,
   });
 
   function paintTabs() {
@@ -89,7 +92,26 @@ export function renderFriends(root) {
         </div>
         <div class="friend-row__ops">
           <button class="btn btn--accent" type="button" data-act="chat" data-id="${item.id}">发消息</button>
-          <button class="btn btn--subtle" type="button" data-act="remove" data-id="${item.id}">删除</button>
+          <button class="icon-btn" type="button" data-act="friend-more" data-id="${item.id}"
+                  aria-label="${t("更多操作")}" title="${t("更多操作")}">
+            <svg class="icon"><use href="#i-more"/></svg>
+          </button>
+        </div>
+      </div>`;
+  }
+
+  function blockedRow(item) {
+    return H`<div class="friend-row" data-user="${item.id}">
+        ${rowAvatar(item)}
+        <div class="friend-row__main">
+          <div class="friend-row__name"><span>${escapeHtml(item.displayName)}</span>
+            <span class="chip chip--danger">${t("已拉黑")}</span></div>
+          <div class="friend-row__meta">@${escapeHtml(item.username)}${
+            item.blockedAt ? H` · ${formatTime(item.blockedAt)}` : ""
+          }</div>
+        </div>
+        <div class="friend-row__ops">
+          <button class="btn btn--subtle" type="button" data-act="unblock" data-id="${item.id}">${t("解除拉黑")}</button>
         </div>
       </div>`;
   }
@@ -151,7 +173,8 @@ export function renderFriends(root) {
   function searchRow(item) {
     const relation = item.relation;
     let ops = "";
-    if (relation === "friends") ops = H`<span class="chip">${t("已是好友")}</span>`;
+    if (relation === "blocked") ops = H`<span class="chip chip--danger">${t("已拉黑")}</span>`;
+    else if (relation === "friends") ops = H`<span class="chip">${t("已是好友")}</span>`;
     else if (relation === "pending_out") ops = H`<span class="chip">${t("已申请")}</span>`;
     else if (relation === "pending_in")
       ops = H`<button class="btn btn--accent" type="button" data-act="open-incoming">${t("去处理")}</button>`;
@@ -181,7 +204,13 @@ export function renderFriends(root) {
       return;
     }
     const fn =
-      state.tab === "friends" ? friendRow : state.tab === "incoming" ? incomingRow : outgoingRow;
+      state.tab === "friends"
+        ? friendRow
+        : state.tab === "blocked"
+          ? blockedRow
+          : state.tab === "incoming"
+            ? incomingRow
+            : outgoingRow;
     paneEl.innerHTML = H`<div class="friend-list">${list.map(fn).join("")}</div>`;
   }
 
@@ -201,11 +230,15 @@ export function renderFriends(root) {
 
   async function load() {
     try {
-      const data = await api.get("/api/friends");
+      const [data, blocks] = await Promise.all([
+        api.get("/api/friends"),
+        api.get("/api/chat/blocks").catch(() => ({ items: [] })),
+      ]);
       state.data = {
         friends: data.friends || [],
         incoming: data.incoming || [],
         outgoing: data.outgoing || [],
+        blocks: blocks.items || [],
       };
     } catch (err) {
       Toast.error(err?.message || t("加载好友列表失败"));
@@ -256,6 +289,12 @@ export function renderFriends(root) {
       void openChat(btn.dataset.id);
     } else if (action === "remove") {
       void removeFriend(btn.dataset.id);
+    } else if (action === "friend-more") {
+      friendMoreMenu(btn, btn.dataset.id);
+    } else if (action === "block") {
+      void blockFriend(btn.dataset.id);
+    } else if (action === "unblock") {
+      void act(() => api.del(`/api/chat/blocks/${btn.dataset.id}`), t("已解除拉黑"));
     } else if (action === "open-incoming") {
       const incoming = tabsEl.querySelector('[data-friend-tab="incoming"]');
       if (incoming) incoming.click();
@@ -350,6 +389,38 @@ export function renderFriends(root) {
     });
     if (!ok) return;
     await act(() => api.del(`/api/friends/${id}`), t("已删除好友"));
+  }
+
+  async function blockFriend(id) {
+    const ok = await Dialog.confirm({
+      title: t("拉黑并删除好友"),
+      message: t("会同时断掉好友关系，对方再也发不进消息，也不能再申请加你。之后可以在「拉黑」页签解除。"),
+      confirmText: t("拉黑"),
+      danger: true,
+    });
+    if (!ok) return;
+    await act(() => api.post("/api/chat/blocks", { userId: Number(id) }), t("已拉黑并删除好友"));
+  }
+
+  function friendMoreMenu(button, id) {
+    const rect = button.getBoundingClientRect();
+    const item = [...state.data.friends, ...state.data.blocks].find((x) => x.id === Number(id));
+    openMenu({
+      x: rect.left,
+      y: rect.bottom + 6,
+      anchor: button,
+      align: "end",
+      header: item ? { name: item.displayName, meta: `@${item.username}` } : null,
+      items: [
+        { label: t("删除好友"), icon: "i-user", onClick: () => void removeFriend(id) },
+        {
+          label: t("拉黑并删除好友"),
+          icon: "i-lock",
+          danger: true,
+          onClick: () => void blockFriend(id),
+        },
+      ],
+    });
   }
 
   void load();

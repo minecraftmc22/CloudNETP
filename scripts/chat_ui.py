@@ -167,6 +167,31 @@ def seed() -> tuple[str, int, int]:
                 updated_at=utcnow(),
             )
         )
+        # 给 B 也放一个文件：对方发来的文件消息要同时有「下载」和「保存到我的文件」
+        payload_b = b"ui-chat-from-b-bytes"
+        sha_b = hashlib.sha256(payload_b).hexdigest()
+        target_b = storage.blob_path(sha_b)
+        target_b.parent.mkdir(parents=True, exist_ok=True)
+        target_b.write_bytes(payload_b)
+        if db.get(Blob, sha_b) is None:
+            db.add(Blob(sha256=sha_b, size=len(payload_b), ref_count=1))
+        for old in db.scalars(
+            select(Node).where(Node.user_id == b.id, Node.name == "阿蓝的附件.txt")
+        ).all():
+            db.delete(old)
+        db.add(
+            Node(
+                user_id=b.id,
+                parent_id=None,
+                type="file",
+                name="阿蓝的附件.txt",
+                blob_sha256=sha_b,
+                size=len(payload_b),
+                mime="text/plain",
+                created_at=utcnow(),
+                updated_at=utcnow(),
+            )
+        )
         # 给 B 一张头像：A（普通用户）在会话列表里应该看得见，这条同时钉住
         # /api/avatar 的读取权限（曾经只有本人和管理员能读，普通用户看到 404）
         if not b.avatar:
@@ -211,6 +236,15 @@ def main() -> None:
         db.close()
     call(f"/api/chat/conversations/{direct_id}/messages", ta, "POST",
          {"kind": "file", "payload": {"nodeIds": [doc_id]}})
+    # 对方也发一个文件：文件卡片上「下载」和「保存到我的文件」都要能点
+    db = db_failover.current_sessionmaker()()
+    try:
+        doc_b = db.scalar(select(Node).where(Node.user_id == b_id, Node.name == "阿蓝的附件.txt"))
+        doc_b_id = doc_b.id
+    finally:
+        db.close()
+    call(f"/api/chat/conversations/{direct_id}/messages", tb, "POST",
+         {"kind": "file", "payload": {"nodeIds": [doc_b_id]}})
     # 表情（A 存一张再发）
     req = urllib.request.Request(BASE + "/api/chat/stickers?name=%E5%B0%8F%E7%86%8A",
                                  method="POST", data=png_bytes(96, 96, (120, 200, 255)))
@@ -220,6 +254,15 @@ def main() -> None:
         sticker = json.loads(res.read())["sticker"]
     call(f"/api/chat/conversations/{direct_id}/messages", ta, "POST",
          {"kind": "sticker", "payload": {"stickerId": sticker["id"]}})
+    # 对方（B）也发一张：A 在气泡上右键应能「添加到我的表情」
+    req = urllib.request.Request(BASE + "/api/chat/stickers?name=%E9%98%BF%E8%93%9D",
+                                 method="POST", data=png_bytes(88, 88, (250, 170, 60)))
+    req.add_header("Content-Type", "image/png")
+    req.add_header("Cookie", f"{settings.COOKIE_NAME}={tb}")
+    with urllib.request.urlopen(req, timeout=20) as res:
+        sticker_b = json.loads(res.read())["sticker"]
+    call(f"/api/chat/conversations/{direct_id}/messages", tb, "POST",
+         {"kind": "sticker", "payload": {"stickerId": sticker_b["id"]}})
     # 群聊
     code, data = call("/api/chat/conversations/group", ta, "POST",
                       {"title": "周末小组", "memberIds": [b_id, c_id]})
@@ -360,6 +403,16 @@ def main() -> None:
                 texts: msgs.map((m) => (m.querySelector('.msg__text')?.textContent || '').trim()).filter(Boolean),
                 files: document.querySelectorAll('.msg-file').length,
                 download: document.querySelectorAll('.msg-file [data-act="download"]').length,
+                saves: document.querySelectorAll('.msg__save').length,
+                peerFile: (() => {
+                  const m = [...document.querySelectorAll('.chat-feed .msg[data-kind="file"]')]
+                    .find((x) => !x.classList.contains('msg--mine'));
+                  return m ? {
+                    download: !!m.querySelector('[data-act="download"]'),
+                    save: !!m.querySelector('[data-act="save"]'),
+                    name: m.querySelector('[data-act="download"]')?.dataset.name || '',
+                  } : null;
+                })(),
                 imgLoaded: imgs.length ? imgs.every((i) => i.complete && i.naturalWidth > 0) : false,
                 sticker: document.querySelectorAll('.msg__sticker').length,
                 more: document.querySelectorAll('.msg__more').length,
@@ -371,10 +424,47 @@ def main() -> None:
         check(bubbles["count"] >= 4, f"四条消息都渲染了（{bubbles['count']}）")
         check(bubbles["mine"] >= 2, f"自己的消息靠右（{bubbles['mine']} 条 mine）")
         check(any("在吗" in t for t in bubbles["texts"]), "对方文字显示出来了")
-        check(bubbles["files"] == 1 and bubbles["download"] == 1, "文件卡片带下载按钮")
+        check(bubbles["files"] == 2 and bubbles["download"] == 2, "两张文件卡片都带下载按钮")
+        check(bubbles["saves"] == 1, "对方发来的文件消息带「保存到我的文件」")
+        check((bubbles["peerFile"] or {}).get("download") is True
+              and (bubbles["peerFile"] or {}).get("save") is True,
+              "同一个文件消息里下载和保存两个入口都在")
+        check((bubbles["peerFile"] or {}).get("name") == "阿蓝的附件.txt",
+              f"下载按钮带上文件名（{(bubbles['peerFile'] or {}).get('name')}）")
         check(bubbles["imgLoaded"], "图片消息真的加载出来了")
-        check(bubbles["sticker"] == 1, "表情消息渲染成小图")
+        check(bubbles["sticker"] >= 2, f"表情消息渲染成小图（{bubbles['sticker']}）")
         check(bubbles["overflow"] <= W + 1, f"桌面无横向溢出（{bubbles['overflow']}）")
+
+        # 输入区：三个按钮在文本框内侧左下角（不是排在输入框外面）
+        compose = js(
+            """
+            (() => {
+              const box = document.querySelector('.chat-compose__input');
+              const tools = box?.querySelector('.chat-compose__tools');
+              if (!box || !tools) return { none: true };
+              const b = box.getBoundingClientRect();
+              const t = tools.getBoundingClientRect();
+              const rects = [...tools.querySelectorAll('.chat-tool')].map((el) => el.getBoundingClientRect());
+              return {
+                none: false,
+                n: rects.length,
+                inside: rects.every((r) => r.left >= b.left - 1 && r.right <= b.right + 1
+                                        && r.top >= b.top - 1 && r.bottom <= b.bottom + 1),
+                leftGap: rects.length ? rects[0].left - b.left : -1,
+                bottomGap: rects.length ? b.bottom - rects[0].bottom : -1,
+                btnsWidth: rects.length ? rects[rects.length - 1].right - rects[0].left : -1,
+                boxWidth: b.width,
+              };
+            })()
+            """
+        )
+        check(not compose.get("none"), "输入区有工具按钮组")
+        check(compose["n"] == 3, f"发文件/图片/表情三个按钮（{compose['n']}）")
+        check(compose["inside"] is True, "按钮都在文本框内侧")
+        check(0 <= compose["leftGap"] < 16, f"按钮贴着左侧（{compose['leftGap']}px）")
+        check(0 <= compose["bottomGap"] < 12, f"按钮贴着下沿（{compose['bottomGap']}px）")
+        check(compose["btnsWidth"] < compose["boxWidth"] * 0.6,
+              f"三个按钮只占左侧一小段（{compose['btnsWidth']:.0f}/{compose['boxWidth']:.0f}）")
 
         # 回车发消息
         js(
@@ -412,6 +502,76 @@ def main() -> None:
               "点表情直接发出去")
         check(js("document.querySelector('[data-sticker-panel]').hidden") is True,
               "发完表情面板自动收起")
+
+        # 会话右键：清空 / 删除
+        js(
+            """
+            (() => {
+              const el = document.querySelector('.chat-item');
+              const r = el.getBoundingClientRect();
+              el.dispatchEvent(new MouseEvent('contextmenu', {
+                bubbles: true, cancelable: true, clientX: r.left + 30, clientY: r.top + 10,
+              }));
+            })()
+            """
+        )
+        check(wait_for("!!document.querySelector('.popover')", 8), "会话右键弹出菜单")
+        conv_menu = js(
+            "[...document.querySelectorAll('.popover .menu-item')].map((b) => b.textContent.trim())"
+        )
+        check(any("清空" in x for x in conv_menu), f"会话菜单有清空聊天记录（{conv_menu}）")
+        check(any("删除" in x or "退出" in x for x in conv_menu), "会话菜单有删除/退群")
+        js("document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))")
+        check(wait_for("!document.querySelector('.popover')", 5), "Esc 能关掉会话菜单")
+
+        # 表情气泡右键：把对方的表情收进我的
+        opened = js(
+            """
+            (() => {
+              const msg = [...document.querySelectorAll('.chat-feed .msg')]
+                .find((m) => !m.classList.contains('msg--mine') && m.querySelector('.msg__sticker'));
+              if (!msg) return 'no-msg';
+              const r = msg.getBoundingClientRect();
+              msg.dispatchEvent(new MouseEvent('contextmenu', {
+                bubbles: true, cancelable: true, clientX: r.left + 8, clientY: r.top + 8,
+              }));
+              return 'ok';
+            })()
+            """
+        )
+        check(opened == "ok", f"找到对方发的表情气泡（{opened}）")
+        check(wait_for("!!document.querySelector('.popover')", 8), "表情气泡右键弹出菜单")
+        sticker_menu = js(
+            "[...document.querySelectorAll('.popover .menu-item')].map((b) => b.textContent.trim())"
+        )
+        check(any("添加到我的表情" in x for x in sticker_menu),
+              f"表情菜单有「添加到我的表情」（{sticker_menu}）")
+        js(
+            """
+            (() => {
+              const btn = [...document.querySelectorAll('.popover .menu-item')]
+                .find((b) => b.textContent.includes('添加到我的表情'));
+              if (btn) btn.click();
+            })()
+            """
+        )
+        time.sleep(1.0)
+        code, data = call("/api/chat/stickers", ta)
+        check(len(data.get("items") or []) == 2,
+              f"收藏后我的表情变成两张（{len(data.get('items') or [])}）")
+
+        # 没配右键的地方：浏览器菜单和自定义菜单都不该出现
+        guard = js(
+            """
+            (() => {
+              const ev = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+              document.querySelector('.view-title')?.dispatchEvent(ev);
+              return { prevented: ev.defaultPrevented, popover: !!document.querySelector('.popover') };
+            })()
+            """
+        )
+        check(guard["prevented"] is True, "普通区域右键被吃掉（不弹浏览器菜单）")
+        check(guard["popover"] is False, "普通区域右键也不弹自定义菜单")
 
         # 消息菜单
         js(
@@ -549,6 +709,24 @@ def main() -> None:
         js(f"document.querySelector('.chat-item[data-conv=\"{direct_id}\"]').click()")
         time.sleep(1.2)
         shot("chat-desktop.png")
+
+        # 好友页：更多菜单里能删除 / 拉黑，拉黑页签也能打开
+        js("location.hash = '#/friends'")
+        assert wait_for("!!document.querySelector('.friend-row [data-act=\"friend-more\"]')", 20), \
+            "好友页没有好友行"
+        js("document.querySelector('.friend-row [data-act=\"friend-more\"]').click()")
+        check(wait_for("!!document.querySelector('.popover')", 8), "好友「更多」能弹出菜单")
+        fmenu = js(
+            "[...document.querySelectorAll('.popover .menu-item')].map((b) => b.textContent.trim())"
+        )
+        check(any("删除好友" in x for x in fmenu), f"好友菜单有删除（{fmenu}）")
+        check(any("拉黑" in x for x in fmenu), "好友菜单有拉黑并删除")
+        js("document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))")
+        check(wait_for("!document.querySelector('.popover')", 5), "Esc 关掉好友菜单")
+        js("document.querySelector('[data-friend-tab=\"blocked\"]').click()")
+        time.sleep(0.9)
+        check(js("!!document.querySelector('[data-pane] .empty') || !!document.querySelector('[data-pane] .friend-list')"),
+              "拉黑页签能打开")
 
         # ================= 手机 =================
         send("Emulation.setDeviceMetricsOverride", width=MW, height=MH, deviceScaleFactor=2, mobile=True)

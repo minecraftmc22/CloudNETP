@@ -131,6 +131,7 @@ ACTIONS: dict[str, dict[str, str]] = {
     "chat_group_create": {"label": "创建群聊", "tone": "success", "group": "聊天"},
     "chat_report": {"label": "举报聊天消息", "tone": "warn", "group": "聊天"},
     "chat_files_save": {"label": "保存聊天文件", "tone": "info", "group": "聊天"},
+    "chat_block": {"label": "拉黑用户", "tone": "danger", "group": "聊天"},
     "admin_chat_report_approve": {"label": "下架聊天消息", "tone": "danger", "group": "聊天"},
     "admin_chat_report_reject": {"label": "驳回聊天举报", "tone": "info", "group": "聊天"},
     # ---- 反馈 ----

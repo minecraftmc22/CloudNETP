@@ -371,6 +371,8 @@ CREATE TABLE IF NOT EXISTS chat_members (
   role            VARCHAR(8)  NOT NULL DEFAULT 'member',
   last_read_id    BIGINT      NOT NULL DEFAULT 0,
   joined_at       DATETIME    NOT NULL,
+  cleared_id      BIGINT      NOT NULL DEFAULT 0 COMMENT '清空到哪条：这个 id 之前的历史对我不可见',
+  hidden_at       DATETIME    NULL COMMENT '删除聊天：只对我隐藏，对方再发消息时恢复',
   PRIMARY KEY (conversation_id, user_id),
   KEY idx_member_user (user_id),
   CONSTRAINT ck_member_role CHECK (role IN ('owner', 'member')),
@@ -410,10 +412,27 @@ CREATE TABLE IF NOT EXISTS stickers (
   name       VARCHAR(40) NOT NULL DEFAULT '',
   file       VARCHAR(80) NOT NULL,
   size       INT         NOT NULL DEFAULT 0,
+  hash       VARCHAR(64) NULL COMMENT '归一化后字节的 sha256，用于「已经在我的表情里」去重',
   created_at DATETIME    NOT NULL,
   PRIMARY KEY (id),
   KEY idx_sticker_user (user_id),
+  KEY idx_sticker_hash (hash),
   CONSTRAINT fk_sticker_user FOREIGN KEY (user_id)
+    REFERENCES users (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- ------------------------------------------------------------
+-- 拉黑：blocker 不接收 blocked 的消息，也不接受对方的好友申请
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS chat_blocks (
+  blocker_id BIGINT   NOT NULL,
+  blocked_id BIGINT   NOT NULL,
+  created_at DATETIME NOT NULL,
+  PRIMARY KEY (blocker_id, blocked_id),
+  KEY idx_block_blocked (blocked_id),
+  CONSTRAINT fk_block_blocker FOREIGN KEY (blocker_id)
+    REFERENCES users (id) ON DELETE CASCADE,
+  CONSTRAINT fk_block_blocked FOREIGN KEY (blocked_id)
     REFERENCES users (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 

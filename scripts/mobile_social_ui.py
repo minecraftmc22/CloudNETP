@@ -8,7 +8,7 @@
 - 我的文件页有「我的分享 / 回收站」两个入口，点得进对应页面
 - 设置里有「关于」入口；#/settings/mascot 能直接打开看板娘页签
 - 消息中心：待处理磁贴 + 通知列表 + 点一条会标记已读并跳转
-- 好友：四个页签、收到的申请有同意/拒绝、点「同意」后数量变化
+- 好友：五个页签（含「拉黑」）、收到的申请有同意/拒绝、点「同意」后数量变化
 - CDP娘页：点「和她聊天」能打开对话浮层
 
 用法（需要一个已启动的隔离实例）：
@@ -77,6 +77,11 @@ def seed() -> str:
                     created_at=utcnow(),
                 )
             )
+        # 本脚本会点掉一条未读；重复跑时先把测试用的反馈通知复位成未读，
+        # 否则第二次开始「存在未读通知 / 点通知跳转」必然失败。
+        db.query(Notice).filter(
+            Notice.user_id == admin.id, Notice.kind == "feedback"
+        ).update({Notice.read_at: None})
         friend = db.query(User).filter(User.username == "ui_friend").first()
         if not friend:
             friend = User(
@@ -303,7 +308,21 @@ def main() -> None:
         tabs = js(
             "([...document.querySelectorAll('[data-friend-tab]')].map((b) => b.dataset.friendTab))"
         )
-        check(tabs == ["friends", "incoming", "outgoing", "add"], f"好友页四个页签（{tabs}）")
+        check(tabs == ["friends", "incoming", "outgoing", "blocked", "add"],
+              f"好友页五个页签（含拉黑）（{tabs}）")
+
+        js("document.querySelector('[data-friend-tab=\"blocked\"]').click()")
+        time.sleep(0.9)
+        blocked = js(
+            """
+            (() => ({
+              empty: !!document.querySelector('[data-pane] .empty'),
+              overflow: document.documentElement.scrollWidth,
+            }))()
+            """
+        )
+        check(blocked["empty"] is True or blocked["overflow"] <= W + 1,
+              "拉黑页签可打开且不撑宽页面")
 
         js("document.querySelector('[data-friend-tab=\"incoming\"]').click()")
         time.sleep(1.2)

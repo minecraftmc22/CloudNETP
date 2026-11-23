@@ -116,6 +116,59 @@ def leave_conversation(
     return result
 
 
+@router.post("/conversations/{conversation_id}/clear")
+def clear_conversation(
+    conversation_id: int, request: Request, db: DbSession, user: CurrentUser
+) -> dict:
+    """清空聊天记录：只清我这边，对方的历史不受影响。"""
+    check_origin(request)
+    result = cs.clear_history(db, user, conversation_id)
+    db.commit()
+    return result
+
+
+@router.delete("/conversations/{conversation_id}")
+def delete_conversation(
+    conversation_id: int, request: Request, db: DbSession, user: CurrentUser
+) -> dict:
+    """删除聊天：单聊只在我这边隐藏（对方再发消息会恢复），群聊等于退群。"""
+    check_origin(request)
+    conv, _ = cs.require_member(db, conversation_id, user)
+    if conv.kind == "group":
+        result = cs.leave_group(db, user, conversation_id)
+    else:
+        result = cs.hide_conversation(db, user, conversation_id)
+    db.commit()
+    return result
+
+
+# --------------------------------------------------------------------------- #
+# 拉黑
+# --------------------------------------------------------------------------- #
+@router.get("/blocks")
+def list_blocks(db: DbSession, user: CurrentUser) -> dict:
+    return {"items": cs.list_blocks(db, user)}
+
+
+@router.post("/blocks", status_code=status.HTTP_201_CREATED)
+def block_peer(payload: ChatDirectIn, request: Request, db: DbSession, user: CurrentUser) -> dict:
+    """拉黑并删除：同时断好友关系，并把这边的聊天从列表里删掉。"""
+    check_origin(request)
+    result = cs.block_peer(db, user, payload.user_id)
+    db.commit()
+    log_action(db, "chat_block", user.id, {"peer": payload.user_id}, request)
+    db.commit()
+    return result
+
+
+@router.delete("/blocks/{user_id}")
+def unblock_peer(user_id: int, request: Request, db: DbSession, user: CurrentUser) -> dict:
+    check_origin(request)
+    result = cs.unblock(db, user, user_id)
+    db.commit()
+    return result
+
+
 # --------------------------------------------------------------------------- #
 # 消息
 # --------------------------------------------------------------------------- #
@@ -285,7 +338,7 @@ async def add_sticker(
 ) -> dict:
     check_origin(request)
     raw = await _raw_body(request, cs.STICKER_MAX_BYTES, "表情图")
-    row = cs.add_sticker(db, user, raw, name)
+    row, created = cs.add_sticker(db, user, raw, name)
     db.commit()
     return {
         "sticker": {
@@ -294,6 +347,28 @@ async def add_sticker(
             "url": f"/api/chat/media/{row.file}",
             "size": row.size,
         },
+        # false = 同样的表情已经在我的表情里了（按 sha256 判定）
+        "created": created,
+        "limit": cs.sticker_max(db),
+    }
+
+
+@router.post("/messages/{message_id}/sticker", status_code=status.HTTP_201_CREATED)
+def save_sticker_from_message(
+    message_id: int, request: Request, db: DbSession, user: CurrentUser
+) -> dict:
+    """把聊天里别人发的表情收进我的表情（哈希相同就不重复存）。"""
+    check_origin(request)
+    row, created = cs.add_sticker_from_message(db, user, message_id)
+    db.commit()
+    return {
+        "sticker": {
+            "id": row.id,
+            "name": row.name,
+            "url": f"/api/chat/media/{row.file}",
+            "size": row.size,
+        },
+        "created": created,
         "limit": cs.sticker_max(db),
     }
 

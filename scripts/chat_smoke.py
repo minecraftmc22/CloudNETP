@@ -505,6 +505,83 @@ def main() -> None:
     check({"chat_bob", "chat_carol"} <= names, f"选人面板返回好友（{sorted(names)}）")
     check(data.get("stickerLimit") == 100 and data.get("groupLimit") == 200, "带回上限配置")
 
+    # ================= 9) 把对方的表情收进我的表情（哈希去重）=================
+    code, data = call_raw(
+        "/api/chat/stickers?name=bob", tb, png_bytes(64, 64, (30, 180, 90)), method="POST"
+    )
+    bob_sticker = data.get("sticker") or {}
+    code, data = call(f"/api/chat/conversations/{conv_id}/messages", tb, "POST",
+                      {"kind": "sticker", "payload": {"stickerId": bob_sticker.get("id")}})
+    check(code == 201, f"Bob 发表情给 Alice（{code}）")
+    sticker_msg_id = (data.get("message") or {}).get("id")
+
+    code, data = call(f"/api/chat/messages/{sticker_msg_id}/sticker", ta, "POST", {})
+    check(code == 201 and data.get("created") is True, f"把对方的表情收进我的（{code}）")
+    first_id = (data.get("sticker") or {}).get("id")
+    code, data = call(f"/api/chat/messages/{sticker_msg_id}/sticker", ta, "POST", {})
+    check(data.get("created") is False, "同一张表情再收一次不重复存（哈希相同）")
+    check((data.get("sticker") or {}).get("id") == first_id, "重复收的仍是同一条记录")
+    code, data = call("/api/chat/stickers", ta)
+    check(len(data.get("items") or []) == 1, f"我的表情只有一张（{len(data.get('items') or [])}）")
+
+    code, data = call(f"/api/chat/messages/{sticker_msg_id}/sticker", tc, "POST", {})
+    check(code == 403, f"不在会话里的人收不了这张表情（{code}）")
+
+    # ================= 10) 清空 / 删除 / 拉黑 =================
+    code, data = call(f"/api/chat/conversations/{conv_id}/clear", tb, "POST", {})
+    check(code == 200, f"清空聊天记录（{code}）")
+    code, data = call(f"/api/chat/conversations/{conv_id}/messages", tb)
+    check(not (data.get("items") or []), "清空后自己这边看不到历史")
+    code, data = call(f"/api/chat/conversations/{conv_id}/messages", ta)
+    check(bool(data.get("items")), "对方的历史消息一条没少")
+    code, data = call("/api/chat/conversations", tb)
+    check(next((x for x in (data.get("items") or []) if x["id"] == conv_id), {}).get("unread") == 0,
+          "清空后未读也归零")
+
+    code, data = call(f"/api/chat/conversations/{conv_id}", tb, "DELETE")
+    check(code == 200, f"删除聊天（{code}）")
+    code, data = call("/api/chat/conversations", tb)
+    check(not any(x["id"] == conv_id for x in (data.get("items") or [])), "删除后会话从列表里消失")
+    code, data = call(f"/api/chat/conversations/{conv_id}/messages", tb)
+    check(code == 200 and not (data.get("items") or []), "删除等于同时清空")
+
+    code, data = call(f"/api/chat/conversations/{conv_id}/messages", ta, "POST",
+                      {"kind": "text", "body": "还在吗"})
+    check(code == 201, f"对方仍能发消息（{code}）")
+    code, data = call("/api/chat/conversations", tb)
+    hit = next((x for x in (data.get("items") or []) if x["id"] == conv_id), None)
+    check(hit is not None, "对方再发消息，删掉的会话重新出现")
+    check((hit or {}).get("unread") == 1, "重新出现的会话带 1 条未读")
+
+    code, data = call("/api/chat/blocks", ta, "POST", {"userId": bob_id})
+    check(code == 201, f"拉黑（{code}）")
+    code, data = call("/api/chat/conversations", ta)
+    check(not any(x["id"] == conv_id for x in (data.get("items") or [])), "拉黑同时把聊天删掉")
+    code, data = call(f"/api/chat/conversations/{conv_id}/messages", ta, "POST",
+                      {"kind": "text", "body": "发不出去"})
+    check(code == 403, f"拉黑后自己发不出（{code}）")
+    code, data = call(f"/api/chat/conversations/{conv_id}/messages", tb, "POST",
+                      {"kind": "text", "body": "？"})
+    check(code == 403, f"被拉黑的人发不进来（{code}）")
+    code, data = call("/api/chat/conversations/direct", ta, "POST", {"userId": bob_id})
+    check(code == 403, f"拉黑后不能开新会话（{code}）")
+
+    code, data = call("/api/friends", ta)
+    check(not any(f["id"] == bob_id for f in (data.get("friends") or [])), "拉黑同时断了好友关系")
+    code, data = call("/api/friends/requests", tb, "POST", {"userId": alice_id})
+    check(code == 409, f"被拉黑的人发不了好友申请（{code}）")
+
+    code, data = call("/api/chat/blocks", ta)
+    check(any(x["id"] == bob_id for x in (data.get("items") or [])), "拉黑名单里有他")
+    code, data = call("/api/friends/search?q=chat_bob", ta)
+    hit = next((x for x in (data.get("items") or []) if x["id"] == bob_id), None)
+    check((hit or {}).get("relation") == "blocked",
+          f"搜到已拉黑的人显示「已拉黑」而不是「添加」（{data}）")
+    code, data = call(f"/api/chat/blocks/{bob_id}", ta, "DELETE")
+    check(code == 200 and data.get("blocked") is False, f"能解除拉黑（{code}）")
+    code, data = call("/api/chat/conversations/direct", ta, "POST", {"userId": bob_id})
+    check(code == 403, f"解除拉黑不等于恢复好友，仍要先加好友（{code}）")
+
     passed = sum(1 for ok, _ in RESULTS if ok)
     for ok, msg in RESULTS:
         print(("  OK  " if ok else "  NG  ") + msg)

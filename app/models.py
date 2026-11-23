@@ -544,6 +544,11 @@ class ChatMember(Base):
     role: Mapped[str] = mapped_column(String(8), nullable=False, default="member")
     last_read_id: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     joined_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
+    # 「清空聊天记录」的边界：这个 id（含）之前的历史对我不可见，对方的聊天不受影响。
+    # 用 id 而不是时间戳，避免同一毫秒内的两条消息被误伤。
+    cleared_id: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    # 「删除聊天」：只对我隐藏会话，别人照旧。对方再发新消息时自动恢复显示。
+    hidden_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     # 退群用软标记？不：直接删行。历史消息仍在，sender_id 由消息表自己记着
     __table_args__ = (
         CheckConstraint("role IN ('owner', 'member')", name="ck_member_role"),
@@ -610,7 +615,30 @@ class Sticker(Base):
     name: Mapped[str] = mapped_column(String(40), nullable=False, default="")
     file: Mapped[str] = mapped_column(String(80), nullable=False)
     size: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # 归一化后字节的 sha256：判断「这张表情是不是已经在我的表情里了」。
+    # 老库补列后为 NULL，用到时按文件内容回填一次。
+    hash: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
+
+
+class ChatBlock(Base):
+    """拉黑：blocker 不再接收 blocked 的消息，也不接受对方的好友申请。
+
+    单独一张表而不是往 ``friendships`` 加字段：拉黑时好友关系会被删掉，
+    状态没地方存；而且「拉黑一个陌生人」在语义上也不需要先有好友关系。
+    """
+
+    __tablename__ = "chat_blocks"
+
+    blocker_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    blocked_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
+
+    __table_args__ = (Index("idx_block_blocked", "blocked_id"),)
 
 
 class ChatReport(Base):

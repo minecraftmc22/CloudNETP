@@ -4,7 +4,9 @@
 - pending：等待 addressee 处理
 - accepted：已是好友（不看方向）
 
-刻意不做「拉黑」：拒绝即删行，以后还能再加；删除好友同理。
+拒绝即删行，以后还能再加；删除好友同理。
+「拉黑」不在这里：它要长期记住（好友关系已断），存在 ``chat_blocks`` 表，
+由 ``chat_service`` 维护；这里只在发好友申请时查一下对方有没有拉黑我。
 """
 
 from __future__ import annotations
@@ -82,10 +84,19 @@ def search(db: Session, me: User, query: str) -> list[dict[str, Any]]:
             rel_map[other] = "friends"
         else:
             rel_map[other] = "pending_out" if row.requester_id == me.id else "pending_in"
+    # 我拉黑的人还给「添加」按钮就尴尬了；对方拉黑了我则不显示，免得暴露屏蔽关系
+    from .models import ChatBlock
+
+    blocked = {
+        int(x)
+        for x in db.scalars(
+            select(ChatBlock.blocked_id).where(ChatBlock.blocker_id == me.id)
+        ).all()
+    }
     out = []
     for user in rows:
         item = card(user)
-        item["relation"] = rel_map.get(user.id, "none")
+        item["relation"] = "blocked" if user.id in blocked else rel_map.get(user.id, "none")
         out.append(item)
     return out
 
@@ -127,6 +138,9 @@ def request(db: Session, me: User, target_id: int, message: str = "") -> dict[st
     target = db.get(User, int(target_id))
     if not target or target.banned:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "用户不存在")
+    if is_blocked(db, me.id, target.id):
+        # 不说是「被拉黑」：否则换个号试探一下就知道自己被谁屏蔽了
+        raise HTTPException(status.HTTP_409_CONFLICT, "对方暂时无法接收好友申请")
     existing = db.scalar(select(Friendship).where(_pair(me.id, target.id)).limit(1))
     if existing:
         if existing.status == "accepted":
@@ -210,3 +224,21 @@ def remove(db: Session, me: User, other_id: int) -> dict[str, Any]:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "你们还不是好友")
     db.delete(row)
     return {"ok": True}
+
+
+def remove_between(db: Session, a: int, b: int) -> bool:
+    """无声地删掉两人的好友关系（拉黑用）。没有关系也当成功。"""
+    row = db.scalar(select(Friendship).where(_pair(int(a), int(b))).limit(1))
+    if not row:
+        return False
+    db.delete(row)
+    return True
+
+
+def is_blocked(db: Session, a: int, b: int) -> bool:
+    """b 是否拉黑了 a（申请好友时用来静默拒绝）。"""
+    from .models import ChatBlock
+
+    return (
+        db.get(ChatBlock, {"blocker_id": int(b), "blocked_id": int(a)}) is not None
+    )
