@@ -2326,4 +2326,7 @@ export default {
   "解绑后将不能再直接用该账号登录。如果这是唯一的登录方式，请先绑定邮箱以便找回。": "You will no longer be able to sign in with this account directly. If it is your only sign-in method, bind an email first for recovery.",
   "已解绑": "Unlinked",
   "解绑失败": "Unlink failed",
+  "所有人": "Everyone",
+  "@ 群成员": "@ members",
+  "提醒全部群成员": "Notify all group members",
 };

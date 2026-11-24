@@ -422,6 +422,8 @@ def send_message(
         body=payload.body,
         payload=payload.payload,
         reply_to=payload.reply_to,
+        mentions=payload.mentions,
+        mention_all=payload.mention_all,
     )
     db.commit()
     return {"message": cs.sent_payload(db, msg)}

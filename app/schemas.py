@@ -779,6 +779,10 @@ class ChatSendIn(CamelModel):
     payload: dict | None = None
     # 引用回复：被引用的那条消息 id（同一会话内）
     reply_to: int | None = Field(default=None, ge=1)
+    # 群聊 @ 提及：被 @ 的成员 id 列表（服务端校验是否在群里）
+    mentions: list[int] = Field(default_factory=list, max_length=100)
+    # @所有人（前端按钮触发；服务端只校验是群聊）
+    mention_all: bool = False
 
 
 class ChatReadIn(CamelModel):

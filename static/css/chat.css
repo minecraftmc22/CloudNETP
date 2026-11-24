@@ -358,6 +358,19 @@
 .msg__text {
   white-space: pre-wrap;
 }
+/* 文本里的 @提及：整块高亮，一眼分清谁被点名 */
+.msg__mention {
+  color: var(--accent);
+  background: var(--accent-tint, rgba(0, 0, 0, 0.06));
+  border-radius: var(--radius-xs);
+  padding: 0 3px;
+  font-weight: 600;
+}
+/* 我被 @ 到（含 @所有人）的消息：气泡描一圈强调色 */
+.msg__bubble--mention {
+  outline: 1.5px solid var(--accent);
+  outline-offset: -1.5px;
+}
 .msg__recalled {
   font-size: 12.5px;
   color: var(--text-3);
@@ -738,6 +751,58 @@
 .chat-compose__tools .chat-tool .icon {
   width: 16px;
   height: 16px;
+}
+/* @ 成员选择弹层：贴着输入框上沿，样式与 .popover 一族保持一致 */
+.chat-mention {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 6px);
+  max-height: 220px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  border-radius: var(--radius-m);
+  background: var(--panel-surface);
+  box-shadow: var(--shadow-m);
+  z-index: 30;
+}
+.chat-mention[hidden] {
+  display: none;
+}
+.chat-mention__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--text-1);
+  text-align: left;
+  cursor: pointer;
+}
+.chat-mention__item:hover {
+  background: var(--fill-hover);
+}
+.chat-mention__avatar {
+  flex: none;
+  display: inline-flex;
+}
+.chat-mention__name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+.chat-mention__hint {
+  flex: none;
+  font-size: 12px;
+  color: var(--text-3);
 }
 /* 发送按钮在输入框内侧右下角：margin-left:auto 把它顶到最右边 */
 .chat-send {

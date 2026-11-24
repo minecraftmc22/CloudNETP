@@ -64,7 +64,7 @@ export function renderFriends(root, { tab = "" } = {}) {
     friends: state.data.friends.length,
     incoming: state.data.incoming.length,
     outgoing: state.data.outgoing.length,
-    blocked: state.data.blocks.length,
+    blocked: state.data.blocked.length,
   });
 
   function paintTabs() {
@@ -241,7 +241,8 @@ export function renderFriends(root, { tab = "" } = {}) {
         friends: data.friends || [],
         incoming: data.incoming || [],
         outgoing: data.outgoing || [],
-        blocks: blocks.items || [],
+        // 键名与 TABS 的 id 对齐：拉黑页签按 state.data["blocked"] 取
+        blocked: blocks.items || [],
       };
     } catch (err) {
       Toast.error(err?.message || t("加载好友列表失败"));
@@ -430,7 +431,7 @@ export function renderFriends(root, { tab = "" } = {}) {
 
   function friendMoreMenu(button, id) {
     const rect = button.getBoundingClientRect();
-    const item = [...state.data.friends, ...state.data.blocks].find((x) => x.id === Number(id));
+    const item = [...state.data.friends, ...state.data.blocked].find((x) => x.id === Number(id));
     openMenu({
       x: rect.left,
       y: rect.bottom + 6,

@@ -444,8 +444,9 @@ def list_conversations(db: Session, me: User) -> dict[str, Any]:
                 members=people,
                 last=lasts.get(conv.last_message_id) if conv.last_message_id else None,
                 member=member,
-                i_blocked=any(pid in i_blocked for pid in peer_ids),
-                blocked_by_peer=any(pid in blocked_me for pid in peer_ids),
+                # 拉黑只影响单聊：共同群里大家照常说话，不能因为一个被拉黑的人锁全群
+                i_blocked=conv.kind == "direct" and any(pid in i_blocked for pid in peer_ids),
+                blocked_by_peer=conv.kind == "direct" and any(pid in blocked_me for pid in peer_ids),
                 peer_alias=merged.get(peer_ids[0], "") if conv.kind == "direct" and peer_ids else "",
                 notes=merged,
             )
@@ -852,6 +853,9 @@ def message_payload(
         "kind": msg.kind,
         "body": "" if recalled else (msg.body or ""),
         "payload": payload,
+        # @ 提及（文本消息才有）：被 @ 的成员 id / 是否 @所有人；前端高亮用
+        "mentions": (payload or {}).get("mentions") or [],
+        "mentionAll": bool((payload or {}).get("mentionAll")),
         "sender": user_card(sender) if msg.sender_id else None,
         "recalled": recalled,
         "recallable": recallable,
@@ -977,6 +981,8 @@ def send_message(
     body: str = "",
     payload: dict[str, Any] | None = None,
     reply_to: int | None = None,
+    mentions: list[int] | None = None,
+    mention_all: bool = False,
 ) -> ChatMessage:
     conv, member = require_member(db, conversation_id, me)
     if conv.kind == "direct":
@@ -1011,6 +1017,13 @@ def send_message(
     data: dict[str, Any] | None = None
     if kind == "text":
         text = _check_text(body)
+        # 群聊 @ 提及：只收「确实在群里」的成员，私聊没有 @ 的意义直接忽略
+        if conv.kind == "group":
+            ids = {int(x) for x in (mentions or []) if int(x or 0) != me.id}
+            member_ids = {int(row.user_id) for row in members_of(db, conv.id)}
+            valid = sorted(ids & member_ids)
+            if valid or mention_all:
+                data = {"mentions": valid, "mentionAll": bool(mention_all)}
     elif kind == "image":
         name = str((payload or {}).get("name") or "")
         if not MEDIA_RE.fullmatch(name) or not name.startswith("img-"):
@@ -1632,9 +1645,14 @@ def alert_summary(db: Session, me: User, after_id: int = 0, limit: int = 6) -> d
     if not rows:
         return {"messages": [], "latest": latest, "unread": unread}
 
-    # 拉黑的、撤回的都不提醒：前者是用户明确表示不想看见，后者没有内容可看
+    # 拉黑的、撤回的都不提醒：前者是用户明确表示不想看见，后者没有内容可看。
+    # 拉黑只影响单聊——共同群里被拉黑的人说话照常提醒，不然群里像被人掐了麦
     blocked = blocked_ids(db, me.id)
-    rows = [r for r in rows if r[0].sender_id not in blocked and not r[0].recalled_at]
+    rows = [
+        r
+        for r in rows
+        if (r[1].kind != "direct" or r[0].sender_id not in blocked) and not r[0].recalled_at
+    ]
     if not rows:
         return {"messages": [], "latest": latest, "unread": unread}
 
@@ -1663,6 +1681,17 @@ def alert_summary(db: Session, me: User, after_id: int = 0, limit: int = 6) -> d
             )
         else:
             title = conv.title or "群聊"
+        preview = _preview(msg)
+        # 被 @ 的消息在提醒里点明，不然混在预览文本里根本看不出来
+        if conv.kind == "group" and msg.recalled_at is None:
+            try:
+                pdata = json.loads(msg.payload) if msg.payload else {}
+            except Exception:
+                pdata = {}
+            if pdata.get("mentionAll"):
+                preview = f"[@所有人] {preview}"
+            elif me.id in {int(x) for x in pdata.get("mentions") or []}:
+                preview = f"[@你] {preview}"
         out.append(
             {
                 "id": msg.id,
@@ -1673,7 +1702,9 @@ def alert_summary(db: Session, me: User, after_id: int = 0, limit: int = 6) -> d
                 or aliases.get(msg.sender_id, "")
                 or _name_of(senders.get(msg.sender_id)),
                 "senderId": msg.sender_id,
-                "preview": _preview(msg),
+                # 弹窗卡片直接显示说话人的头像
+                "avatarUrl": user_card(senders.get(msg.sender_id))["avatarUrl"],
+                "preview": preview,
                 "createdAt": iso(msg.created_at),
             }
         )

@@ -65,6 +65,9 @@ export function renderChat(root, { sub = "" } = {}) {
     stickerOpen: false,
     // 正在引用的消息（右键「引用」后挂在输入框上方）
     reply: null,
+    // 群聊 @ 提及：草稿里已点的成员 id / 是否 @所有人（切会话或发送后清空）
+    mentions: new Set(),
+    mentionAll: false,
     busy: false,
     loadingOlder: false,
     hasMore: false,
@@ -242,6 +245,43 @@ export function renderChat(root, { sub = "" } = {}) {
       </div>`;
   }
 
+  /** 这条 @ 里包含的名字集合（当前会话成员视角） */
+  function mentionTokens(msg) {
+    const names = new Set();
+    if (state.current?.kind !== "group") return names;
+    if (msg.mentionAll) names.add(t("所有人"));
+    for (const uid of msg.mentions || []) {
+      const member = state.current?.members?.find((m) => m.id === uid);
+      if (member) {
+        names.add(mentionName(member));
+        if (member.displayName) names.add(member.displayName);
+        if (member.username) names.add(member.username);
+      }
+    }
+    names.delete("");
+    return names;
+  }
+
+  /** 文本里的 @提及 包成高亮 span；@前必须是行首或空白，邮箱不算 */
+  function textWithMentions(msg) {
+    const text = msg.body || "";
+    const names = mentionTokens(msg);
+    if (!names.size) return escapeHtml(text);
+    const parts = [];
+    let last = 0;
+    for (const match of text.matchAll(/@([^\s@，。！？,!?]{1,32})/g)) {
+      const idx = match.index;
+      const name = match[1];
+      if (names.has(name) && (idx === 0 || /[\s\n]/.test(text[idx - 1]))) {
+        parts.push(escapeHtml(text.slice(last, idx)));
+        parts.push(`<span class="msg__mention">@${escapeHtml(name)}</span>`);
+        last = idx + match[0].length;
+      }
+    }
+    parts.push(escapeHtml(text.slice(last)));
+    return parts.join("");
+  }
+
   function bodyHtml(msg, mine) {
     if (msg.recalled) {
       return H`<div class="msg__recalled">${mine ? t("你撤回了一条消息") : t("对方撤回了一条消息")}</div>`;
@@ -273,7 +313,7 @@ export function renderChat(root, { sub = "" } = {}) {
             : ""
         }`;
     }
-    return H`<div class="msg__text">${escapeHtml(msg.body || "")}</div>`;
+    return H`<div class="msg__text">${textWithMentions(msg)}</div>`;
   }
 
   function msgHtml(msg) {
@@ -284,6 +324,10 @@ export function renderChat(root, { sub = "" } = {}) {
     }
     const mine = msg.sender?.id === me.id;
     const sender = msg.sender || {};
+    // 我被 @ 到（含 @所有人）：气泡加高亮底色
+    const mentionMe =
+      state.current?.kind === "group" &&
+      (msg.mentionAll || (msg.mentions || []).includes(me.id));
     // 备注优先：群里我给他起的名字 > 好友备注（后端已在 members 里合并好）
     const member = state.current?.members?.find((m) => m.id === sender.id);
     const senderName = member?.alias || sender.displayName || "";
@@ -298,7 +342,9 @@ export function renderChat(root, { sub = "" } = {}) {
             <span class="msg__time">${timeText(msg.createdAt)}</span>
             ${msg.forwardedFrom ? H`<span class="msg__tag">${t("转发")}</span>` : ""}
           </div>
-          <div class="msg__bubble ${msg.kind === "text" ? "" : "msg__bubble--plain"}">${quoteHtml(msg)}${bodyHtml(
+          <div class="msg__bubble ${msg.kind === "text" ? "" : "msg__bubble--plain"} ${
+            mentionMe ? "msg__bubble--mention" : ""
+          }">${quoteHtml(msg)}${bodyHtml(
             msg,
             mine
           )}</div>
@@ -381,9 +427,17 @@ export function renderChat(root, { sub = "" } = {}) {
           <span data-mute-text></span>
         </div>
         <div class="chat-compose__bar">
+          <div class="chat-mention" data-mention hidden></div>
           <div class="textarea chat-compose__input">
             <textarea data-input rows="1" maxlength="2000" placeholder="${t("说点什么…（Enter 发送，Shift+Enter 换行）")}"></textarea>
             <div class="chat-compose__tools">
+              ${
+                conv.kind === "group"
+                  ? H`<button class="chat-tool" type="button" data-act="mention" title="${t("@ 群成员")}">
+                      <svg class="icon"><use href="#i-user"/></svg>
+                    </button>`
+                  : ""
+              }
               <button class="chat-tool" type="button" data-act="pick-file" title="${t("发送网盘文件")}">
                 <svg class="icon"><use href="#i-folder"/></svg>
               </button>
@@ -413,7 +467,10 @@ export function renderChat(root, { sub = "" } = {}) {
       input.style.height = "auto";
       input.style.height = `${Math.min(168, input.scrollHeight)}px`;
     };
-    input.addEventListener("input", fit);
+    input.addEventListener("input", () => {
+      fit();
+      maybeOpenMention();
+    });
     fit();
     paintComposerState();
   }
@@ -497,6 +554,9 @@ export function renderChat(root, { sub = "" } = {}) {
     state.hasMore = false;
     // 引用只在当时那个会话里有意义，换会话就丢掉（否则会把引用挂到别的会话里）
     state.reply = null;
+    // @ 提及同理：成员名单是按会话算的
+    state.mentions.clear();
+    state.mentionAll = false;
     bodyEl.classList.add("is-thread");
     paintList();
     paintThread();
@@ -602,7 +662,7 @@ export function renderChat(root, { sub = "" } = {}) {
     paintList();
   }
 
-  async function send(kind, payload, body = "") {
+  async function send(kind, payload, body = "", extra = {}) {
     if (!state.current || state.busy) return;
     state.busy = true;
     // 引用挂在「下一条要发的消息」上：发出去就清掉，避免手滑连发两条都带着引用
@@ -613,6 +673,7 @@ export function renderChat(root, { sub = "" } = {}) {
         body,
         payload,
         replyTo: quoted ? quoted.id : null,
+        ...extra,
       });
       const msg = data.message;
       state.messages.push(msg);
@@ -642,7 +703,90 @@ export function renderChat(root, { sub = "" } = {}) {
     if (!text) return;
     input.value = "";
     input.style.height = "auto";
-    await send("text", null, text);
+    closeMentionPicker();
+    // @ 提及随文本一起发；草稿里的名单发完就清
+    const extra =
+      state.current?.kind === "group" && (state.mentions.size || state.mentionAll)
+        ? { mentions: [...state.mentions], mentionAll: state.mentionAll }
+        : {};
+    state.mentions.clear();
+    state.mentionAll = false;
+    await send("text", null, text, extra);
+  }
+
+  /* ---------------------------------------------------------------- */
+  /* 群聊 @ 提及                                                       */
+  /* ---------------------------------------------------------------- */
+  /** 成员在消息里显示的名字：我起的备注 > 昵称（与消息流一致） */
+  function mentionName(member) {
+    return member.alias || member.displayName || member.username || "";
+  }
+
+  function openMentionPicker() {
+    const conv = state.current;
+    const box = mainEl.querySelector("[data-mention]");
+    if (!conv || conv.kind !== "group" || !box) return;
+    const others = (conv.members || []).filter((m) => m.id !== me.id);
+    box.innerHTML = H`
+      <button type="button" class="chat-mention__item" data-act="mention-all">
+        <span class="chat-mention__name">@${t("所有人")}</span>
+        <span class="chat-mention__hint">${t("提醒全部群成员")}</span>
+      </button>
+      ${others
+        .map(
+          (m) => H`<button type="button" class="chat-mention__item" data-act="mention-uid" data-uid="${m.id}">
+            <span class="chat-mention__avatar">${avatarMarkup(m)}</span>
+            <span class="chat-mention__name">${escapeHtml(mentionName(m))}</span>
+          </button>`
+        )
+        .join("")}`;
+    box.hidden = false;
+  }
+
+  function closeMentionPicker() {
+    const box = mainEl.querySelector("[data-mention]");
+    if (box) box.hidden = true;
+  }
+
+  /** 把光标前那个孤立的 @ 替换成 @名字（找不到就接在末尾） */
+  function applyMention(name, uid) {
+    const input = mainEl.querySelector("[data-input]");
+    if (!input || input.disabled) return;
+    const caret = input.selectionStart ?? input.value.length;
+    const before = input.value.slice(0, caret);
+    const at = before.lastIndexOf("@");
+    const lone = at >= 0 && (at === 0 || /[\s\n]/.test(before[at - 1]));
+    const token = `@${name} `;
+    if (lone) {
+      input.value = before.slice(0, at) + token + input.value.slice(caret);
+    } else {
+      input.value = before + token + input.value.slice(caret);
+    }
+    const pos = (lone ? at : caret) + token.length;
+    input.focus();
+    input.setSelectionRange(pos, pos);
+    input.dispatchEvent(new Event("input"));
+    if (uid == null) {
+      state.mentionAll = true;
+    } else {
+      state.mentionAll = false;
+      state.mentions.add(Number(uid));
+    }
+  }
+
+  /** 光标前是新打的孤立 @（前面是空白或行首）时弹出成员选择 */
+  function maybeOpenMention() {
+    const input = mainEl.querySelector("[data-input]");
+    if (!input) return;
+    const caret = input.selectionStart ?? input.value.length;
+    const before = input.value.slice(0, caret);
+    if (
+      before.endsWith("@") &&
+      (before.length === 1 || /[\s\n]/.test(before.slice(-2, -1)))
+    ) {
+      return openMentionPicker();
+    }
+    closeMentionPicker();
   }
 
   /* ---------------------------------------------------------------- */
@@ -1819,6 +1963,16 @@ export function renderChat(root, { sub = "" } = {}) {
     ...(docView ? { signal: docView.signal } : {}),
   });
 
+  /* @ 选择弹层：点外面就收起（.chat-mention 自身和 @ 按钮都算「里面」） */
+  const closeMentionOutside = (event) => {
+    if (event.target.closest?.(".chat-mention, [data-act=\"mention\"]")) return;
+    closeMentionPicker();
+  };
+  document.addEventListener("pointerdown", closeMentionOutside, {
+    capture: true,
+    ...(docView ? { signal: docView.signal } : {}),
+  });
+
   mainEl.addEventListener("contextmenu", (event) => {
     // 表情面板里的表情：右键直接删 / 直接发
     const item = event.target.closest("[data-sticker-id]");
@@ -1933,8 +2087,27 @@ export function renderChat(root, { sub = "" } = {}) {
       void loadOlder();
       return;
     }
+    // @ 选择弹层：点谁 @ 谁；「所有人」是特殊项
+    if (act === "mention-all") {
+      applyMention(t("所有人"), null);
+      closeMentionPicker();
+      return;
+    }
+    if (act === "mention-uid") {
+      const uid = Number(btn.dataset.uid);
+      const member = state.current?.members?.find((m) => m.id === uid);
+      if (member) applyMention(mentionName(member), uid);
+      closeMentionPicker();
+      return;
+    }
     if (act === "send") {
       void sendText();
+      return;
+    }
+    if (act === "mention") {
+      const box = mainEl.querySelector("[data-mention]");
+      if (box && !box.hidden) closeMentionPicker();
+      else openMentionPicker();
       return;
     }
     if (act === "pick-file") {

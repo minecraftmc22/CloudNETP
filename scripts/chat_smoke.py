@@ -728,6 +728,51 @@ def main() -> None:
     code, data = call("/api/chat/conversations/direct", ta, "POST", {"userId": bob_id})
     check(code == 403, f"解除拉黑不等于恢复好友，仍要先加好友（{code}）")
 
+    print("== 群聊 @ 提及 / 拉黑只影响单聊 ==")
+    # 上面的拉黑测试把 alice-bob 的好友断了：重新加上，建群要用
+    code, data = call("/api/friends/requests", ta, "POST", {"userId": bob_id})
+    check(code == 201, f"重新申请好友（{code}）")
+    req_id = (data or {}).get("requestId")
+    code, data = call(f"/api/friends/requests/{req_id}/accept", tb, "POST", {})
+    check(code == 200, f"对方通过申请（{code}）")
+    code, data = call("/api/chat/conversations/group", ta, "POST",
+                      {"title": "提及群", "memberIds": [bob_id, carol_id]})
+    check(code == 201, f"重建群（{code}）")
+    gid2 = ((data or {}).get("conversation") or {}).get("id")
+
+    code, data = call(f"/api/chat/conversations/{gid2}/messages", ta, "POST",
+                      {"kind": "text", "body": "开会啦 @所有人", "mentionAll": True})
+    check(code == 201, f"@所有人 发送（{code}）")
+    check((data.get("message") or {}).get("mentionAll") is True, "消息带回 mentionAll")
+    check((data.get("message") or {}).get("mentions") == [], "@所有人 不需要成员列表")
+
+    code, data = call(f"/api/chat/conversations/{gid2}/messages", tb, "POST",
+                      {"kind": "text", "body": "收到 @chat_carol", "mentions": [carol_id]})
+    check(code == 201, f"@某人 发送（{code}）")
+    check((data.get("message") or {}).get("mentions") == [carol_id],
+          f"消息带回被 @ 的成员（{(data.get('message') or {}).get('mentions')}）")
+
+    code, data = call(f"/api/chat/conversations/{gid2}/messages", tb, "POST",
+                      {"kind": "text", "body": "乱写的", "mentions": [99999, bob_id]})
+    check(code == 201 and (data.get("message") or {}).get("mentions") == [],
+          f"只保留群内成员（{(data.get('message') or {}).get('mentions')}）")
+
+    code, data = call("/api/chat/blocks", ta, "POST", {"userId": bob_id})
+    check(code == 201, "单聊拉黑测试前置")
+    code, data = call(f"/api/chat/conversations/{gid2}/messages", tb, "POST",
+                      {"kind": "text", "body": "群里照常说话"})
+    check(code == 201, f"被拉黑的人在共同群里仍能发言（{code}）")
+    code, data = call("/api/chat/conversations", ta)
+    g = next((x for x in (data.get("items") or []) if x["id"] == gid2), None)
+    check(g is not None and g.get("canSend") is not False, "拉黑不锁共同群的输入框")
+    code, data = call("/api/chat/alerts?after=0", tc)
+    msgs = data.get("messages") or []
+    check(any("[@所有人]" in (x.get("preview") or "") for x in msgs),
+          "提醒预览里点明 @所有人")
+    check(bool(msgs) and all("avatarUrl" in x for x in msgs), "提醒条目带头像字段")
+    code, data = call(f"/api/chat/blocks/{bob_id}", ta, "DELETE")
+    check(code == 200, "收尾解除拉黑")
+
     passed = sum(1 for ok, _ in RESULTS if ok)
     for ok, msg in RESULTS:
         print(("  OK  " if ok else "  NG  ") + msg)

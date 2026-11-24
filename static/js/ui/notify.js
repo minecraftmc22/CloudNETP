@@ -125,7 +125,7 @@ function systemNotify(items) {
   try {
     const notification = new Notification(title, {
       body,
-      icon: "/assets/favicon-32.png",
+      icon: first.avatarUrl || "/assets/favicon-32.png",
       tag: first.conversationId ? `conv-${first.conversationId}` : "chat",
       silent: false,
     });
