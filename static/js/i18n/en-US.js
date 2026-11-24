@@ -2329,4 +2329,5 @@ export default {
   "@ 群成员": "@ members",
   "提醒全部群成员": "Notify all group members",
   "使用 {name} 注册": "Sign up with {name}",
+  "跟随当前访问的域名": "Follows the domain you are visiting",
 };

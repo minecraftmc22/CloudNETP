@@ -117,6 +117,14 @@ const AUTHOR = {
 
 const CHANGELOG = [
   {
+    version: "0.6.8",
+    title: "第三方登录回调地址跟随当前域名",
+    items: [
+      "后台「第三方登录」卡片的回调地址自动填入当前访问的域名，不再显示 localhost:端口",
+      "未配置 SITE_URL 时，真实授权跳转的回调也跟随访问域名（反向代理透传 X-Forwarded-* 即可）；配置了 SITE_URL 仍以它为准",
+    ],
+  },
+  {
     version: "0.6.7",
     title: "登录 / 注册页统一展示「第三方登录」",
     items: [

@@ -81,6 +81,15 @@ def _column(provider: str) -> str:
 # --------------------------------------------------------------------------- #
 # 跳转
 # --------------------------------------------------------------------------- #
+def _request_base(request: Request) -> str | None:
+    """回调地址的域名基座。配置了 SITE_URL 就是权威值，直接用它；
+    没配置就跟随这次请求的 Host（反向代理配好 X-Forwarded-* 后就是真实域名），
+    免得绑死在 HOST:PORT（常是 localhost:8000）上。"""
+    if settings.SITE_URL:
+        return None
+    return str(request.base_url).rstrip("/")
+
+
 @router.get("/auth/oauth/{provider}/start")
 def oauth_start(
     provider: str,
@@ -104,7 +113,7 @@ def oauth_start(
 
     state = sign_oauth_state(provider, "bind" if bind else "login", uid, next)
     try:
-        url = oauth_service.authorize_url(provider, cfg, state)
+        url = oauth_service.authorize_url(provider, cfg, state, _request_base(request))
     except oauth_service.OAuthError as exc:
         return _fail(exc.code, exc.detail)
     return RedirectResponse(url, status_code=302)
@@ -134,7 +143,7 @@ def oauth_callback(
         return _fail("disabled")
 
     try:
-        token = oauth_service.exchange_code(provider, cfg, code)
+        token = oauth_service.exchange_code(provider, cfg, code, _request_base(request))
         ident = oauth_service.fetch_identity(provider, token)
     except oauth_service.OAuthError as exc:
         return _fail(exc.code, exc.detail)

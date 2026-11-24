@@ -4191,6 +4191,11 @@ export function renderAdmin(root, { tab } = {}) {
   function oauthProviderMarkup(cfg, provider) {
     const p = cfg.providers[provider] || {};
     const label = provider === "google" ? "Google" : "GitHub";
+    // 回调地址：配了 SITE_URL 就是固定值（服务端算好的）；没配则真实流程跟随
+    // 访问域名，展示值也用浏览器当前 origin 拼出来，别再用绑死的 HOST:PORT
+    const callbackDisplay = cfg.siteUrlFixed
+      ? p.callbackUrl || ""
+      : `${location.origin}${p.callbackPath || ""}`;
     // 只有「后台保存过」的值才回填输入框；来自 .env / 默认值的一律走 placeholder
     const idValue = p.clientIdSource === "admin" ? escapeHtml(p.clientId || "") : "";
     const secretPlaceholder = p.hasSecret
@@ -4245,7 +4250,7 @@ export function renderAdmin(root, { tab } = {}) {
         <label class="field field--wide">
           <span class="field__label">${t("回调地址（Redirect URI）")}</span>
           <span class="textbox">
-            <input readonly spellcheck="false" value="${escapeHtml(p.callbackUrl || "")}"
+            <input readonly spellcheck="false" value="${escapeHtml(callbackDisplay)}"
               data-oauth-callback="${provider}">
             <button class="pwd-eye" type="button" data-oauth-copy="${provider}"
               title="${t("复制")}" aria-label="${t("复制")}">
@@ -4254,7 +4259,7 @@ export function renderAdmin(root, { tab } = {}) {
           </span>
           <span class="field__hint">${t("在 {provider} 后台的应用设置里填成完全一致的一串", {
             provider: label,
-          })}</span>
+          })}${cfg.siteUrlFixed ? "" : ` · ${t("跟随当前访问的域名")}`}</span>
         </label>
       </div>`;
   }

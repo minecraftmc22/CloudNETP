@@ -28,6 +28,7 @@ import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+from app.config import settings
 from app.db import SessionLocal
 from app.models import User
 from app.security import hash_password
@@ -213,7 +214,8 @@ def run() -> None:
 
     # -- 未配置时 ------------------------------------------------------------
     st, meta, _ = user.get("/api/meta")
-    check("meta 可读", st == 200 and meta.get("version") == "0.6.5", f"{st}")
+    # 版本号别写死：发版一升这里就过期，跟 config 比才不会误报
+    check("meta 可读", st == 200 and meta.get("version") == settings.VERSION, f"{st}")
     check("未配置时 oauth 为空", meta.get("oauth") == [], str(meta.get("oauth")))
 
     st, _, loc = user.get("/api/auth/oauth/google/start")

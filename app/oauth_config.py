@@ -192,9 +192,15 @@ def ready_providers(cfg: dict | None = None) -> list[str]:
     return [p for p in PROVIDERS if provider_ready(cfg, p)]
 
 
-def callback_url(provider: str) -> str:
-    """必须与 Google / GitHub 后台填的回调地址逐字符一致。"""
-    return f"{settings.public_base}/api/auth/oauth/{provider}/callback"
+def callback_url(provider: str, base: str | None = None) -> str:
+    """必须与 Google / GitHub 后台填的回调地址逐字符一致。
+
+    `base` 不传时用 `SITE_URL`（配置了就是权威值）；`/start`、`/callback` 会传
+    请求自己的 base 进来——没配 `SITE_URL` 时跟随用户实际访问的域名，
+    免得后台显示/真实跳转都落在 `localhost:8000` 这类绑死地址上。
+    """
+    prefix = (base or settings.public_base).rstrip("/")
+    return f"{prefix}/api/auth/oauth/{provider}/callback"
 
 
 # --------------------------------------------------------------------------- #
@@ -223,11 +229,14 @@ def snapshot() -> dict:
             "secretSource": "admin" if psec in overrides else ("env" if env[psec] else ""),
             "ready": provider_ready(cfg, provider),
             "callbackUrl": callback_url(provider),
+            # SITE_URL 没配时真实回调跟着请求域名走，前端要拿 origin 自己拼展示值
+            "callbackPath": f"/api/auth/oauth/{provider}/callback",
         }
 
     providers = {p: block(p) for p in PROVIDERS}
     return {
         "providers": providers,
+        "siteUrlFixed": bool(settings.SITE_URL),
         "autoRegister": bool(cfg.get("autoRegister")),
         "autoRegisterSource": (
             "admin" if "autoRegister" in overrides else ("env" if (settings.OAUTH_AUTO_REGISTER or "").strip() else "auto")

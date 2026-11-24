@@ -127,14 +127,14 @@ def _request(url: str, data: dict | None = None, headers: dict | None = None) ->
     return payload
 
 
-def authorize_url(provider: str, cfg: dict, state: str) -> str:
+def authorize_url(provider: str, cfg: dict, state: str, base: str | None = None) -> str:
     """拼授权页地址。`prompt=select_account` 让 Google 每次都问用哪个号，
-    避免「上次登过别人的号，这次直接被静默复用」。"""
+    避免「上次登过别人的号，这次直接被静默复用」。`base` 见 oauth_config.callback_url。"""
     if provider not in AUTHORIZE:
         raise OAuthError("disabled")
     params = {
         "client_id": cfg.get(f"{provider}ClientId") or "",
-        "redirect_uri": oauth_config.callback_url(provider),
+        "redirect_uri": oauth_config.callback_url(provider, base),
         "response_type": "code",
         "scope": SCOPES[provider],
         "state": state,
@@ -145,8 +145,8 @@ def authorize_url(provider: str, cfg: dict, state: str) -> str:
     return f"{AUTHORIZE[provider]}?{urllib.parse.urlencode(params)}"
 
 
-def exchange_code(provider: str, cfg: dict, code: str) -> str:
-    """用 code 换 access_token。"""
+def exchange_code(provider: str, cfg: dict, code: str, base: str | None = None) -> str:
+    """用 code 换 access_token。`base` 必须与 authorize 时一致，否则上游报 redirect_uri 不匹配。"""
     if provider not in TOKEN:
         raise OAuthError("disabled")
     payload = _request(
@@ -155,7 +155,7 @@ def exchange_code(provider: str, cfg: dict, code: str) -> str:
             "client_id": cfg.get(f"{provider}ClientId") or "",
             "client_secret": cfg.get(f"{provider}ClientSecret") or "",
             "code": code,
-            "redirect_uri": oauth_config.callback_url(provider),
+            "redirect_uri": oauth_config.callback_url(provider, base),
             "grant_type": "authorization_code",
         },
     )
