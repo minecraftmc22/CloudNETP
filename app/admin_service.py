@@ -379,8 +379,10 @@ def settings_payload(db: Session) -> dict:
         "seoKeywords": values.get("seo_keywords", ""),
         "seoImage": values.get("seo_image", ""),
         "seoBaseUrl": values.get("seo_base_url", ""),
-        # 聊天：表情包上限 / 撤回时限（0 = 不限制）/ 群成员上限
+        # 聊天：表情包上限 / 单张大小 / 撤回时限（0 = 不限制）/ 群成员上限
         "stickerMaxPerUser": num("sticker_max_per_user") or 100,
+        "stickerMaxMb": num("sticker_max_mb") or 2,
+        "stickerGifMaxMb": num("sticker_gif_max_mb") or 6,
         "chatRecallMinutes": num("chat_recall_minutes"),
         "chatGroupMaxMembers": num("chat_group_max_members") or 200,
         "runtime": {

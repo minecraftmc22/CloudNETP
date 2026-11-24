@@ -85,6 +85,17 @@ def png_bytes(w: int = 120, h: int = 80, color=(255, 150, 190)) -> bytes:
     return buf.getvalue()
 
 
+def gif_bytes(frames: int = 4, size: int = 96) -> bytes:
+    """多帧 GIF：帧颜色各不相同，Pillow 才不会把重复帧合并掉。"""
+    imgs = [
+        Image.new("RGB", (size, size), (60 + index * 45, 120, 210 - index * 40))
+        for index in range(frames)
+    ]
+    buf = io.BytesIO()
+    imgs[0].save(buf, "GIF", save_all=True, append_images=imgs[1:], duration=120, loop=0)
+    return buf.getvalue()
+
+
 def seed() -> tuple[str, int, int]:
     """准备两个好友账号、一个单聊、一个群聊，返回 (主账号 token, 单聊 id, 群 id)。"""
     if not db_failover._started:
@@ -263,6 +274,15 @@ def main() -> None:
         sticker_b = json.loads(res.read())["sticker"]
     call(f"/api/chat/conversations/{direct_id}/messages", tb, "POST",
          {"kind": "sticker", "payload": {"stickerId": sticker_b["id"]}})
+    # GIF 表情（B 发）：界面上应直接按 .gif 加载，不能被压成静态图
+    req = urllib.request.Request(BASE + "/api/chat/stickers?name=gif",
+                                 method="POST", data=gif_bytes())
+    req.add_header("Content-Type", "image/gif")
+    req.add_header("Cookie", f"{settings.COOKIE_NAME}={tb}")
+    with urllib.request.urlopen(req, timeout=20) as res:
+        sticker_gif = json.loads(res.read())["sticker"]
+    call(f"/api/chat/conversations/{direct_id}/messages", tb, "POST",
+         {"kind": "sticker", "payload": {"stickerId": sticker_gif["id"]}})
     # 群聊
     code, data = call("/api/chat/conversations/group", ta, "POST",
                       {"title": "周末小组", "memberIds": [b_id, c_id]})
@@ -415,6 +435,9 @@ def main() -> None:
                 })(),
                 imgLoaded: imgs.length ? imgs.every((i) => i.complete && i.naturalWidth > 0) : false,
                 sticker: document.querySelectorAll('.msg__sticker').length,
+                gifStickers: [...document.querySelectorAll('.msg__sticker')]
+                  .map((i) => ({ src: i.currentSrc || i.src, w: i.naturalWidth }))
+                  .filter((i) => /\.gif(\?|$)/.test(i.src)),
                 more: document.querySelectorAll('.msg__more').length,
                 overflow: document.documentElement.scrollWidth,
               };
@@ -433,9 +456,12 @@ def main() -> None:
               f"下载按钮带上文件名（{(bubbles['peerFile'] or {}).get('name')}）")
         check(bubbles["imgLoaded"], "图片消息真的加载出来了")
         check(bubbles["sticker"] >= 2, f"表情消息渲染成小图（{bubbles['sticker']}）")
+        check(len(bubbles["gifStickers"]) == 1, f"GIF 表情按 .gif 引用（{bubbles['gifStickers']}）")
+        check(bool(bubbles["gifStickers"]) and bubbles["gifStickers"][0]["w"] > 0,
+              "GIF 表情真的加载出来了")
         check(bubbles["overflow"] <= W + 1, f"桌面无横向溢出（{bubbles['overflow']}）")
 
-        # 输入区：三个按钮在文本框内侧左下角（不是排在输入框外面）
+        # 输入区：发文件/图片/表情三个按钮在文本框内侧左下角，发送按钮在同一行右下角
         compose = js(
             """
             (() => {
@@ -445,6 +471,10 @@ def main() -> None:
               const b = box.getBoundingClientRect();
               const t = tools.getBoundingClientRect();
               const rects = [...tools.querySelectorAll('.chat-tool')].map((el) => el.getBoundingClientRect());
+              const send = tools.querySelector('.chat-send');
+              const s = send ? send.getBoundingClientRect() : null;
+              const ta = box.querySelector('textarea');
+              const tr = ta ? ta.getBoundingClientRect() : null;
               return {
                 none: false,
                 n: rects.length,
@@ -454,6 +484,13 @@ def main() -> None:
                 bottomGap: rects.length ? b.bottom - rects[0].bottom : -1,
                 btnsWidth: rects.length ? rects[rects.length - 1].right - rects[0].left : -1,
                 boxWidth: b.width,
+                sendInside: !!s && s.left >= b.left && s.right <= b.right + 1
+                                  && s.top >= b.top && s.bottom <= b.bottom + 1,
+                sendRightGap: s ? b.right - s.right : -1,
+                sendBottomGap: s ? b.bottom - s.bottom : -1,
+                sendAfterTools: !!s && rects.length > 0
+                                  ? s.left >= rects[rects.length - 1].right : false,
+                taHeight: tr ? tr.height : 0,
               };
             })()
             """
@@ -465,6 +502,11 @@ def main() -> None:
         check(0 <= compose["bottomGap"] < 12, f"按钮贴着下沿（{compose['bottomGap']}px）")
         check(compose["btnsWidth"] < compose["boxWidth"] * 0.6,
               f"三个按钮只占左侧一小段（{compose['btnsWidth']:.0f}/{compose['boxWidth']:.0f}）")
+        check(compose["sendInside"] is True, "发送按钮在输入框里面")
+        check(0 <= compose["sendRightGap"] < 16, f"发送按钮贴着右侧（{compose['sendRightGap']}px）")
+        check(0 <= compose["sendBottomGap"] < 12, f"发送按钮贴着下沿（{compose['sendBottomGap']}px）")
+        check(compose["sendAfterTools"] is True, "发送按钮排在三个工具按钮之后（不挤在一起）")
+        check(compose["taHeight"] >= 44, f"输入框高度够打字（{compose['taHeight']:.0f}px）")
 
         # 回车发消息
         js(
@@ -496,6 +538,8 @@ def main() -> None:
         js("document.querySelector('[data-act=\"open-stickers\"]').click()")
         check(wait_for("!document.querySelector('[data-sticker-panel]').hidden", 8), "表情面板能打开")
         check(wait_for("document.querySelectorAll('.sticker-item').length > 0", 8), "面板里有已存的表情")
+        hint = js("(document.querySelector('[data-sticker-hint]')?.textContent || '').trim()")
+        check("MB" in hint and "GIF" in hint, f"表情面板显示当前大小上限（{hint}）")
         before = js("document.querySelectorAll('.chat-feed .msg').length")
         js("document.querySelector('.sticker-item__btn').click()")
         check(wait_for(f"document.querySelectorAll('.chat-feed .msg').length > {before}", 12),

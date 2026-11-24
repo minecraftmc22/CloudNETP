@@ -58,6 +58,9 @@ DEFAULTS: dict[str, str] = {
     "sticker_max_per_user": "100",
     "chat_recall_minutes": "10",
     "chat_group_max_members": "200",
+    # 单张表情大小上限（MB）：静态图与动图（GIF）分开设置
+    "sticker_max_mb": "2",
+    "sticker_gif_max_mb": "6",
 }
 
 

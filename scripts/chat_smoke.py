@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import sys
 import urllib.error
 import urllib.parse
@@ -106,6 +107,42 @@ def png_bytes(w: int = 60, h: int = 40, color=(255, 120, 180)) -> bytes:
     buf = io.BytesIO()
     img.save(buf, "PNG")
     return buf.getvalue()
+
+
+def noise_png(size: int = 800) -> bytes:
+    """随机噪点 PNG：压不下去，用来撞「单张大小上限」。"""
+    img = Image.frombytes("RGB", (size, size), os.urandom(size * size * 3))
+    buf = io.BytesIO()
+    img.save(buf, "PNG")
+    return buf.getvalue()
+
+
+def gif_bytes(frames: int = 4, size: int = 64, noise: bool = False) -> bytes:
+    """多帧 GIF：size 小的时候体积也小，noise=True 用来堆出大文件。"""
+    imgs = [
+        Image.frombytes("RGB", (size, size), os.urandom(size * size * 3))
+        if noise
+        else Image.new("RGB", (size, size), (40 + index * 20, 120, 200 - index * 15))
+        for index in range(frames)
+    ]
+    buf = io.BytesIO()
+    imgs[0].save(buf, "GIF", save_all=True, append_images=imgs[1:], duration=80, loop=0)
+    return buf.getvalue()
+
+
+def fetch_detail(path: str, token: str):
+    """和 fetch_bytes 一样，但顺带把响应头带出来（校验 Content-Type）。
+
+    返回的是 ``email.message.Message``：HTTP 头大小写不敏感，转成 dict 会让
+    ``headers["Content-Type"]`` 取不到值（服务端发的是小写）。
+    """
+    req = urllib.request.Request(BASE + path)
+    req.add_header("Cookie", f"{settings.COOKIE_NAME}={token}")
+    try:
+        with urllib.request.urlopen(req, timeout=30) as res:
+            return res.status, res.headers, res.read()
+    except urllib.error.HTTPError as err:
+        return err.code, err.headers, err.read()
 
 
 def main() -> None:
@@ -436,6 +473,83 @@ def main() -> None:
 
     code, data = call("/api/chat/stickers", tb)
     check(len(data.get("items") or []) == 0, "表情包按人隔离")
+
+    # ---- GIF 动图：原样保存、按 image/gif 下发、帧数不丢 ----
+    # 下面几条断言依赖默认 2 MB / 6 MB，先清掉上一次跑测试可能留下的后台改动
+    tdb = db_failover.current_sessionmaker()()
+    try:
+        set_value(tdb, "sticker_max_mb", "2")
+        set_value(tdb, "sticker_gif_max_mb", "6")
+        tdb.commit()
+    finally:
+        tdb.close()
+    gif = gif_bytes(4, 64)
+    code, data = call_raw("/api/chat/stickers?name=gif", ta, gif, content_type="image/gif", method="POST")
+    check(code == 201, f"上传 GIF 表情（{code}）")
+    gif_sticker = data.get("sticker") or {}
+    check(str(gif_sticker.get("url") or "").endswith(".gif"),
+          f"GIF 存成 .gif（{gif_sticker.get('url')}）")
+    gif_name = str(gif_sticker.get("url") or "").rsplit("/", 1)[-1]
+    code, headers, raw = fetch_detail(f"/api/chat/media/{gif_name}", tb)
+    check(code == 200 and headers.get("Content-Type", "").startswith("image/gif"),
+          f"GIF 以 image/gif 下发（{headers.get('Content-Type')}）")
+    check(raw == gif, "GIF 字节原样保存（没被转成静态 webp）")
+    with Image.open(io.BytesIO(raw)) as img:
+        frames = int(getattr(img, "n_frames", 1) or 1)
+    check(frames == 4, f"动图帧数保留（{frames}）")
+
+    # 表情面板要能拿到单张大小上限
+    code, data = call("/api/chat/stickers", ta)
+    check(
+        data.get("maxMb") == 2 and data.get("gifMaxMb") == 6,
+        f"默认单张上限 2 MB / GIF 6 MB（{data.get('maxMb')}/{data.get('gifMaxMb')}）",
+    )
+    code, data = call("/api/admin/settings", tn)
+    conf = data.get("settings") or {}
+    check(
+        conf.get("stickerMaxMb") == 2 and conf.get("stickerGifMaxMb") == 6,
+        f"后台设置里能看到表情大小（{conf.get('stickerMaxMb')}/{conf.get('stickerGifMaxMb')}）",
+    )
+    code, data = call("/api/admin/settings", tn, "PATCH",
+                      {"stickerMaxMb": 1, "stickerGifMaxMb": 10})
+    check(code == 200 and (data.get("settings") or {}).get("stickerMaxMb") == 1, "后台能改表情大小上限")
+
+    big_png = noise_png(800)
+    check(len(big_png) > 1024 * 1024, f"造出来的大 PNG 超过 1 MB（{len(big_png)}）")
+    code, data = call_raw("/api/chat/stickers", ta, big_png, method="POST")
+    check(code == 413, f"静态表情超过后台设定被拦（{code}）")
+    code, data = call_raw("/api/chat/stickers", ta, png_bytes(40, 40, (9, 9, 9)), method="POST")
+    check(code == 201, f"上限内的小图仍然能加（{code}）")
+    extra_png_id = (data.get("sticker") or {}).get("id")
+
+    code, data = call("/api/admin/settings", tn, "PATCH", {"stickerGifMaxMb": 1})
+    check(code == 200, "后台能单独收窄动图上限")
+    big_gif = gif_bytes(40, 160, noise=True)
+    check(len(big_gif) > 1024 * 1024, f"造出来的大 GIF 超过 1 MB（{len(big_gif)}）")
+    code, data = call_raw("/api/chat/stickers", ta, big_gif, content_type="image/gif", method="POST")
+    check(code == 413, f"动图表情超过后台设定被拦（{code}）")
+
+    # 帧数护栏：240 帧以上直接拒，避免一张图吃掉内存。
+    # 帧内容必须逐帧不同，否则 Pillow 存 GIF 时会把重复帧合并掉，帧数根本涨不上去。
+    code, data = call_raw(
+        "/api/chat/stickers", ta, gif_bytes(250, 24, noise=True), content_type="image/gif", method="POST"
+    )
+    check(code == 400, f"帧数过多的动图被拦（{code}）")
+
+    # 清掉这两张测试用表情，后面的「只收了一张」才成立
+    for extra_id in (gif_sticker.get("id"), extra_png_id):
+        if extra_id:
+            call(f"/api/chat/stickers/{extra_id}", ta, "DELETE")
+
+    tdb = db_failover.current_sessionmaker()()
+    try:
+        set_value(tdb, "sticker_max_mb", "2")
+        set_value(tdb, "sticker_gif_max_mb", "6")
+        tdb.commit()
+    finally:
+        tdb.close()
+    code, data = call("/api/chat/stickers", ta)
+    check(data.get("maxMb") == 2 and data.get("gifMaxMb") == 6, "改回去后上限恢复")
 
     code, data = call(f"/api/chat/conversations/{conv_id}/messages", ta, "POST",
                       {"kind": "sticker", "payload": {"stickerId": sticker.get("id")}})

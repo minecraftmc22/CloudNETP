@@ -573,8 +573,8 @@
   width: 17px;
   height: 17px;
 }
-/* 输入框本身就是那圈边框（.textarea），工具按钮放在它内侧左下角，
-   所以内边距交给 textarea 和工具行自己控制，容器不再加 padding */
+/* 输入框本身就是那圈边框（.textarea），工具按钮与发送按钮都在它内侧底行：
+   按钮靠左、发送贴右，所以内边距交给 textarea 和工具行自己控制，容器不再加 padding */
 .chat-compose__input {
   flex: 1 1 auto;
   min-width: 0;
@@ -586,10 +586,10 @@
 .chat-compose__input textarea {
   display: block;
   width: 100%;
-  min-height: 0; /* 覆盖 .textarea textarea 的 92px，否则一行也撑很高 */
-  max-height: 120px;
+  min-height: 52px; /* 覆盖 .textarea textarea 的 92px；留出一行半的高度，看着不憋屈 */
+  max-height: 168px;
   resize: none;
-  padding: 8px 10px 2px;
+  padding: 10px 12px 4px;
   border: 0;
   outline: 0;
   background: transparent;
@@ -602,7 +602,7 @@
   display: flex;
   align-items: center;
   gap: 2px;
-  padding: 0 4px 4px;
+  padding: 0 6px 6px 4px;
   min-width: 0;
 }
 .chat-compose__tools .chat-tool {
@@ -614,10 +614,19 @@
   width: 16px;
   height: 16px;
 }
+/* 发送按钮在输入框内侧右下角：margin-left:auto 把它顶到最右边 */
 .chat-send {
   flex: 0 0 auto;
-  padding: 6px 12px;
-  gap: 5px;
+  margin-left: auto;
+  height: 26px;
+  padding: 0 10px;
+  gap: 4px;
+  font-size: 12px;
+  border-radius: var(--radius-pill);
+}
+.chat-send .icon {
+  width: 14px;
+  height: 14px;
 }
 
 /* 表情面板 */
@@ -647,6 +656,10 @@
   border-bottom: 1px solid var(--stroke-hair);
   font-size: 12.5px;
   color: var(--text-2);
+}
+.sticker-panel__head [data-sticker-hint] {
+  font-size: 11px;
+  white-space: nowrap;
 }
 .sticker-grid {
   flex: 1 1 auto;
@@ -889,6 +902,9 @@
   .sticker-item__del {
     display: grid;
   }
+  .sticker-panel__head [data-sticker-hint] {
+    display: none;
+  }
   .chat-compose {
     padding: 6px 8px 8px;
   }
@@ -896,7 +912,7 @@
     display: none;
   }
   .chat-send {
-    padding: 7px 10px;
+    padding: 0 9px;
   }
   .msg__image img {
     max-width: 200px;

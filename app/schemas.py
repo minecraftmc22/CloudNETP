@@ -482,8 +482,10 @@ class AdminSettingsIn(CamelModel):
     seo_keywords: str | None = Field(default=None, max_length=200)
     seo_image: str | None = Field(default=None, max_length=500)
     seo_base_url: str | None = Field(default=None, max_length=200)
-    # 聊天：表情包上限、撤回时限（0 = 不限制）、群成员上限
+    # 聊天：表情包上限、单张表情大小（静态 / 动图分开）、撤回时限（0 = 不限制）、群成员上限
     sticker_max_per_user: int | None = Field(default=None, ge=1, le=2000)
+    sticker_max_mb: int | None = Field(default=None, ge=1, le=20)
+    sticker_gif_max_mb: int | None = Field(default=None, ge=1, le=30)
     chat_recall_minutes: int | None = Field(default=None, ge=0, le=1440)
     chat_group_max_members: int | None = Field(default=None, ge=2, le=2000)
 

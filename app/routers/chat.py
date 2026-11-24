@@ -320,9 +320,11 @@ def chat_media(name: str, request: Request, user: CurrentUser):
     path = cs.media_path(name)
     from fastapi.responses import FileResponse
 
+    suffix = name.rsplit(".", 1)[-1].lower() if "." in name else ""
+    media_type = {"png": "image/png", "gif": "image/gif"}.get(suffix, "image/webp")
     return FileResponse(
         path,
-        media_type="image/png" if name.endswith(".png") else "image/webp",
+        media_type=media_type,
         headers={"Cache-Control": "private, max-age=604800"},
     )
 
@@ -337,7 +339,9 @@ async def add_sticker(
     request: Request, db: DbSession, user: CurrentUser, name: str = Query(default="", max_length=40)
 ) -> dict:
     check_origin(request)
-    raw = await _raw_body(request, cs.STICKER_MAX_BYTES, "表情图")
+    # 先按「动图上限」收字节：静态图的更严上限由 cs.add_sticker 按实际类型判断，
+    # 否则同一张 GIF 在不同用户的设置下会拿到两种错误码，提示也说不清。
+    raw = await _raw_body(request, cs.sticker_gif_max_bytes(db), "表情图")
     row, created = cs.add_sticker(db, user, raw, name)
     db.commit()
     return {

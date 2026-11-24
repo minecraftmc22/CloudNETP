@@ -53,15 +53,22 @@ MAX_GROUPS = 60
 SEARCH_LIMIT = 20
 
 IMAGE_MAX_BYTES = 8 * 1024 * 1024
-STICKER_MAX_BYTES = 2 * 1024 * 1024
+# 表情大小：默认值与硬上限都在下面，实际以后台设置（sticker_max_mb / sticker_gif_max_mb）为准
+STICKER_MAX_MB_CAP = 20
+STICKER_GIF_MAX_MB_CAP = 30
 IMAGE_MAX_SIDE = 1600
 STICKER_MAX_SIDE = 512
+# 动图原样保存（不转码），只挡明显过分的尺寸/帧数，免得一张图把内存吃穿
+STICKER_ANIM_MAX_SIDE = 1200
+STICKER_ANIM_MAX_FRAMES = 240
 
-MEDIA_RE = re.compile(r"^(img|stk)-[0-9a-f]{16}\.(webp|png)$")
+MEDIA_RE = re.compile(r"^(img|stk)-[0-9a-f]{16}\.(webp|png|gif)$")
 
 DEFAULT_STICKER_MAX = 100
 DEFAULT_GROUP_MAX = 200
 DEFAULT_RECALL_MINUTES = 10
+DEFAULT_STICKER_MB = 2
+DEFAULT_STICKER_GIF_MB = 6
 
 
 # --------------------------------------------------------------------------- #
@@ -81,6 +88,26 @@ def recall_minutes(db: Session) -> int:
     if value <= 0:
         return 0
     return min(1440, value)
+
+
+def sticker_max_mb(db: Session) -> int:
+    """单张静态表情的大小上限（MB，后台可调）。"""
+    return max(1, min(STICKER_MAX_MB_CAP, get_int(db, "sticker_max_mb") or DEFAULT_STICKER_MB))
+
+
+def sticker_gif_max_mb(db: Session) -> int:
+    """单张动图表情的大小上限（MB，后台可调）：动图体积天然比静态图大。"""
+    return max(
+        1, min(STICKER_GIF_MAX_MB_CAP, get_int(db, "sticker_gif_max_mb") or DEFAULT_STICKER_GIF_MB)
+    )
+
+
+def sticker_max_bytes(db: Session) -> int:
+    return sticker_max_mb(db) * 1024 * 1024
+
+
+def sticker_gif_max_bytes(db: Session) -> int:
+    return sticker_gif_max_mb(db) * 1024 * 1024
 
 
 # --------------------------------------------------------------------------- #
@@ -1082,6 +1109,40 @@ def report(db: Session, me: User, message_id: int, reason: str) -> ChatReport:
 # --------------------------------------------------------------------------- #
 # 图片 / 表情包
 # --------------------------------------------------------------------------- #
+def _anim_format(raw: bytes) -> str | None:
+    """动图（GIF / 动图 WebP）返回扩展名，静态图返回 None。
+
+    动图**不做转码**：Pillow 把 GIF 压成 webp 只会留下第一帧，表情就不动了。
+    所以这里只做校验（帧数、边长、逐帧解码），字节原样落盘，由浏览器播放。
+    """
+    try:
+        with Image.open(io.BytesIO(raw)) as img:
+            fmt = (img.format or "").upper()
+            frames = int(getattr(img, "n_frames", 1) or 1)
+            if fmt not in ("GIF", "WEBP") or frames <= 1 or not getattr(img, "is_animated", False):
+                return None
+            if frames > STICKER_ANIM_MAX_FRAMES:
+                raise HTTPException(
+                    status.HTTP_400_BAD_REQUEST,
+                    f"动图表情最多 {STICKER_ANIM_MAX_FRAMES} 帧，先压缩一下再传",
+                )
+            width, height = img.size
+            if max(width, height) > STICKER_ANIM_MAX_SIDE:
+                raise HTTPException(
+                    status.HTTP_400_BAD_REQUEST,
+                    f"动图表情边长不能超过 {STICKER_ANIM_MAX_SIDE}px，先缩小再传",
+                )
+            # 逐帧解码一遍：截断 / 损坏的 GIF 在这一步就会抛异常，别把坏图存下来
+            for index in range(frames):
+                img.seek(index)
+                img.load()
+            return "gif" if fmt == "GIF" else "webp"
+    except HTTPException:
+        raise
+    except Exception:
+        return None
+
+
 def _normalize_image(raw: bytes, *, max_side: int, keep_alpha: bool, quality: int = 88) -> bytes:
     with Image.open(io.BytesIO(raw)) as img:
         img = ImageOps.exif_transpose(img)
@@ -1112,9 +1173,15 @@ def _normalize_image(raw: bytes, *, max_side: int, keep_alpha: bool, quality: in
 
 def _write_media(prefix: str, data: bytes) -> str:
     ext = "webp"
-    with Image.open(io.BytesIO(data)) as img:
-        if img.format and img.format.upper() == "PNG":
-            ext = "png"
+    try:
+        with Image.open(io.BytesIO(data)) as img:
+            fmt = (img.format or "").upper()
+            if fmt == "PNG":
+                ext = "png"
+            elif fmt == "GIF":
+                ext = "gif"
+    except Exception:
+        ext = "webp"
     settings.chat_dir.mkdir(parents=True, exist_ok=True)
     name = f"{prefix}-{secrets.token_hex(8)}.{ext}"
     target = settings.chat_dir / name
@@ -1165,6 +1232,9 @@ def list_stickers(db: Session, me: User) -> dict[str, Any]:
             for row in rows
         ],
         "limit": sticker_max(db),
+        # 单张大小上限（MB），前端据此提前挡下超大文件并提示
+        "maxMb": sticker_max_mb(db),
+        "gifMaxMb": sticker_gif_max_mb(db),
     }
 
 
@@ -1220,12 +1290,29 @@ def _store_sticker(db: Session, me: User, data: bytes, name: str) -> tuple[Stick
 def add_sticker(db: Session, me: User, raw: bytes, name: str = "") -> tuple[Sticker, bool]:
     if not raw:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "没有收到图片数据")
-    if len(raw) > STICKER_MAX_BYTES:
-        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "表情图不能超过 2 MB")
-    try:
-        data = _normalize_image(raw, max_side=STICKER_MAX_SIDE, keep_alpha=True, quality=90)
-    except Exception:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "无法识别这张图片，请用 png / gif / webp") from None
+    anim = _anim_format(raw)
+    if anim:
+        # 动图上限单独一套（默认 6 MB）：GIF 天生就比静态图大得多
+        cap = sticker_gif_max_bytes(db)
+        if len(raw) > cap:
+            raise HTTPException(
+                status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                f"动图表情不能超过 {cap // 1024 // 1024} MB",
+            )
+        data = raw
+    else:
+        cap = sticker_max_bytes(db)
+        if len(raw) > cap:
+            raise HTTPException(
+                status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                f"表情图不能超过 {cap // 1024 // 1024} MB",
+            )
+        try:
+            data = _normalize_image(raw, max_side=STICKER_MAX_SIDE, keep_alpha=True, quality=90)
+        except Exception:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST, "无法识别这张图片，请用 png / jpg / gif / webp"
+            ) from None
     return _store_sticker(db, me, data, name)
 
 

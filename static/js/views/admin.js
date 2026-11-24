@@ -2828,6 +2828,22 @@ export function renderAdmin(root, { tab } = {}) {
             </span>
           </label>
           <label class="field">
+            <span class="field__label">单张表情大小上限</span>
+            <span class="textbox admin-unit">
+              <input data-key="stickerMaxMb" data-kind="number" data-multiplier="1" type="number" min="1" max="20" step="1"
+                     value="${settings.stickerMaxMb ?? 2}">
+              <span class="admin-unit__suffix">MB</span>
+            </span>
+          </label>
+          <label class="field">
+            <span class="field__label">单张动图表情大小上限</span>
+            <span class="textbox admin-unit">
+              <input data-key="stickerGifMaxMb" data-kind="number" data-multiplier="1" type="number" min="1" max="30" step="1"
+                     value="${settings.stickerGifMaxMb ?? 6}">
+              <span class="admin-unit__suffix">MB</span>
+            </span>
+          </label>
+          <label class="field">
             <span class="field__label">撤回时限</span>
             <span class="textbox admin-unit">
               <input data-key="chatRecallMinutes" data-kind="number" data-multiplier="1" type="number" min="0" max="1440" step="1"
@@ -2844,7 +2860,7 @@ export function renderAdmin(root, { tab } = {}) {
             </span>
           </label>
         </div>
-        <div class="admin-hint">撤回时限填 0 表示不限制；表情包上限只影响新增，已经存下的不会自动删。聊天图片与表情存在 storage/chat，不占用户配额。</div>
+        <div class="admin-hint">撤回时限填 0 表示不限制；表情包上限只影响新增，已经存下的不会自动删。单张大小对动图（GIF / 动图 WebP）单独放宽——动图不做转码、原样保存，浏览器里会动。聊天图片与表情存在 storage/chat，不占用户配额。</div>
         <div class="admin-card__foot">
           <button class="btn btn--accent" type="button" data-save="chat">保存聊天设置</button>
         </div>

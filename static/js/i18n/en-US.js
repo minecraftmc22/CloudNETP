@@ -2124,4 +2124,9 @@ export default {
   "除当前这台以外，其它所有设备都会被下线。": "Every device except this one will be signed out.",
   "已下线 {n} 台设备": "Signed out {n} device(s)",
   "没有其它登录设备": "No other devices signed in",
+  "「{name}」超过 {limit} MB": "\"{name}\" is over {limit} MB",
+  "单张 ≤ {mb} MB｜GIF ≤ {gif} MB": "≤ {mb} MB each · GIF ≤ {gif} MB",
+  "单张表情大小上限": "Max size per sticker",
+  "单张动图表情大小上限": "Max size per animated sticker",
+  "撤回时限填 0 表示不限制；表情包上限只影响新增，已经存下的不会自动删。单张大小对动图（GIF / 动图 WebP）单独放宽——动图不做转码、原样保存，浏览器里会动。聊天图片与表情存在 storage/chat，不占用户配额。": "Set the recall window to 0 for no limit. The sticker count only affects new uploads; existing stickers are never deleted automatically. Animated stickers (GIF / animated WebP) get a separate size limit because they are not transcoded — the original bytes are kept so they actually animate in the browser. Chat images and stickers live in storage/chat and don't count against user quota.",
 };

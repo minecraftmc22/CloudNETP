@@ -38,6 +38,9 @@ export function renderChat(root, { sub = "" } = {}) {
     messages: [],
     friends: [],
     stickerLimit: 100,
+    // 单张表情大小上限（MB），静态与动图分开，后台可调
+    stickerMaxMb: 2,
+    stickerGifMaxMb: 6,
     groupLimit: 200,
     // 撤回时限（分钟，0 = 不限），由 /api/chat/friends 下发
     recallMinutes: 10,
@@ -303,6 +306,7 @@ export function renderChat(root, { sub = "" } = {}) {
           <div class="sticker-panel__head">
             <span>${t("我的表情")}</span>
             <span class="muted" data-sticker-count></span>
+            <span class="muted" data-sticker-hint></span>
             <span class="grow"></span>
             <button class="btn btn--subtle" type="button" data-act="sticker-add">${t("添加表情")}</button>
           </div>
@@ -321,14 +325,14 @@ export function renderChat(root, { sub = "" } = {}) {
               <button class="chat-tool" type="button" data-act="open-stickers" title="${t("表情包")}">
                 <svg class="icon"><use href="#i-smile"/></svg>
               </button>
+              <button class="btn btn--accent chat-send" type="button" data-act="send">
+                <svg class="icon icon--s"><use href="#i-send"/></svg><span>${t("发送")}</span>
+              </button>
             </div>
           </div>
-          <button class="btn btn--accent chat-send" type="button" data-act="send">
-            <svg class="icon icon--s"><use href="#i-send"/></svg><span>${t("发送")}</span>
-          </button>
         </div>
         <input type="file" accept="image/*" data-image-input hidden>
-        <input type="file" accept="image/*" data-sticker-input hidden multiple>
+        <input type="file" accept="image/*,.gif" data-sticker-input hidden multiple>
       </div>`;
     paintThreadHead();
     paintFeed();
@@ -338,7 +342,7 @@ export function renderChat(root, { sub = "" } = {}) {
     const input = mainEl.querySelector("[data-input]");
     const fit = () => {
       input.style.height = "auto";
-      input.style.height = `${Math.min(120, input.scrollHeight)}px`;
+      input.style.height = `${Math.min(168, input.scrollHeight)}px`;
     };
     input.addEventListener("input", fit);
     fit();
@@ -561,6 +565,8 @@ export function renderChat(root, { sub = "" } = {}) {
       const data = await api.get("/api/chat/stickers");
       state.stickers = data.items || [];
       state.stickerLimit = data.limit || state.stickerLimit;
+      state.stickerMaxMb = data.maxMb || state.stickerMaxMb;
+      state.stickerGifMaxMb = data.gifMaxMb || state.stickerGifMaxMb;
       paintStickers();
     } catch {
       /* 表情面板打不开不影响发文字 */
@@ -572,6 +578,13 @@ export function renderChat(root, { sub = "" } = {}) {
     if (!grid) return;
     const count = mainEl.querySelector("[data-sticker-count]");
     if (count) count.textContent = `${state.stickers.length}/${state.stickerLimit}`;
+    const hint = mainEl.querySelector("[data-sticker-hint]");
+    if (hint) {
+      hint.textContent = t("单张 ≤ {mb} MB｜GIF ≤ {gif} MB", {
+        mb: state.stickerMaxMb,
+        gif: state.stickerGifMaxMb,
+      });
+    }
     if (!state.stickers.length) {
       grid.innerHTML = H`<div class="sticker-grid__empty">${t("还没有表情，点右上角「添加表情」上传一张吧")}</div>`;
       return;
@@ -1473,9 +1486,12 @@ export function renderChat(root, { sub = "" } = {}) {
     let added = 0;
     let dup = 0;
     for (const file of files) {
+      const isGif = file.type === "image/gif" || /\.gif$/i.test(file.name);
+      // 动图上限单独一套（服务端一样按类型判断），这里只提前挡一下，省一次上传
+      const limit = isGif ? state.stickerGifMaxMb : state.stickerMaxMb;
       if (!file.type.startsWith("image/")) continue;
-      if (file.size > 2 * 1024 * 1024) {
-        Toast.error(t("「{name}」超过 2 MB", { name: file.name }));
+      if (file.size > limit * 1024 * 1024) {
+        Toast.error(t("「{name}」超过 {limit} MB", { name: file.name, limit }));
         continue;
       }
       try {
