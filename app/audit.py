@@ -19,6 +19,8 @@ ACTIONS: dict[str, dict[str, str]] = {
     "avatar_remove": {"label": "移除头像", "tone": "info", "group": "账号"},
     "background_update": {"label": "更换背景图", "tone": "info", "group": "账号"},
     "background_remove": {"label": "移除背景图", "tone": "info", "group": "账号"},
+    "cover_update": {"label": "更换主页背景", "tone": "info", "group": "账号"},
+    "cover_remove": {"label": "移除主页背景", "tone": "info", "group": "账号"},
     "email_bind": {"label": "绑定邮箱", "tone": "info", "group": "账号"},
     "email_code_send": {"label": "发送邮箱验证码", "tone": "info", "group": "账号"},
     "lyrics_pref": {"label": "修改歌词偏好", "tone": "info", "group": "账号"},

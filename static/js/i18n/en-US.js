@@ -2275,4 +2275,13 @@ export default {
   "禁言 1 天": "Mute 1 day",
   "禁言 7 天": "Mute 7 days",
   "你已被禁言，{time} 后才能继续发言": "You are muted until {time}",
+  "更换背景": "Change background",
+  "设置背景": "Set background",
+  "请选择图片文件": "Please choose an image file",
+  "图片太大了，请选 16 MB 以内的": "That image is too large — please pick one under 16 MB",
+  "主页背景已更新": "Profile background updated",
+  "背景上传失败": "Background upload failed",
+  "移除主页背景": "Remove profile background",
+  "移除后回到默认渐变，图片文件会从服务器上删掉。": "The header goes back to the default gradient and the image file is deleted from the server.",
+  "主页背景已移除": "Profile background removed",
 };

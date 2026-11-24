@@ -225,6 +225,8 @@ _COLUMN_PATCHES: dict[str, dict[str, str]] = {
         "profile": "JSON NULL",
         # 公开分享主页的随机标识；NULL = 没开分享
         "profile_token": "VARCHAR(24) NULL",
+        # 个人主页顶部背景图（只存文件名）；老库补列后为 NULL = 用默认渐变
+        "profile_cover": "VARCHAR(64) NULL",
     },
     "shares": {
         # 合集分享：根节点 id 的 JSON 数组；NULL = 单节点分享

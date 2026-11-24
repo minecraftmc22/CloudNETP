@@ -27,6 +27,7 @@ import websocket
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 urllib.request.install_opener(urllib.request.build_opener(urllib.request.ProxyHandler({})))
 
+from PIL import Image  # noqa: E402
 from sqlalchemy import delete, select  # noqa: E402
 
 from app import db_failover  # noqa: E402
@@ -260,6 +261,46 @@ def main() -> int:
         assert wait_for("!!document.querySelector('.profile-card')", 40), "个人主页没渲染"
         time.sleep(0.8)
 
+        # ---- 入口：左侧边栏 + 右上角头像菜单 ----
+        nav = js(
+            """
+            (() => {
+              const a = document.querySelector('.nav-item[data-route="profile"]');
+              return a ? {
+                text: (a.textContent || '').trim(),
+                href: a.getAttribute('href') || '',
+                active: a.classList.contains('is-active'),
+              } : null;
+            })()
+            """
+        )
+        check(bool(nav) and "个人主页" in (nav or {}).get("text", ""), f"侧边栏有「个人主页」（{nav}）")
+        check(bool(nav) and nav["href"].endswith(f"/{alice.id}"), f"侧边栏入口指向本人主页（{nav}）")
+        check(bool(nav) and nav["active"], "停在主页时侧边栏高亮该项")
+
+        def esc():
+            js("document.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', bubbles: true}))")
+
+        go("#/files", "!!document.querySelector('.files-view, .files-layout, .view-body')", 20)
+        time.sleep(0.4)
+        js("document.getElementById('user-chip').click()")
+        check(wait_for("!!document.querySelector('.popover .menu-item')", 8), "头像菜单能打开")
+        menu_texts = js(
+            "[...document.querySelectorAll('.popover .menu-item')].map((b) => (b.textContent || '').trim())"
+        )
+        check(
+            any("个人主页" in x for x in (menu_texts or [])),
+            f"头像菜单里有「个人主页」（{menu_texts}）",
+        )
+        js(
+            "[...document.querySelectorAll('.popover .menu-item')]"
+            ".find((b) => (b.textContent || '').includes('个人主页'))?.click()"
+        )
+        check(wait_for(f"location.hash === '#/profile/{alice.id}'", 10), "从头像菜单点进去落到本人主页")
+        check(wait_for("!!document.querySelector('.profile-card')", 15), "从菜单进入后主页渲染出来")
+        esc()
+        time.sleep(0.3)
+
         # ---- 自己的主页 ----
         me_view = js(
             """
@@ -292,6 +333,68 @@ def main() -> int:
         check("sakura@example.com" not in body_text, "邮箱在主页上默认不展开")
         shot("profile-self.png")
 
+        # ---- 主页背景图 ----
+        cover_before = js(
+            """
+            (() => {
+              const el = document.querySelector('.profile-card__cover');
+              const btns = [...document.querySelectorAll('.profile-cover__ops button')]
+                .map((b) => (b.textContent || '').trim());
+              return { has: !!el && el.classList.contains('has-image'), h: el ? Math.round(el.getBoundingClientRect().height) : 0, btns };
+            })()
+            """
+        )
+        check(bool(cover_before) and not cover_before["has"], f"默认用渐变、没有背景图（{cover_before}）")
+        check(
+            bool(cover_before) and any("设置背景" in x for x in cover_before["btns"]),
+            f"自己的主页有「设置背景」（{cover_before and cover_before['btns']}）",
+        )
+
+        cover_png = profile / "cover.png"
+        img = Image.new("RGB", (900, 300), (70, 120, 200))
+        for yy in range(0, 300, 100):
+            for xx in range(0, 900, 100):
+                if (xx // 100 + yy // 100) % 2 == 0:
+                    img.paste((240, 200, 120), (xx, yy, xx + 100, yy + 100))
+        img.save(cover_png)
+
+        send("DOM.enable")
+        root_node = send("DOM.getDocument")["root"]["nodeId"]
+        file_node = send("DOM.querySelector", nodeId=root_node, selector="[data-cover-input]")["nodeId"]
+        send("DOM.setFileInputFiles", files=[str(cover_png)], nodeId=file_node)
+        check(wait_for("!!document.querySelector('.profile-card__cover.has-image')", 25), "上传后主页出现背景图")
+
+        cover = js(
+            """
+            (() => {
+              const el = document.querySelector('.profile-card__cover');
+              if (!el) return null;
+              const cs = getComputedStyle(el);
+              return {
+                image: cs.backgroundImage,
+                h: Math.round(el.getBoundingClientRect().height),
+                btns: [...document.querySelectorAll('.profile-cover__ops button')]
+                  .map((b) => (b.textContent || '').trim()),
+              };
+            })()
+            """
+        )
+        check("/api/profile-cover/" in ((cover or {}).get("image") or ""), f"背景图指向封面上传接口（{cover and cover['image'][:80]}）")
+        check(bool(cover) and cover["h"] >= 150, f"有图时横幅加高（{cover and cover['h']}px）")
+        check(
+            bool(cover) and any("更换背景" in x for x in cover["btns"]) and any("移除" in x for x in cover["btns"]),
+            f"有图后按钮变成「更换背景 / 移除」（{cover and cover['btns']}）",
+        )
+        shot("profile-cover.png")
+
+        js(
+            "[...document.querySelectorAll('.profile-cover__ops button')]"
+            ".find((b) => (b.textContent || '').includes('移除'))?.click()"
+        )
+        check(wait_for("!!document.querySelector('.dialog [data-act=\"ok\"]')", 8), "移除背景会先确认")
+        js("document.querySelector('.dialog [data-act=\"ok\"]').click()")
+        check(wait_for("!document.querySelector('.profile-card__cover.has-image')", 20), "确认后背景被移除")
+
         # ---- 编辑资料弹窗 ----
         js("document.querySelector('[data-act=\"edit\"]').click()")
         check(wait_for("!!document.querySelector('.profile-form__links')", 10), "编辑资料弹窗能打开")
@@ -323,6 +426,16 @@ def main() -> int:
         js(f"location.hash = '#/profile/{bob.id}'")
         check(wait_for("!!document.querySelector('.profile-card')", 25), "能打开别人的主页")
         time.sleep(0.8)
+        check(
+            not js(
+                "document.querySelector('.nav-item[data-route=\"profile\"]').classList.contains('is-active')"
+            ),
+            "看别人主页时侧边栏的「个人主页」不高亮",
+        )
+        check(
+            not js("!!document.querySelector('.profile-cover__ops')"),
+            "别人的主页没有「换背景」按钮",
+        )
         other = js(
             """
             (() => {

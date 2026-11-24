@@ -21,6 +21,7 @@ from ..deps import get_current_user
 from ..models import User
 from ..schemas import ProfileDetailIn
 from ..security import check_origin
+from ..user_service import log_action
 
 router = APIRouter(prefix="/api", tags=["profile"])
 
@@ -67,6 +68,71 @@ def toggle_share(payload: dict, request: Request, db: DbSession, user: CurrentUs
     ps.drop_share_token(db, user)
     db.commit()
     return {"enabled": False, "token": None, "path": None}
+
+
+# --------------------------------------------------------------------------- #
+# 个人主页顶部背景图
+# --------------------------------------------------------------------------- #
+@router.put("/me/profile/cover")
+async def upload_cover(
+    request: Request, db: DbSession, user: CurrentUser
+) -> dict:
+    """主页横幅：原始字节上传，服务端居中裁成 4:1、缩到 1600 宽并转 webp。"""
+    check_origin(request)
+
+    declared = request.headers.get("content-length")
+    if declared and declared.isdigit() and int(declared) > ps.COVER_MAX_BYTES:
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "背景图片不能超过 16 MB")
+
+    raw = await request.body()
+    if not raw:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "没有收到图片数据")
+
+    try:
+        name = ps.save_cover(user.id, raw)
+    except ValueError as exc:
+        if str(exc) == "too-large":
+            raise HTTPException(
+                status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "背景图片不能超过 16 MB"
+            ) from None
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "图片读取失败，请换一张试试") from None
+    except Exception:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "无法识别这张图片，请用 png / jpg / webp"
+        ) from None
+
+    old = user.profile_cover
+    user.profile_cover = name
+    log_action(db, "cover_update", user.id, None, request)
+    db.commit()
+    ps.drop_cover(old)  # 落库成功再删旧图，中途失败不会丢背景
+    return {"profile": ps.editable(db, user)}
+
+
+@router.delete("/me/profile/cover")
+def remove_cover(request: Request, db: DbSession, user: CurrentUser) -> dict:
+    check_origin(request)
+    old = user.profile_cover
+    if old:
+        user.profile_cover = None
+        log_action(db, "cover_remove", user.id, None, request)
+        db.commit()
+        ps.drop_cover(old)
+    return {"profile": ps.editable(db, user)}
+
+
+@router.get("/profile-cover/{name}")
+def get_cover(name: str, _user: CurrentUser):
+    """主页背景图：任何登录用户都能读（别人的主页也要显示），
+    防穿越靠 COVER_NAME_RE，防遍历靠文件名里的随机段。"""
+    path = ps.cover_path(name)
+    if path is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "背景不存在")
+    return FileResponse(
+        path,
+        media_type=ps.cover_media_type(name),
+        headers={"Cache-Control": "private, max-age=31536000, immutable"},
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -155,5 +221,21 @@ def public_avatar(token: str, db: DbSession):
     return FileResponse(
         path,
         media_type=ps.avatar_media_type(target.avatar),
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
+@router.get("/public/profile/{token}/cover")
+def public_cover(token: str, db: DbSession):
+    """公开主页的背景图：同样只在分享开着时才能取到。"""
+    target = ps.by_token(db, token)
+    if not target or not target.profile_cover:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "背景不存在")
+    path = ps.cover_path(target.profile_cover)
+    if not path:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "背景不存在")
+    return FileResponse(
+        path,
+        media_type=ps.cover_media_type(target.profile_cover),
         headers={"Cache-Control": "public, max-age=86400"},
     )

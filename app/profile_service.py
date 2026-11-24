@@ -198,6 +198,89 @@ def drop_background(name: str | None) -> None:
 
 
 # --------------------------------------------------------------------------- #
+# 个人主页顶部背景图（cover）
+# --------------------------------------------------------------------------- #
+# 卡片顶部那条 96px 高的横幅。裁成 4:1：窄屏能看出层次，宽屏也不会把主体裁掉太多。
+COVER_NAME_RE = re.compile(r"^([1-9]\d{0,17})-[0-9a-f]{12}\.(webp|png)$")
+COVER_MAX_BYTES = 16 * 1024 * 1024
+COVER_WIDTH = 1600
+COVER_RATIO = 4  # 宽 : 高
+COVER_QUALITY = 86
+
+
+def cover_path(name: str | None) -> Path | None:
+    if not name or not COVER_NAME_RE.fullmatch(name):
+        return None
+    path = settings.cover_dir / name
+    return path if path.is_file() else None
+
+
+def cover_media_type(name: str) -> str:
+    return "image/png" if name.endswith(".png") else "image/webp"
+
+
+def _fit_cover(raw: bytes) -> tuple[bytes, str]:
+    """居中裁成 4:1 横幅并缩到 1600 宽，转 webp（Pillow 没编 webp 就退回 png）。"""
+    with Image.open(io.BytesIO(raw)) as img:
+        img = ImageOps.exif_transpose(img)
+        if img.mode in ("RGBA", "LA", "P"):
+            # 横幅不做透明叠加，统一铺白底，避免截图里透出卡片底色
+            img = img.convert("RGBA")
+            canvas = Image.new("RGB", img.size, (255, 255, 255))
+            canvas.paste(img, mask=img.split()[-1])
+            img = canvas
+        else:
+            img = img.convert("RGB")
+
+        w, h = img.size
+        # 裁成 4:1：比 4:1 更扁就裁左右，更高就裁上下（居中，保留主体）
+        if w / h >= COVER_RATIO:
+            target_w = max(1, min(w, round(h * COVER_RATIO)))
+            left = (w - target_w) // 2
+            img = img.crop((left, 0, left + target_w, h))
+        else:
+            target_h = max(1, min(h, round(w / COVER_RATIO)))
+            top = (h - target_h) // 2
+            img = img.crop((0, top, w, top + target_h))
+
+        if img.width > COVER_WIDTH:
+            new_h = max(1, round(img.height * COVER_WIDTH / img.width))
+            img = img.resize((COVER_WIDTH, new_h), Image.LANCZOS)
+
+        buf = io.BytesIO()
+        try:
+            img.save(buf, "WEBP", quality=COVER_QUALITY, method=4)
+            return buf.getvalue(), "webp"
+        except Exception:  # Pillow 没编 webp
+            buf = io.BytesIO()
+            img.save(buf, "PNG", optimize=True)
+            return buf.getvalue(), "png"
+
+
+def save_cover(user_id: int, raw: bytes) -> str:
+    """校验 + 裁剪 + 落盘，返回新文件名。调用方负责删除旧文件。"""
+    if not raw:
+        raise ValueError("empty")
+    if len(raw) > COVER_MAX_BYTES:
+        raise ValueError("too-large")
+
+    data, ext = _fit_cover(raw)
+    settings.cover_dir.mkdir(parents=True, exist_ok=True)
+    name = f"{user_id}-{secrets.token_hex(6)}.{ext}"
+    target = settings.cover_dir / name
+    tmp = target.with_suffix(target.suffix + ".part")
+    tmp.write_bytes(data)
+    tmp.replace(target)
+    return name
+
+
+def drop_cover(name: str | None) -> None:
+    path = cover_path(name)
+    if path:
+        path.unlink(missing_ok=True)
+
+
+# --------------------------------------------------------------------------- #
 # 个人主页扩展资料
 # --------------------------------------------------------------------------- #
 # 除名称（display_name）与简介（bio）外，其余字段都可单独控制是否展示。
@@ -314,13 +397,14 @@ def profile_payload(
     data = normalized(user.profile)
     name = display_name_of(user)
     has_avatar = bool(user.avatar)
+    has_cover = bool(user.profile_cover)
 
     if public:
         avatar_url = f"/api/public/profile/{user.profile_token}/avatar" if has_avatar else None
-    elif has_avatar:
-        avatar_url = f"/api/avatar/{user.avatar}"
+        cover_url = f"/api/public/profile/{user.profile_token}/cover" if has_cover else None
     else:
-        avatar_url = None
+        avatar_url = f"/api/avatar/{user.avatar}" if has_avatar else None
+        cover_url = f"/api/profile-cover/{user.profile_cover}" if has_cover else None
 
     fields: dict = {}
     if is_self or data["show"].get("gender"):
@@ -347,6 +431,7 @@ def profile_payload(
         "displayName": name,
         "bio": user.bio or "",
         "avatarUrl": avatar_url,
+        "coverUrl": cover_url,
         "gender": fields.get("gender"),
         "birthday": fields.get("birthday"),
         "age": fields.get("age"),
@@ -378,6 +463,7 @@ def editable(db, user: User) -> dict:
         "show": {key: bool(data["show"].get(key)) for key in PROFILE_SHOW_KEYS},
         "email": user.email or "",
         "avatarUrl": f"/api/avatar/{user.avatar}" if user.avatar else None,
+        "coverUrl": f"/api/profile-cover/{user.profile_cover}" if user.profile_cover else None,
         "shareToken": user.profile_token,
     }
 

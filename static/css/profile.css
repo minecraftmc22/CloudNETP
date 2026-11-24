@@ -23,12 +23,39 @@
   overflow: hidden;
 }
 .profile-card__cover {
+  position: relative;
   height: 96px;
   background-color: var(--layer-2);
   background-image: var(--accent-tint);
+  /* 有自定义背景图时靠 background-image 铺满：cover 保证不变形，居中保证主体不偏 */
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
   border-bottom: 1px solid var(--stroke-hair);
 }
+/* 有图时把横幅放高一点：96px 只够露出照片中间一条，看起来像被裁坏了 */
+.profile-card__cover.has-image {
+  height: 168px;
+}
+/* 换背景 / 移除：压在照片上，按钮自己带实色底，浅色图上也看得清。
+   放右上角而不是右下角——下面那行会被 -40px 的 margin 拉上来放名字，
+   贴底的话窄屏上会直接压住昵称。 */
+.profile-cover__ops {
+  position: absolute;
+  right: 12px;
+  top: 12px;
+  display: flex;
+  gap: 6px;
+}
+.profile-cover__ops .btn {
+  background-color: var(--panel-surface);
+  box-shadow: var(--shadow-1);
+}
 .profile-card__main {
+  /* 封面改成了 position:relative（放「换背景」按钮），定位元素会盖在静态兄弟节点之上，
+     头像和名字就会被封面吃掉一截 —— 这里必须显式抬一层 */
+  position: relative;
+  z-index: 1;
   display: flex;
   align-items: flex-start;
   gap: 16px;
@@ -550,6 +577,10 @@ body.page-profile {
   .profile-card__text {
     padding-top: 6px;
     flex-basis: calc(100% - 88px);
+  }
+  /* 有背景图时名字要落在图下方：main 被 -40px 拉上来，6px 的 padding 会让名字压在图上 */
+  .profile-card.has-cover .profile-card__text {
+    padding-top: 46px;
   }
   .profile-card__ops {
     padding-top: 0;

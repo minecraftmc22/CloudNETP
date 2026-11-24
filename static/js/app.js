@@ -77,6 +77,8 @@ const NAV_ITEMS = [
   { route: "friends", label: "好友", icon: "i-users", badge: true },
   { route: "mascot", label: "CDP娘", icon: "i-spark", mobileOnly: true },
   { group: "系统" },
+  // 手机底部栏只放得下六个入口，个人主页在手机走右上角头像菜单
+  { route: "profile", label: "个人主页", icon: "i-user", desktopOnly: true },
   { route: "settings", label: "设置", icon: "i-settings" },
   { route: "about", label: "关于", icon: "i-info", desktopOnly: true },
   { route: "admin", label: "管理后台", icon: "i-shield", adminOnly: true },
@@ -412,7 +414,10 @@ function renderNav() {
     ${NAV_ITEMS.map((item) => {
       if (item.group) return H`<div class="nav__group">${t(item.group)}</div>`;
       if (item.adminOnly && user?.role !== 1) return "";
-      const active = current === item.route;
+      // 个人主页地址里带本人 id（#/profile/3），换成别的 id 就是去看别人；
+      // 高亮只认「自己的那一页」，翻别人主页时侧栏不该亮着
+      const href = item.route === "profile" && user ? `#/profile/${user.id}` : `#/${item.route}`;
+      const active = item.route === "profile" ? Boolean(href) && location.hash === href : current === item.route;
       const cls = [
         "nav-item",
         active ? "is-active" : "",
@@ -423,7 +428,7 @@ function renderNav() {
         .join(" ");
       return H`
         <a class="${cls}"
-           href="#/${item.route}" data-route="${item.route}" data-tip="${t(item.label)}"
+           href="${href}" data-route="${item.route}" data-tip="${t(item.label)}"
            aria-label="${t(item.label)}" ${active ? 'aria-current="page"' : ""}>
           <svg class="icon"><use href="#${item.icon}"/></svg>
           <span class="nav-item__label">${t(item.label)}</span>
@@ -551,7 +556,12 @@ function route() {
 
   document.title = `${t(TITLES[name])} · ${siteTitle()}`;
   document.querySelectorAll(".nav-item").forEach((item) => {
-    item.classList.toggle("is-active", item.dataset.route === name);
+    // 「个人主页」还带 id 子段：看别人的主页时不该亮成自己的
+    const on =
+      item.dataset.route === "profile"
+        ? location.hash === `#/profile/${user.id}`
+        : item.dataset.route === name;
+    item.classList.toggle("is-active", on);
   });
 }
 
@@ -633,6 +643,7 @@ function setupUserMenu() {
       },
       items: [
         ...installMenuItems(),
+        { label: t("个人主页"), icon: "i-user", onClick: () => (location.hash = `#/profile/${user.id}`) },
         { label: t("消息中心"), icon: "i-bell", onClick: () => (location.hash = "#/notices") },
         { label: t("设置"), icon: "i-settings", onClick: () => (location.hash = "#/settings") },
         ...(user.role === 1

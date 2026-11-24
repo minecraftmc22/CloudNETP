@@ -288,8 +288,10 @@ def delete_user(user_id: int, request: Request, db: DbSession, me: AdminUser) ->
 
     name = target.username
     avatar = target.avatar
+    cover = target.profile_cover
     result = admin.purge_user(db, target)
     ps.drop_avatar(avatar)  # 数据库行没了，头像文件也别留在盘上
+    ps.drop_cover(cover)
     log_action(
         db,
         "admin_user_delete",

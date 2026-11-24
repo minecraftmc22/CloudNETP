@@ -35,6 +35,7 @@ def purge_account(db: Session, user: User, *, drop_avatar_file: bool = True) -> 
     """删除该账号及其全部数据，返回删掉了多少东西（给审计和前端提示用）。"""
     uid = user.id
     avatar = user.avatar
+    cover = user.profile_cover
 
     node_ids = select(Node.id).where(Node.user_id == uid)
     share_ids = select(Share.id).where(Share.user_id == uid)
@@ -80,4 +81,5 @@ def purge_account(db: Session, user: User, *, drop_avatar_file: bool = True) -> 
     result = admin_service.purge_user(db, user)
     if drop_avatar_file:
         profile_service.drop_avatar(avatar)
+        profile_service.drop_cover(cover)
     return {**result, "chats": counts["chats"], "quick": counts["quick"], "feedback": counts["feedback"]}

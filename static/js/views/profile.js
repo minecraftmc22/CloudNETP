@@ -22,6 +22,60 @@ const GENDERS = [
 
 const LINK_ORDER = Object.keys(LINK_LABELS);
 
+/* 主页横幅固定 4:1（与服务端 COVER_RATIO 一致），先在本地裁好再上传：
+   既省流量，也让用户看到的预览和存下来的就是同一块画面。 */
+const COVER_RATIO = 4;
+const COVER_MAX_WIDTH = 1600;
+
+function loadBitmap(file) {
+  if (typeof createImageBitmap === "function") return createImageBitmap(file);
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(img);
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("decode"));
+    };
+    img.src = url;
+  });
+}
+
+async function prepareCover(file) {
+  const bmp = await loadBitmap(file);
+  const w = bmp.width || bmp.naturalWidth;
+  const h = bmp.height || bmp.naturalHeight;
+  if (!w || !h) throw new Error("decode");
+  let cw = w;
+  let ch = Math.round(w / COVER_RATIO);
+  if (ch > h) {
+    ch = h;
+    cw = Math.round(h * COVER_RATIO);
+  }
+  const outW = Math.min(COVER_MAX_WIDTH, cw);
+  const outH = Math.max(1, Math.round(outW / COVER_RATIO));
+  const canvas = document.createElement("canvas");
+  canvas.width = outW;
+  canvas.height = outH;
+  canvas.getContext("2d").drawImage(
+    bmp,
+    Math.round((w - cw) / 2),
+    Math.round((h - ch) / 2),
+    cw,
+    ch,
+    0,
+    0,
+    outW,
+    outH
+  );
+  bmp.close?.();
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/webp", 0.9));
+  return blob || file;
+}
+
 export function genderText(value) {
   if (!value) return "";
   return t(GENDERS.find((g) => g.value === value)?.label || "其他");
@@ -116,8 +170,24 @@ export function renderProfile(root, { user: me, sub = "" } = {}) {
         : "";
 
     bodyEl.innerHTML = H`
-      <div class="profile-card">
-        <div class="profile-card__cover"></div>
+      <div class="profile-card ${p.coverUrl ? "has-cover" : ""}">
+        <div class="profile-card__cover ${p.coverUrl ? "has-image" : ""}"
+             ${p.coverUrl ? H`style="background-image:url('${escapeHtml(p.coverUrl)}')"` : ""}>
+          ${
+            p.isSelf
+              ? H`<div class="profile-cover__ops">
+                   <button class="btn btn--subtle btn--sm" type="button" data-act="cover">
+                     <svg class="icon icon--s"><use href="#i-image"/></svg>${p.coverUrl ? t("更换背景") : t("设置背景")}
+                   </button>
+                   ${
+                     p.coverUrl
+                       ? H`<button class="btn btn--subtle btn--sm" type="button" data-act="cover-remove">${t("移除")}</button>`
+                       : ""
+                   }
+                 </div>`
+              : ""
+          }
+        </div>
         <div class="profile-card__main">
           <span class="profile-card__avatar">${avatarMarkup({ ...p, displayName: name })}</span>
           <div class="profile-card__text">
@@ -148,7 +218,8 @@ export function renderProfile(root, { user: me, sub = "" } = {}) {
             </div>`
           : ""
       }
-      ${emptyHint}`;
+      ${emptyHint}
+      ${p.isSelf ? H`<input type="file" accept="image/*" data-cover-input hidden>` : ""}`;
   }
 
   async function load() {
@@ -177,10 +248,55 @@ export function renderProfile(root, { user: me, sub = "" } = {}) {
     else if (act === "share") void openShare();
     else if (act === "add") void addFriend();
     else if (act === "chat") void openChat();
+    else if (act === "cover") bodyEl.querySelector("[data-cover-input]")?.click();
+    else if (act === "cover-remove") void removeCover();
     else if (act === "incoming") {
       location.hash = "#/friends";
     }
   });
+
+  bodyEl.addEventListener("change", (event) => {
+    if (event.target.matches("[data-cover-input]")) void uploadCover(event.target);
+  });
+
+  async function uploadCover(input) {
+    const file = input.files?.[0];
+    input.value = "";
+    if (!file) return;
+    if (!/^image\//.test(file.type)) {
+      Toast.error(t("请选择图片文件"));
+      return;
+    }
+    if (file.size > 16 * 1024 * 1024) {
+      Toast.error(t("图片太大了，请选 16 MB 以内的"));
+      return;
+    }
+    try {
+      const blob = await prepareCover(file);
+      await api.raw("/api/me/profile/cover", blob, "PUT");
+      Toast.success(t("主页背景已更新"));
+      await load();
+    } catch (err) {
+      Toast.error(err?.message || t("背景上传失败"));
+    }
+  }
+
+  async function removeCover() {
+    const ok = await Dialog.confirm({
+      title: t("移除主页背景"),
+      message: t("移除后回到默认渐变，图片文件会从服务器上删掉。"),
+      confirmText: t("移除"),
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await api.del("/api/me/profile/cover");
+      Toast.success(t("主页背景已移除"));
+      await load();
+    } catch (err) {
+      Toast.error(err?.message || t("操作失败"));
+    }
+  }
 
   async function addFriend() {
     const p = state.profile;

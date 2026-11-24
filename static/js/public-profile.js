@@ -127,8 +127,9 @@ function render(profile) {
     .join("");
 
   root.innerHTML = H`
-    <div class="profile-card">
-      <div class="profile-card__cover"></div>
+    <div class="profile-card ${profile.coverUrl ? "has-cover" : ""}">
+      <div class="profile-card__cover ${profile.coverUrl ? "has-image" : ""}"
+           ${profile.coverUrl ? H`style="background-image:url('${escapeHtml(profile.coverUrl)}')"` : ""}></div>
       <div class="profile-card__main">
         <span class="profile-card__avatar">${avatarMarkup(profile)}</span>
         <div class="profile-card__text">

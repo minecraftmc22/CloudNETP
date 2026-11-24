@@ -19,8 +19,9 @@ from app import profile_service as ps
 from app.admin_service import purge_user
 from app.db import SessionLocal
 from app.models import AuditLog, Node, User
+from app.security import hash_password
 
-BASE = "http://127.0.0.1:8123"
+BASE = f"http://127.0.0.1:{int(sys.argv[1]) if len(sys.argv) > 1 else 8123}"
 USER = "profprobe"
 PASSWORD = "Probe#2026x"
 
@@ -99,18 +100,21 @@ def main() -> int:
     api = Client()
 
     # ---------- 准备账号 ----------
-    status, body, _ = api.post("/api/auth/register", {"username": USER, "password": PASSWORD})
-    if status == 409:
-        with SessionLocal() as db:
-            old = db.query(User).filter(User.username == USER).one()
+    # 注册接口强制要图形验证码（机器过不去），这里直接在库里造人再登录
+    with SessionLocal() as db:
+        old = db.query(User).filter(User.username == USER).one_or_none()
+        if old is not None:
             purge_user(db, old)
             db.commit()
-        status, body, _ = api.post("/api/auth/register", {"username": USER, "password": PASSWORD})
-    if status != 201:
-        print(f"注册失败：{status} {body}")
+        db.add(User(username=USER, password_hash=hash_password(PASSWORD), role=0))
+        db.commit()
+
+    status, body, _ = api.post("/api/auth/login", {"username": USER, "password": PASSWORD})
+    if status != 200:
+        print(f"登录失败：{status} {body}")
         return 1
     user = body["user"]
-    check("注册测试账号", status == 201)
+    check("登录测试账号", status == 200)
     check("默认昵称回落为用户名", user["displayName"] == USER, user.get("displayName"))
     check("默认简介为空", user["bio"] == "")
     check("默认没有头像", user["avatarUrl"] is None)
@@ -160,6 +164,67 @@ def main() -> int:
     check("移除头像", status == 200 and body["user"]["avatarUrl"] is None, body)
     status, _, _ = api.get(old_url)
     check("旧头像文件已被删除（404）", status == 404, status)
+
+    # ---------- 主页背景（cover） ----------
+    anon = Client()
+    status, body, _ = api.put_raw("/api/me/profile/cover", png_bytes(800, 300))
+    cover_url = (body.get("profile") or {}).get("coverUrl") if status == 200 else None
+    check("上传主页背景", status == 200 and bool(cover_url), body)
+    check(
+        "主页背景 URL 形态正确",
+        bool(cover_url and cover_url.startswith("/api/profile-cover/")),
+        cover_url,
+    )
+
+    status, blob, ctype = api.get(cover_url)
+    cover_shape = None
+    if status == 200 and isinstance(blob, bytes):
+        with Image.open(io.BytesIO(blob)) as img:
+            cover_shape = img.size
+    check("取回主页背景", status == 200, status)
+    check(
+        "服务端裁成 4:1 横幅",
+        bool(cover_shape and abs(cover_shape[0] / cover_shape[1] - ps.COVER_RATIO) < 0.02),
+        cover_shape,
+    )
+    check("主页背景返回 webp", "webp" in (ctype or ""), ctype)
+
+    status, body, _ = api.get(f"/api/users/{user['id']}/profile")
+    check(
+        "个人主页下发背景地址",
+        (body.get("profile") or {}).get("coverUrl") == cover_url,
+        (body.get("profile") or {}).get("coverUrl"),
+    )
+
+    status, _, _ = api.put_raw("/api/me/profile/cover", b"not-an-image-at-all")
+    check("主页背景非图片被拒绝（400）", status == 400, status)
+
+    status, _, _ = api.put_raw("/api/me/profile/cover", b"\x00" * (17 * 1024 * 1024))
+    check("主页背景超 16 MB 被拒绝（413）", status == 413, status)
+
+    # 公开分享页也要能看到背景
+    status, body, _ = api.post("/api/me/profile/share", {"enabled": True})
+    profile_token = body.get("token") if status == 200 else ""
+    check("开启主页分享", status == 200 and bool(profile_token), body)
+
+    status, body, _ = anon.get(f"/api/public/profile/{profile_token}")
+    public_cover = (body.get("profile") or {}).get("coverUrl") or ""
+    check(
+        "公开页下发背景地址",
+        public_cover == f"/api/public/profile/{profile_token}/cover",
+        public_cover,
+    )
+    status, blob, ctype = anon.get(public_cover)
+    check("公开页背景可访问", status == 200 and "image" in (ctype or ""), (status, ctype))
+    api.post("/api/me/profile/share", {"enabled": False})
+    status, _, _ = anon.get(public_cover)
+    check("关掉分享后背景也取不到（404）", status == 404, status)
+
+    old_cover = cover_url
+    status, body, _ = api.delete("/api/me/profile/cover")
+    check("移除主页背景", status == 200 and (body.get("profile") or {}).get("coverUrl") is None, body)
+    status, _, _ = api.get(old_cover)
+    check("旧的主页背景文件已删除（404）", status == 404, status)
 
     # ---------- 分享页分享者 ----------
     status, body, _ = api.put_raw("/api/me/avatar", png_bytes(120, 120))
@@ -226,6 +291,7 @@ def main() -> int:
         }
     check("资料变更写入审计", "profile_update" in actions, sorted(actions))
     check("头像变更写入审计", {"avatar_update", "avatar_remove"} <= actions, sorted(actions))
+    check("主页背景变更写入审计", {"cover_update", "cover_remove"} <= actions, sorted(actions))
 
     # ---------- 清理 ----------
     with SessionLocal() as db:

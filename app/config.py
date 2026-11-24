@@ -111,7 +111,7 @@ def _compose_database_url() -> str:
 class Settings:
     # ---- 应用 ----
     APP_NAME: str = _get("APP_NAME", "CloudNETP")
-    VERSION: str = "0.6.3"
+    VERSION: str = "0.6.4"
     DEBUG: bool = _get_bool("DEBUG", True)
 
     # ---- 监听与对外地址 ----
@@ -333,6 +333,15 @@ class Settings:
     def background_dir(self) -> Path:
         """自定义背景图：storage/backgrounds/<user_id>-<随机>.webp"""
         return self.STORAGE_DIR / "backgrounds"
+
+    @property
+    def cover_dir(self) -> Path:
+        """个人主页顶部背景图：storage/covers/<user_id>-<随机>.webp
+
+        和 background_dir（全站壁纸）分开存：两套图尺寸/用途都不一样，
+        混在一个目录里清理时容易误删。
+        """
+        return self.STORAGE_DIR / "covers"
 
     @property
     def chat_dir(self) -> Path:

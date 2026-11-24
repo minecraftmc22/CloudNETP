@@ -49,6 +49,9 @@ class User(Base):
     # 个人主页扩展资料（JSON）：{gender, birthday, links:{qq,wechat,...}, show:{...}}
     # 名称与简介走 display_name / bio（总是展示），这里只放可选字段与各自的可见开关
     profile: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    # 个人主页顶部的背景图：只存文件名（storage/covers/<id>-<随机>.webp），和
+    # user_settings.background_image（全站壁纸）是两回事，别混用
+    profile_cover: Mapped[str | None] = mapped_column(String(64), nullable=True)
     # 公开分享主页的随机标识；NULL = 没开分享（/u/<token> 打不开）
     profile_token: Mapped[str | None] = mapped_column(String(24), unique=True, nullable=True)
     # WebDAV Digest 用的 HA1 = MD5(lower(username):realm:password)
