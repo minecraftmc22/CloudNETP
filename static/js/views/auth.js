@@ -334,8 +334,10 @@ const OAUTH_NAMES = { google: "Google", github: "GitHub" };
  *
  * 后端已经确认「开关打开 + 凭据齐全」才会出现在这个数组里，
  * 前端不再重复判断，避免两边开关不一致时出现「点了才报未配置」。
+ * `mode` 是当前页签（login / register）：注册页签下按钮文案换成「注册」，
+ * 登录和注册共用同一张卡片，切页签时重渲染一遍即可。
  */
-function renderOAuthButtons(box, providers) {
+function renderOAuthButtons(box, providers, mode = "login") {
   if (!box) return;
   const list = Array.isArray(providers)
     ? providers.filter((p) => p === "google" || p === "github")
@@ -349,17 +351,18 @@ function renderOAuthButtons(box, providers) {
   // 从分享页点「登录」过来的会带 ?next=，第三方登录也要把人送回原页
   const params = new URLSearchParams(location.search);
   const next = params.get("next") || "/";
+  const verbKey = mode === "register" ? "使用 {name} 注册" : "使用 {name} 登录";
   const buttons = list
     .map(
       (p) => `<a class="btn btn--subtle auth-oauth__btn" href="/api/auth/oauth/${p}/start?next=${encodeURIComponent(
         next
-      )}" data-oauth-provider="${p}">${BRAND_ICONS[p]}<span>${t("使用 {name} 登录", {
+      )}" data-oauth-provider="${p}">${BRAND_ICONS[p]}<span>${t(verbKey, {
         name: OAUTH_NAMES[p],
       })}</span></a>`
     )
     .join("");
 
-  box.innerHTML = `<div class="auth-oauth__divider"><span>${t("或使用第三方账号")}</span></div>${buttons}`;
+  box.innerHTML = `<div class="auth-oauth__divider"><span>${t("第三方登录")}</span></div>${buttons}`;
   box.hidden = false;
 }
 
@@ -371,8 +374,14 @@ export function renderAuth(root, { meta = {}, onSuccess, onBanned }) {
 
   root.innerHTML = template();
 
-  // 第三方登录按钮：管理员没配凭据时 meta.oauth 是空数组，按钮整块隐藏
-  renderOAuthButtons(root.querySelector("[data-oauth]"), meta.oauth);
+  // 第三方登录按钮：管理员没配凭据时 meta.oauth 是空数组，按钮整块隐藏；
+  // 登录/注册共用一个渲染入口，切页签时按 mode 重写文案
+  const oauthBox = root.querySelector("[data-oauth]");
+  const oauthProviders = Array.isArray(meta.oauth)
+    ? meta.oauth.filter((p) => p === "google" || p === "github")
+    : [];
+  let oauthMode = "login";
+  renderOAuthButtons(oauthBox, oauthProviders, oauthMode);
 
   const el = (sel) => root.querySelector(sel);
   const form = el("[data-form]");
@@ -523,6 +532,11 @@ export function renderAuth(root, { meta = {}, onSuccess, onBanned }) {
   function setMode(next) {
     mode = next;
     const registering = next === "register";
+    // 第三方按钮跟着页签换文案（登录 / 注册）
+    if (oauthProviders.length) {
+      oauthMode = next;
+      renderOAuthButtons(oauthBox, oauthProviders, oauthMode);
+    }
     segButtons.forEach((b) => b.classList.toggle("is-active", b.dataset.mode === next));
     stageEl?.classList.toggle("is-register", registering);
     cardEl?.classList.toggle("is-register", registering);

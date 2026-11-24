@@ -2312,7 +2312,6 @@ export default {
   "第三方登录设置已保存": "Third-party sign-in settings saved",
   "会清掉后台保存的第三方登录配置，之后按 .env 的 GOOGLE_* / GITHUB_* 生效。": "This clears the third-party sign-in configuration saved here; GOOGLE_* / GITHUB_* in .env will take effect again.",
   "使用 {name} 登录": "Continue with {name}",
-  "或使用第三方账号": "Or use a third-party account",
   "第三方账号": "Third-party accounts",
   "绑定 Google / GitHub 账号后可以直接用它登录本站；解绑后继续用密码登录。": "Link your Google / GitHub account to sign in with it directly; unlink anytime and keep using your password.",
   "已绑定，可直接用它登录": "Linked, sign in with it directly",
@@ -2329,4 +2328,5 @@ export default {
   "所有人": "Everyone",
   "@ 群成员": "@ members",
   "提醒全部群成员": "Notify all group members",
+  "使用 {name} 注册": "Sign up with {name}",
 };
