@@ -651,6 +651,28 @@
   height: 22px;
 }
 
+/* 被禁言：贴在输入框上方的提示条（输入框同时被锁） */
+.chat-mute {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--stroke);
+  border-left: 3px solid var(--danger);
+  border-radius: var(--radius-s);
+  background-color: var(--layer-1);
+  background-image: var(--danger-soft);
+  color: var(--text-2);
+  font-size: 12.5px;
+}
+.chat-mute[hidden] {
+  display: none;
+}
+.chat-mute .icon {
+  flex: none;
+  color: var(--danger);
+}
 .chat-compose__bar {
   display: flex;
   align-items: flex-end;

@@ -539,7 +539,7 @@ function route() {
   else if (name === "quick") renderQuick(root, { user });
   else if (name === "trash") renderTrash(root, { user });
   else if (name === "chat") renderChat(root, { sub });
-  else if (name === "friends") renderFriends(root);
+  else if (name === "friends") renderFriends(root, { tab: sub });
   else if (name === "profile") renderProfile(root, { user, sub });
   else if (name === "mascot") renderMascotPage(root);
   else if (name === "notices") renderNotices(root, { user });

@@ -598,6 +598,8 @@ class ChatMember(Base):
     hidden_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     # 群管理员：非空即已被群主设为管理员。不复用 role，避免给老库改 CHECK 约束
     admin_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # 禁言截止时间：NULL = 正常；到点自动失效，不需要定时任务去解（发消息时比一次时间就行）
+    mute_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     # 退群用软标记？不：直接删行。历史消息仍在，sender_id 由消息表自己记着
     __table_args__ = (
         CheckConstraint("role IN ('owner', 'member')", name="ck_member_role"),

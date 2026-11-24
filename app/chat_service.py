@@ -279,6 +279,7 @@ def _conv_payload(
     rows = members if members is not None else members_of(db, conv.id)
     users = _users(db, [row.user_id for row in rows])
     note_map = notes or {}
+    now = utcnow()
     people = []
     for row in rows:
         item = user_card(users.get(row.user_id))
@@ -286,6 +287,9 @@ def _conv_payload(
         if alias:
             item["alias"] = alias
         item["isAdmin"] = row.admin_at is not None
+        # 禁言过期了就当没有：前端不用再拿客户端时钟比一遍
+        if row.mute_until and row.mute_until > now:
+            item["muteUntil"] = iso(row.mute_until)
         people.append(item)
     mine = next((p for p in people if p["id"] == me.id), None)
     if conv.kind == "direct":
@@ -321,6 +325,12 @@ def _conv_payload(
         "shareEnabled": bool(conv.share_token) if is_group else False,
         "myRole": my_role if is_group else "member",
         "canManage": bool(is_group and (conv.owner_id == me.id or (member and member.admin_at))),
+        # 我被禁言到什么时候（过期/没禁言都是 None）；前端据此锁输入框
+        "myMuteUntil": (
+            iso(member.mute_until)
+            if (is_group and member and member.mute_until and member.mute_until > now)
+            else None
+        ),
         "members": people,
         "memberCount": len(people),
         "me": mine,
@@ -968,7 +978,7 @@ def send_message(
     payload: dict[str, Any] | None = None,
     reply_to: int | None = None,
 ) -> ChatMessage:
-    conv, _ = require_member(db, conversation_id, me)
+    conv, member = require_member(db, conversation_id, me)
     if conv.kind == "direct":
         rows = members_of(db, conv.id)
         peer_id = next((row.user_id for row in rows if row.user_id != me.id), None)
@@ -982,6 +992,19 @@ def send_message(
         if theirs:
             # 对方的输入框还在（他看不见我拉黑了他），但消息发不进来
             raise HTTPException(status.HTTP_403_FORBIDDEN, "对方拒收了你的消息")
+
+    # 禁言：到期时间已过就当作没禁言，不需要谁去解
+    if conv.kind == "group" and member is not None and member.mute_until:
+        left = (member.mute_until - utcnow()).total_seconds()
+        if left > 0:
+            mins = int(left // 60) + 1
+            if mins >= 1440:
+                span = f"{mins // 1440} 天"
+            elif mins >= 60:
+                span = f"{mins // 60} 小时"
+            else:
+                span = f"{mins} 分钟"
+            raise HTTPException(status.HTTP_403_FORBIDDEN, f"你已被禁言，还有 {span}")
 
     kind = (kind or "text").strip()
     text = ""

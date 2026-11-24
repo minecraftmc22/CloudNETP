@@ -22,9 +22,10 @@ const TABS = [
   { id: "add", label: "添加", empty: "输入用户名或昵称搜索" },
 ];
 
-export function renderFriends(root) {
+export function renderFriends(root, { tab = "" } = {}) {
   const state = {
-    tab: "friends",
+    // 支持 #/friends/incoming 直接落到「收到的」（消息中心的好友申请点进来就走这条）
+    tab: TABS.some((item) => item.id === tab) ? tab : "friends",
     data: { friends: [], incoming: [], outgoing: [], blocks: [] },
     query: "",
     results: [],
@@ -47,7 +48,7 @@ export function renderFriends(root) {
         <div class="segmented" data-tabs>
           ${TABS.map(
             (tab) =>
-              H`<button class="segmented__btn ${tab.id === "friends" ? "is-active" : ""}" type="button"
+              H`<button class="segmented__btn ${tab.id === state.tab ? "is-active" : ""}" type="button"
                         data-friend-tab="${tab.id}">${t(tab.label)}<span class="listbar__count" data-count="${tab.id}" hidden>0</span></button>`
           ).join("")}
         </div>

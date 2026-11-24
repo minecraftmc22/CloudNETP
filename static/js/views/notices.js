@@ -29,7 +29,7 @@ const PENDING = [
   { key: "appeals", icon: "i-shield", label: "待审核申诉", link: "#/admin/appeals" },
   { key: "feedback", icon: "i-mail", label: "待处理反馈", link: "#/admin/feedback" },
   { key: "chatReports", icon: "i-chat", label: "聊天举报", link: "#/admin/chat" },
-  { key: "friendRequests", icon: "i-user-plus", label: "好友申请", link: "#/friends" },
+  { key: "friendRequests", icon: "i-user-plus", label: "好友申请", link: "#/friends/incoming" },
 ];
 
 export function renderNotices(root, { user } = {}) {
@@ -154,7 +154,9 @@ export function renderNotices(root, { user } = {}) {
       paintList();
       void refreshNoticeBadge();
     }
-    if (link) location.hash = link;
+    // 好友申请直接落到「收到的」页签：老通知存的还是 #/friends，这里兜一层
+    const target = item?.kind === "friend_request" ? "#/friends/incoming" : link;
+    if (target) location.hash = target;
   }
 
   async function load() {

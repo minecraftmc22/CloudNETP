@@ -81,7 +81,8 @@ def main() -> int:
     alice = ensure_user("ui2_alice")
     bob = ensure_user("ui2_bob")
     carol = ensure_user("ui2_carol")
-    ids = [alice.id, bob.id, carol.id]
+    dave = ensure_user("ui2_dave")
+    ids = [alice.id, bob.id, carol.id, dave.id]
 
     # 清场
     conv_ids = list(db.scalars(select(ChatMember.conversation_id).where(ChatMember.user_id.in_(ids))).all())
@@ -121,6 +122,9 @@ def main() -> int:
     bob.profile_token = None
     carol.profile = {}
     carol.profile_token = None
+    dave.display_name = "小d"
+    dave.profile = {}
+    dave.profile_token = None
 
     db.add_all(
         [
@@ -130,6 +134,13 @@ def main() -> int:
             Friendship(requester_id=alice.id, addressee_id=carol.id, status="accepted",
                        message="", requester_alias="", addressee_alias="",
                        created_at=utcnow(), updated_at=utcnow()),
+            # 一条待处理的好友申请 + 对应的消息中心通知（老数据链接是 #/friends，
+            # 用来验证点进去仍然落到「收到的」）
+            Friendship(requester_id=dave.id, addressee_id=alice.id, status="pending",
+                       message="我是小d", requester_alias="", addressee_alias="",
+                       created_at=utcnow(), updated_at=utcnow()),
+            Notice(user_id=alice.id, kind="friend_request", title="小d 想加你为好友",
+                   body="我是小d", link="#/friends", created_at=utcnow()),
         ]
     )
     db.commit()
@@ -437,6 +448,35 @@ def main() -> int:
         shot("chat-notify.png")
         js("document.querySelector('.notify-card__main').click()")
         check(wait_for(f"location.hash === '#/chat/{direct_id}'", 12), "点卡片跳到对应会话")
+
+        # ---- 消息中心里的好友申请：点进去落到「好友 - 收到的」 ----
+        js("location.hash = '#/notices'")
+        check(wait_for("document.querySelectorAll('.notice-item').length >= 1", 25), "消息中心有通知")
+        req = js(
+            """
+            (() => {
+              const item = [...document.querySelectorAll('.notice-item')]
+                .find((n) => /想加你为好友/.test(n.innerText));
+              return item ? { link: item.dataset.link, text: item.innerText.trim().slice(0, 30) } : null;
+            })()
+            """
+        )
+        check(bool(req), f"消息中心里有好友申请（{req}）")
+        js(
+            """
+            [...document.querySelectorAll('.notice-item')]
+              .find((n) => /想加你为好友/.test(n.innerText))?.click()
+            """
+        )
+        check(wait_for("location.hash === '#/friends/incoming'", 15),
+              f"好友申请跳到好友-收到的（{js('location.hash')}）")
+        time.sleep(0.9)
+        check(js(
+            "document.querySelector('[data-friend-tab=\"incoming\"]')?.classList.contains('is-active')"
+        ) is True, "「收到的」页签被选中")
+        incoming = js("document.querySelector('[data-pane]')?.innerText || ''")
+        check("小d" in (incoming or ""), f"收到的申请里能看到对方（{incoming.strip()[:30]}）")
+        shot("notices-friend-request.png")
     finally:
         try:
             ws.close()

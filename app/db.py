@@ -180,6 +180,8 @@ _COLUMN_PATCHES: dict[str, dict[str, str]] = {
         "hidden_at": "DATETIME NULL",
         # 管理员标记；老库补列后为 NULL，即都不是管理员
         "admin_at": "DATETIME NULL",
+        # 禁言截止时间；老库补列后为 NULL，即没人被禁言
+        "mute_until": "DATETIME NULL",
     },
     "friendships": {
         # 双方各自给对方起的备注：老库补列后为空串 = 用对方昵称

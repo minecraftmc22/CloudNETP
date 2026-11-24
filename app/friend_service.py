@@ -213,7 +213,7 @@ def request(db: Session, me: User, target_id: int, message: str = "") -> dict[st
         "friend_request",
         f"{me.display_name or me.username} 想加你为好友",
         row.message,
-        "#/friends",
+        "#/friends/incoming",
     )
     return {"relation": "pending_out", "requestId": row.id}
 

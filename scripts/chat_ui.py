@@ -865,7 +865,8 @@ def main() -> None:
         finally:
             cdb.close()
         js("location.reload()")
-        check(wait_for("document.querySelectorAll('.chat-feed .msg').length > 0", 25),
+        # 等这一条具体的消息出现，光等「有几条消息」会被 reload 前的旧 DOM 骗过去
+        check(wait_for(f"!!document.querySelector('.chat-feed .msg[data-mid=\"{stale_id}\"]')", 25),
               "刷新后重新拉到消息")
         time.sleep(1.2)
         opened = js(
@@ -927,6 +928,7 @@ def main() -> None:
         check(group["info"], "群聊头部有「群聊信息」入口")
         js("document.querySelector('[data-act=\"group-info\"]').click()")
         check(wait_for("!!document.querySelector('.picker--group .group-info__name')", 8), "群信息面板能打开")
+        check(js("!!document.querySelector('[data-act=\"dissolve\"]')"), "群主能看到「解散群聊」")
         tabs = js(
             "[...document.querySelectorAll('.picker--group [data-gtab]')].map((b) => b.textContent.trim())"
         )
@@ -934,6 +936,57 @@ def main() -> None:
         js("document.querySelector('.picker--group [data-gtab=\"members\"]').click()")
         check(wait_for("document.querySelectorAll('.picker--group .group-member').length >= 3", 8),
               "成员页签列出成员")
+
+        # 右键成员：群主能禁言（菜单里直接给档位）
+        js(
+            """
+            (() => {
+              const rows = [...document.querySelectorAll('.picker--group .group-member')];
+              const row = rows.find((r) => !/我/.test(r.querySelector('.group-member__name')?.textContent || ''));
+              row?.dispatchEvent(new MouseEvent('contextmenu', {
+                bubbles: true, cancelable: true, clientX: 240, clientY: 260,
+              }));
+            })()
+            """
+        )
+        check(wait_for("!!document.querySelector('.popover .menu-item')", 6), "右键成员弹出成员菜单")
+        mmenu = js(
+            "[...document.querySelectorAll('.popover .menu-item')].map((b) => b.textContent.trim())"
+        )
+        check(any("禁言 10 分钟" in x for x in mmenu), f"成员菜单里有禁言档位（{mmenu}）")
+        check(any("移出群聊" in x for x in mmenu), "成员菜单里有移出群聊")
+        js(
+            "[...document.querySelectorAll('.popover .menu-item')]"
+            ".find((b) => b.textContent.includes('禁言 10 分钟'))?.click()"
+        )
+        check(wait_for(
+            "/禁言中/.test(document.querySelector('.picker--group')?.innerText || '')", 10
+        ), "禁言后成员列表出现「禁言中」")
+        shot("chat-group-muted.png")
+        # 再右键同一个人：这次是「解除禁言」
+        js(
+            """
+            (() => {
+              const row = [...document.querySelectorAll('.picker--group .group-member')]
+                .find((r) => /禁言中/.test(r.innerText));
+              row?.dispatchEvent(new MouseEvent('contextmenu', {
+                bubbles: true, cancelable: true, clientX: 240, clientY: 260,
+              }));
+            })()
+            """
+        )
+        check(wait_for("!!document.querySelector('.popover .menu-item')", 6), "再次右键弹出菜单")
+        mmenu2 = js(
+            "[...document.querySelectorAll('.popover .menu-item')].map((b) => b.textContent.trim())"
+        )
+        check(any("解除禁言" in x for x in mmenu2), f"已禁言的人菜单变成「解除禁言」（{mmenu2}）")
+        js(
+            "[...document.querySelectorAll('.popover .menu-item')]"
+            ".find((b) => b.textContent.includes('解除禁言'))?.click()"
+        )
+        check(wait_for(
+            "!/禁言中/.test(document.querySelector('.picker--group')?.innerText || '')", 10
+        ), "解除禁言后标签消失")
         js("document.querySelector('.picker--group [data-gtab=\"share\"]').click()")
         # 群号/链接是后端现算的，等一会儿
         check(wait_for(
@@ -941,6 +994,94 @@ def main() -> None:
         ), "分享页签显示 9 位群号")
         shot("chat-desktop-group.png")
         js("document.querySelector('.picker-backdrop')?.remove()")
+
+        # 右键消息 → 复制
+        try:
+            send(
+                "Browser.grantPermissions",
+                permissions=["clipboardReadWrite", "clipboardSanitizedWrite"],
+                origin=BASE,
+            )
+        except Exception:
+            pass
+        js(
+            """
+            (() => {
+              const m = [...document.querySelectorAll('.msg[data-kind="text"]')].pop();
+              m?.dispatchEvent(new MouseEvent('contextmenu', {
+                bubbles: true, cancelable: true, clientX: 300, clientY: 320,
+              }));
+            })()
+            """
+        )
+        check(wait_for("!!document.querySelector('.popover .menu-item')", 6), "右键消息弹出菜单")
+        citems = js(
+            "[...document.querySelectorAll('.popover .menu-item')].map((b) => b.textContent.trim())"
+        )
+        check("复制" in citems, f"消息菜单里有「复制」（{citems}）")
+        js(
+            "[...document.querySelectorAll('.popover .menu-item')]"
+            ".find((b) => b.textContent.trim() === '复制')?.click()"
+        )
+        check(wait_for("!!document.querySelector('.toast')", 8), "点复制有提示")
+        copied = wait_for(
+            "(document.querySelector('.toast .toast__text')?.textContent || '').trim() === '已复制'", 8
+        )
+        toast = js("document.querySelector('.toast .toast__text')?.textContent.trim()")
+        check(copied, f"复制成功（{toast}）")
+        shot("chat-copy.png")
+
+        # 被禁言：输入框锁住 + 提示条（群主不能禁言自己，直接改库模拟这个状态）
+        cdb = db_failover.current_sessionmaker()()
+        try:
+            cdb.execute(
+                update(ChatMember)
+                .where(ChatMember.conversation_id == group_id, ChatMember.user_id == a_id)
+                .values(mute_until=utcnow() + timedelta(minutes=30))
+            )
+            cdb.commit()
+        finally:
+            cdb.close()
+        send("Page.navigate", url=f"{BASE}/?r=mute#/chat/{group_id}")
+        check(wait_for("!!document.querySelector('[data-mute-bar]')", 30), "重新打开群聊")
+        check(
+            wait_for(
+                "(() => { const b = document.querySelector('[data-mute-bar]'); "
+                "return b && !b.hidden; })()",
+                15,
+            ),
+            "被禁言时显示提示条",
+        )
+        check(
+            js("document.querySelector('.chat-compose__input textarea')?.disabled") is True,
+            "被禁言时输入框禁用",
+        )
+        check(
+            "禁言" in (js("document.querySelector('[data-mute-bar]')?.innerText || ''") or ""),
+            "提示条写明被禁言",
+        )
+        shot("chat-muted.png")
+
+        # 解禁后输入框要恢复（后面的用例还要发消息）
+        cdb = db_failover.current_sessionmaker()()
+        try:
+            cdb.execute(
+                update(ChatMember)
+                .where(ChatMember.conversation_id == group_id, ChatMember.user_id == a_id)
+                .values(mute_until=None)
+            )
+            cdb.commit()
+        finally:
+            cdb.close()
+        send("Page.navigate", url=f"{BASE}/?r=unmute#/chat/{group_id}")
+        check(
+            wait_for(
+                "(() => { const t = document.querySelector('.chat-compose__input textarea'); "
+                "return t && !t.disabled; })()",
+                25,
+            ),
+            "解禁后输入框恢复",
+        )
 
         # 返回单聊并截图
         js(f"document.querySelector('.chat-item[data-conv=\"{direct_id}\"]').click()")

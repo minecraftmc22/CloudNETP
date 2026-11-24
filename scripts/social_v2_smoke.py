@@ -6,6 +6,8 @@
 - 好友备注：只对自己生效、单聊标题跟随备注
 - 群资料：改名/简介、公开私密权限、群头像
 - 群管理员：群主设/取消、管理员能改群名与踢人、不能越级
+- 禁言：权限矩阵（群主可禁言管理员、管理员只能禁言普通成员）、禁言期间发不出消息、解禁
+- 解散群聊：只有群主能解散，成员/消息/会话一起清掉
 - 群内备注：只对自己可见、不串到别人
 - 找群加群：公开群搜索、群号加入、私密群拒绝、邀请链接加入
 - 群分享：群号 9 位、链接、二维码、关闭后旧链接失效
@@ -330,6 +332,40 @@ def main() -> int:
         check(code == 403, f"管理员踢群主被拦（{code}）")
 
         # ------------------------------------------------------------------ #
+        # 4.5 禁言
+        # ------------------------------------------------------------------ #
+        code, _ = call(f"/api/chat/conversations/{cid}/members/{carol.id}/mute", tb, "POST",
+                       {"userId": carol.id, "minutes": 10})
+        check(code == 403, f"普通成员不能禁言别人（{code}）")
+        code, _ = call(f"/api/chat/conversations/{cid}/members/{alice.id}/mute", tc, "POST",
+                       {"userId": alice.id, "minutes": 10})
+        check(code == 403, f"管理员不能禁言群主（{code}）")
+        code, _ = call(f"/api/chat/conversations/{cid}/members/{carol.id}/mute", ta, "POST",
+                       {"userId": carol.id, "minutes": 10})
+        check(code == 200, "群主能禁言管理员")
+        code, _ = call(f"/api/chat/conversations/{cid}/members/{carol.id}/mute", ta, "POST",
+                       {"userId": carol.id, "minutes": 0})
+        check(code == 200, "解除管理员禁言")
+
+        code, data = call(f"/api/chat/conversations/{cid}/members/{bob.id}/mute", tc, "POST",
+                          {"userId": bob.id, "minutes": 10})
+        check(code == 200 and data.get("muteUntil"), "管理员能禁言普通成员")
+        code, _ = call(f"/api/chat/conversations/{cid}/messages", tb, "POST",
+                       {"kind": "text", "body": "我还能说话吗"})
+        check(code == 403, f"被禁言时发不出消息（{code}）")
+        code, data = call(f"/api/chat/conversations/{cid}", tc)
+        muted_row = next((m for m in data["conversation"]["members"] if m["id"] == bob.id), {})
+        check(bool(muted_row.get("muteUntil")), "成员列表里带着禁言到期时间")
+        code, data = call(f"/api/chat/conversations/{cid}", tb)
+        check(data["conversation"].get("myMuteUntil"), "被禁言的人自己能看到禁言状态")
+        code, _ = call(f"/api/chat/conversations/{cid}/members/{bob.id}/mute", tc, "POST",
+                       {"userId": bob.id, "minutes": 0})
+        check(code == 200, "解除禁言")
+        code, _ = call(f"/api/chat/conversations/{cid}/messages", tb, "POST",
+                       {"kind": "text", "body": "解禁了，可以说话"})
+        check(code in (200, 201), f"解除禁言后能发言（{code}）")
+
+        # ------------------------------------------------------------------ #
         # 5. 群内备注
         # ------------------------------------------------------------------ #
         code, _ = call(f"/api/chat/conversations/{cid}/members/{bob.id}/note", ta, "PUT",
@@ -475,6 +511,26 @@ def main() -> int:
             )
         )
         check(left is None, "移出成员时清掉他的备注")
+
+        # ------------------------------------------------------------------ #
+        # 10. 解散群聊
+        # ------------------------------------------------------------------ #
+        code, _ = call(f"/api/chat/conversations/{cid}/dissolve", tc, "POST")
+        check(code == 403, f"非群主不能解散群（{code}）")
+        code, data = call(f"/api/chat/conversations/{cid}/dissolve", ta, "POST")
+        check(code == 200 and data.get("dissolved") is True, "群主能解散群聊")
+        code, _ = call(f"/api/chat/conversations/{cid}", ta)
+        check(code in (403, 404), f"解散后会话打不开了（{code}）")
+        db.expire_all()
+        check(
+            db.scalars(select(ChatMessage).where(ChatMessage.conversation_id == cid)).all() == [],
+            "解散后消息清空",
+        )
+        check(
+            db.scalars(select(ChatMember).where(ChatMember.conversation_id == cid)).all() == [],
+            "解散后成员清空",
+        )
+        check(db.get(ChatConversation, cid) is None, "解散后会话行删除")
 
     finally:
         db.close()

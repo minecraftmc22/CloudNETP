@@ -732,6 +732,13 @@ class ChatAdminIn(CamelModel):
     admin: bool = True
 
 
+class ChatMuteIn(CamelModel):
+    """禁言：minutes <= 0 表示解除，服务端上限 30 天。"""
+
+    user_id: int
+    minutes: int = 0
+
+
 class ChatJoinIn(CamelModel):
     """加群：三选一 —— 群 id（公开群搜索点进来）、群号、邀请链接 token。"""
 

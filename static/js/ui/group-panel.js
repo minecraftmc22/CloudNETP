@@ -14,6 +14,7 @@ import { H, t } from "../i18n.js";
 import { avatarMarkup } from "./avatar.js";
 import { copyText } from "./clipboard.js";
 import { Dialog } from "./dialog.js";
+import { openMemberMenu } from "./member-menu.js";
 import { Toast } from "./toast.js";
 
 const TABS = [
@@ -105,6 +106,8 @@ export async function openGroupPanel(convId, { onChanged, onInvite } = {}) {
           </label>
           <div class="group-info__ops">
             <button class="btn btn--accent" type="button" data-act="save-info">${t("保存资料")}</button>
+            <span class="grow"></span>
+            ${conv.isOwner ? H`<button class="btn btn--subtle btn--danger" type="button" data-act="dissolve">${t("解散群聊")}</button>` : ""}
           </div>`
             : H`<p class="muted">${conv.description || t("这个群还没有简介")}</p>`
         }
@@ -114,9 +117,6 @@ export async function openGroupPanel(convId, { onChanged, onInvite } = {}) {
   function memberRow(m) {
     const isOwner = m.id === conv.ownerId;
     const isMe = m.id === conv.me?.id;
-    const canKick =
-      !isMe && !isOwner && (conv.isOwner || (conv.myRole === "admin" && !m.isAdmin));
-    const canAdmin = conv.isOwner && !isOwner;
     return H`
       <div class="group-member" data-uid="${m.id}">
         <span class="group-member__avatar">${avatarMarkup({ ...m, displayName: m.alias || m.displayName })}</span>
@@ -127,20 +127,16 @@ export async function openGroupPanel(convId, { onChanged, onInvite } = {}) {
             ${isOwner ? H`<span class="chip chip--accent">${t("群主")}</span>` : ""}
             ${m.isAdmin ? H`<span class="chip">${t("管理员")}</span>` : ""}
             ${isMe ? H`<span class="chip">${t("我")}</span>` : ""}
+            ${m.muteUntil ? H`<span class="chip chip--danger">${t("禁言中")}</span>` : ""}
           </span>
           <span class="group-member__meta">@${escapeHtml(m.username || "")}</span>
         </span>
         <span class="group-member__ops">
           ${!isMe ? H`<button class="btn btn--subtle" type="button" data-act="note" data-uid="${m.id}">${t("备注")}</button>` : ""}
           ${
-            canAdmin
-              ? H`<button class="btn btn--subtle" type="button" data-act="toggle-admin" data-uid="${m.id}"
-                     data-on="${m.isAdmin ? "1" : "0"}">${m.isAdmin ? t("取消管理员") : t("设为管理员")}</button>`
-              : ""
-          }
-          ${
-            canKick
-              ? H`<button class="btn btn--subtle btn--danger" type="button" data-act="kick" data-uid="${m.id}">${t("移出")}</button>`
+            !isMe && conv.canManage
+              ? H`<button class="icon-btn" type="button" data-act="member-menu" data-uid="${m.id}"
+                     title="${t("成员管理")}"><svg class="icon icon--s"><use href="#i-more"/></svg></button>`
               : ""
           }
         </span>
@@ -392,26 +388,40 @@ export async function openGroupPanel(convId, { onChanged, onInvite } = {}) {
       onInvite?.();
     } else if (act === "note") {
       await setNote(Number(btn.dataset.uid));
-    } else if (act === "toggle-admin") {
-      const uid = Number(btn.dataset.uid);
-      const on = btn.dataset.on !== "1";
-      await run(
-        () => api.post(`/api/chat/conversations/${convId}/admins`, { userId: uid, admin: on }),
-        on ? t("已设为管理员") : t("已取消管理员")
-      );
-    } else if (act === "kick") {
-      const uid = Number(btn.dataset.uid);
-      const ok = await Dialog.confirm({
-        title: t("移出成员"),
-        message: t("他会收到一条通知，之前的消息仍留在群里。"),
-        confirmText: t("移出"),
-        danger: true,
+    } else if (act === "member-menu") {
+      const member = (conv.members || []).find((m) => m.id === Number(btn.dataset.uid));
+      openMemberMenu({
+        conv,
+        member,
+        anchor: btn,
+        onChanged: async () => {
+          await reloadAll();
+          onChanged?.();
+        },
       });
-      if (ok) {
-        await run(
-          () => api.del(`/api/chat/conversations/${convId}/members/${uid}`),
-          t("已移出")
-        );
+    } else if (act === "dissolve") {
+      const typed = await Dialog.form({
+        title: t("解散群聊"),
+        message: t(
+          "解散后所有成员都会失去这个群，聊天记录和群文件会被永久删除，无法恢复。请输入群名「{name}」确认。",
+          { name: conv.title }
+        ),
+        danger: true,
+        confirmText: t("解散"),
+        fields: [{ name: "value", label: t("群名称"), value: "", placeholder: conv.title }],
+      });
+      if (!typed) return;
+      if (String(typed.value || "").trim() !== conv.title) {
+        Toast.error(t("群名不对，已取消解散"));
+        return;
+      }
+      try {
+        await api.post(`/api/chat/conversations/${convId}/dissolve`);
+        Toast.success(t("群聊已解散"));
+        close();
+        onChanged?.({ left: true });
+      } catch (err) {
+        Toast.error(err?.message || t("操作失败"));
       }
     } else if (act === "upload-file") {
       backdrop.querySelector("[data-file-input]").click();
@@ -464,6 +474,25 @@ export async function openGroupPanel(convId, { onChanged, onInvite } = {}) {
         }
       }
     }
+  });
+
+  /* 右键成员行 = 成员管理（跟聊天页里右键头像同一套菜单） */
+  backdrop.addEventListener("contextmenu", (event) => {
+    const rowEl = event.target.closest(".group-member[data-uid]");
+    if (!rowEl || !conv) return;
+    const member = (conv.members || []).find((m) => m.id === Number(rowEl.dataset.uid));
+    if (!member) return;
+    const shown = openMemberMenu({
+      conv,
+      member,
+      x: event.clientX,
+      y: event.clientY,
+      onChanged: async () => {
+        await reloadAll();
+        onChanged?.();
+      },
+    });
+    if (shown) event.preventDefault();
   });
 
   backdrop.addEventListener("change", (event) => {

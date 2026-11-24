@@ -16,18 +16,28 @@ import mimetypes
 import re
 import secrets
 import shutil
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
 import qrcode
 from fastapi import HTTPException, status
 from PIL import Image, ImageOps
-from sqlalchemy import func, or_, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import Session
 
 from . import chat_service as cs
+from . import notice_service as notice
 from .config import settings
-from .models import ChatConversation, ChatMember, GroupFile, User, utcnow
+from .models import (
+    ChatConversation,
+    ChatMember,
+    ChatMemberNote,
+    ChatMessage,
+    GroupFile,
+    User,
+    utcnow,
+)
 from .settings_store import get_int
 from .user_service import iso
 
@@ -217,8 +227,6 @@ def set_admin(db: Session, me: User, conv_id: int, target_id: int, on: bool) -> 
     db.flush()
     name = cs._name_of(db.get(User, target_id))
     cs._system_message(db, conv, f"{name} {'成为管理员' if on else '被取消了管理员'}")
-    from . import notice_service as notice
-
     notice.notify(
         db,
         target_id,
@@ -228,6 +236,103 @@ def set_admin(db: Session, me: User, conv_id: int, target_id: int, on: bool) -> 
         f"#/chat/{conv.id}",
     )
     return {"ok": True, "changed": True}
+
+
+# --------------------------------------------------------------------------- #
+# 禁言
+# --------------------------------------------------------------------------- #
+MUTE_MIN_MINUTES = 1
+# 单次禁言上限：30 天。再长其实等于「请出去」，用移出更合适
+MUTE_MAX_MINUTES = 30 * 24 * 60
+
+
+def mute_label(minutes: int) -> str:
+    """把分钟数说成人话（系统消息、通知里用）。"""
+    minutes = int(minutes)
+    if minutes % 1440 == 0:
+        return f"{minutes // 1440} 天"
+    if minutes % 60 == 0:
+        return f"{minutes // 60} 小时"
+    return f"{minutes} 分钟"
+
+
+def mute_member(
+    db: Session, me: User, conv_id: int, target_id: int, minutes: int
+) -> dict[str, Any]:
+    """群主 / 管理员禁言某个成员；minutes <= 0 表示解除。
+
+    等级：群主可以禁言任何人（含管理员），管理员只能禁言普通成员 ——
+    跟移出成员的规则保持一致，免得管理员互相锁死。
+    """
+    conv, member = cs.require_member(db, conv_id, me)
+    if conv.kind != "group":
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "单聊没有禁言")
+    target_id = int(target_id)
+    if target_id == me.id:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "不能禁言自己")
+    is_owner = conv.owner_id == me.id
+    if not (is_owner or (member and member.admin_at)):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "只有群主和管理员能禁言成员")
+    row = cs.member_of(db, conv.id, target_id)
+    if not row:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "他不在这个群里")
+    if target_id == conv.owner_id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "群主不能被禁言")
+    if row.admin_at and not is_owner:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "管理员不能禁言其他管理员")
+
+    name = cs._name_of(db.get(User, target_id))
+    minutes = int(minutes or 0)
+    if minutes <= 0:
+        if row.mute_until is None:
+            return {"ok": True, "changed": False, "muteUntil": None}
+        row.mute_until = None
+        db.flush()
+        cs._system_message(db, conv, f"{name} 被解除了禁言")
+        notice.notify(
+            db, target_id, "chat", f"你在群「{conv.title}」里被解除了禁言", "", f"#/chat/{conv.id}"
+        )
+        return {"ok": True, "changed": True, "muteUntil": None}
+
+    minutes = max(MUTE_MIN_MINUTES, min(minutes, MUTE_MAX_MINUTES))
+    row.mute_until = utcnow() + timedelta(minutes=minutes)
+    db.flush()
+    cs._system_message(db, conv, f"{name} 被禁言 {mute_label(minutes)}")
+    notice.notify(
+        db,
+        target_id,
+        "chat",
+        f"你在群「{conv.title}」里被禁言 {mute_label(minutes)}",
+        "禁言期间不能在群里发消息",
+        f"#/chat/{conv.id}",
+    )
+    return {"ok": True, "changed": True, "muteUntil": iso(row.mute_until)}
+
+
+# --------------------------------------------------------------------------- #
+# 解散
+# --------------------------------------------------------------------------- #
+def dissolve_group(db: Session, me: User, conv_id: int) -> dict[str, Any]:
+    """群主解散群聊：成员、消息、群内备注、群文件一起删干净。
+
+    SQLite 默认不强制外键，所以不指望 ON DELETE CASCADE，自己按表删一遍。
+    """
+    conv = require_owner(db, conv_id, me)
+    conv_id = conv.id
+    title = conv.title
+    rows = cs.members_of(db, conv_id)
+    for row in rows:
+        if row.user_id == me.id:
+            continue
+        notice.notify(db, row.user_id, "chat", f"群聊「{title}」已被群主解散", "", "#/chat")
+    db.execute(delete(ChatMessage).where(ChatMessage.conversation_id == conv_id))
+    db.execute(delete(ChatMemberNote).where(ChatMemberNote.conversation_id == conv_id))
+    db.execute(delete(GroupFile).where(GroupFile.conversation_id == conv_id))
+    db.execute(delete(ChatMember).where(ChatMember.conversation_id == conv_id))
+    db.delete(conv)
+    db.flush()
+    purge_storage(conv_id)
+    return {"ok": True, "dissolved": True}
 
 
 # --------------------------------------------------------------------------- #

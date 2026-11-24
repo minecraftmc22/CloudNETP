@@ -27,6 +27,7 @@ from ..schemas import (
     ChatJoinIn,
     ChatMemberNoteIn,
     ChatMembersIn,
+    ChatMuteIn,
     ChatReadIn,
     ChatReportIn,
     ChatSendIn,
@@ -146,6 +147,35 @@ def set_group_admin(
     """设 / 取消群管理员（只有群主能操作）。"""
     check_origin(request)
     result = gs.set_admin(db, user, conversation_id, payload.user_id, payload.admin)
+    db.commit()
+    return result
+
+
+@router.post("/conversations/{conversation_id}/members/{member_id}/mute")
+def mute_group_member(
+    conversation_id: int,
+    member_id: int,
+    payload: ChatMuteIn,
+    request: Request,
+    db: DbSession,
+    user: CurrentUser,
+) -> dict:
+    """禁言 / 解除禁言（群主与管理员可用；minutes<=0 为解除）。"""
+    check_origin(request)
+    if int(member_id) != int(payload.user_id):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "成员 id 对不上")
+    result = gs.mute_member(db, user, conversation_id, member_id, payload.minutes)
+    db.commit()
+    return result
+
+
+@router.post("/conversations/{conversation_id}/dissolve")
+def dissolve_group(
+    conversation_id: int, request: Request, db: DbSession, user: CurrentUser
+) -> dict:
+    """解散群聊：只有群主能做，成员与消息一起删掉，不可恢复。"""
+    check_origin(request)
+    result = gs.dissolve_group(db, user, conversation_id)
     db.commit()
     return result
 

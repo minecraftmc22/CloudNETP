@@ -28,6 +28,7 @@ import {
   scheduleHideStickerPreview,
 } from "../ui/sticker-preview.js";
 import { openGroupPanel } from "../ui/group-panel.js";
+import { openMemberMenu } from "../ui/member-menu.js";
 
 const POLL_MS = 3000;
 const LIST_POLL_MS = 20000;
@@ -180,6 +181,8 @@ export function renderChat(root, { sub = "" } = {}) {
         if (fresh) {
           state.current = fresh;
           paintThreadHead();
+          // 别人刚把我禁言 / 解禁：输入框状态跟着走
+          paintComposerState();
         }
       }
       paintList();
@@ -192,6 +195,23 @@ export function renderChat(root, { sub = "" } = {}) {
   /* ---------------------------------------------------------------- */
   /* 消息流                                                            */
   /* ---------------------------------------------------------------- */
+  /** 拉一次当前会话详情：群资料、成员、禁言状态都以服务端为准 */
+  async function syncCurrent() {
+    const id = state.current?.id;
+    if (!id) return;
+    try {
+      const data = await api.get(`/api/chat/conversations/${id}`);
+      if (state.current?.id !== id) return;
+      state.current = data.conversation;
+      state.convs = state.convs.map((c) => (c.id === id ? data.conversation : c));
+      paintThreadHead();
+      paintComposerState();
+      paintList();
+    } catch {
+      /* 失败就等下一轮轮询 */
+    }
+  }
+
   function timeText(iso) {
     if (!iso) return "";
     const d = new Date(iso);
@@ -274,7 +294,7 @@ export function renderChat(root, { sub = "" } = {}) {
         )}</span>
         <div class="msg__main">
           <div class="msg__meta">
-            ${state.current?.kind === "group" && !mine ? H`<span class="msg__name">${escapeHtml(senderName)}</span>` : ""}
+            ${state.current?.kind === "group" && !mine ? H`<span class="msg__name" data-uid="${sender.id || 0}">${escapeHtml(senderName)}</span>` : ""}
             <span class="msg__time">${timeText(msg.createdAt)}</span>
             ${msg.forwardedFrom ? H`<span class="msg__tag">${t("转发")}</span>` : ""}
           </div>
@@ -356,6 +376,10 @@ export function renderChat(root, { sub = "" } = {}) {
           </div>
           <div class="sticker-grid" data-sticker-grid></div>
         </div>
+        <div class="chat-mute" data-mute-bar hidden>
+          <svg class="icon icon--s"><use href="#i-mute"/></svg>
+          <span data-mute-text></span>
+        </div>
         <div class="chat-compose__bar">
           <div class="textarea chat-compose__input">
             <textarea data-input rows="1" maxlength="2000" placeholder="${t("说点什么…（Enter 发送，Shift+Enter 换行）")}"></textarea>
@@ -391,18 +415,53 @@ export function renderChat(root, { sub = "" } = {}) {
     };
     input.addEventListener("input", fit);
     fit();
+    paintComposerState();
+  }
+
+  /** 输入框可用状态：被拉黑 / 被禁言时锁住，并把原因写在输入框里 */
+  function paintComposerState() {
+    const conv = state.current;
+    const input = mainEl.querySelector("[data-input]");
+    if (!conv || !input) return;
+    const bar = mainEl.querySelector("[data-mute-bar]");
+    const tools = mainEl.querySelectorAll(".chat-compose__tools .chat-tool");
+    const sendBtn = mainEl.querySelector('[data-act="send"]');
+    const lock = (on) => {
+      input.disabled = on;
+      tools.forEach((btn) => {
+        btn.disabled = on;
+      });
+      if (sendBtn) sendBtn.disabled = on;
+    };
+
     if (conv.canSend === false) {
       // 被拉黑 / 拉黑了对方：发不出去，就别让人把字打完再被拒
-      input.disabled = true;
+      lock(true);
       input.placeholder = conv.blockedByPeer
         ? t("对方已拒收你的消息")
         : t("你已把对方拉黑，无法发送消息");
-      mainEl.querySelectorAll(".chat-compose__tools .chat-tool").forEach((btn) => {
-        btn.disabled = true;
-      });
-      const sendBtn = mainEl.querySelector('[data-act="send"]');
-      if (sendBtn) sendBtn.disabled = true;
+      if (bar) bar.hidden = true;
+      return;
     }
+
+    // 禁言：myMuteUntil 只在还有效时下发，过期后重拉会话就自动解锁
+    const until = conv.myMuteUntil ? new Date(conv.myMuteUntil).getTime() : 0;
+    if (until > Date.now()) {
+      lock(true);
+      input.placeholder = t("你已被禁言，暂时不能发言");
+      if (bar) {
+        bar.hidden = false;
+        const text = bar.querySelector("[data-mute-text]");
+        if (text) text.textContent = t("你已被禁言，{time} 后才能继续发言", {
+          time: timeText(conv.myMuteUntil),
+        });
+      }
+      return;
+    }
+
+    lock(false);
+    input.placeholder = t("说点什么…（Enter 发送，Shift+Enter 换行）");
+    if (bar) bar.hidden = true;
   }
 
   function paintFeed() {
@@ -569,6 +628,8 @@ export function renderChat(root, { sub = "" } = {}) {
       bumpConversation(msg);
     } catch (err) {
       Toast.error(err?.message || t("发送失败"));
+      // 刚被禁言：马上同步一次会话把输入框锁上，别等下一轮列表轮询
+      if (String(err?.message || "").includes("禁言")) void syncCurrent();
     } finally {
       state.busy = false;
     }
@@ -878,15 +939,12 @@ export function renderChat(root, { sub = "" } = {}) {
         onClick: () => startReply(msg),
       });
     }
-    if (msg.kind === "text" && msg.body) {
+    // 复制：文字复制正文，图片/表情复制图片本身，文件复制文件名
+    if (!msg.recalled) {
       items.push({
-        label: t("复制文字"),
+        label: t("复制"),
         icon: "i-text",
-        onClick: async () => {
-          const { copyText } = await import("../ui/clipboard.js");
-          const ok = await copyText(msg.body);
-          ok ? Toast.success(t("已复制")) : Toast.error(t("复制失败"));
-        },
+        onClick: () => void copyMessage(msg),
       });
     }
     if (msg.kind === "sticker" && !mine) {
@@ -931,6 +989,67 @@ export function renderChat(root, { sub = "" } = {}) {
       });
     }
     openMenu({ x, y, items, anchor });
+  }
+
+  /** 图片转 PNG 再进剪贴板：GIF / WebP 直接写会被拒，画一帧出来 */
+  async function toPngBlob(blob) {
+    try {
+      const bitmap = await createImageBitmap(blob);
+      const canvas = document.createElement("canvas");
+      canvas.width = bitmap.width;
+      canvas.height = bitmap.height;
+      canvas.getContext("2d").drawImage(bitmap, 0, 0);
+      bitmap.close?.();
+      return await new Promise((resolve) => canvas.toBlob((out) => resolve(out), "image/png"));
+    } catch {
+      return null;
+    }
+  }
+
+  async function copyMessageImage(msg) {
+    const name = (msg.payload || {}).name || "";
+    try {
+      // 非安全上下文（http 内网）没有 write，直接走链接兜底
+      if (!navigator.clipboard?.write || typeof ClipboardItem === "undefined") return false;
+      const res = await fetch(`/api/chat/media/${name}`, { credentials: "include" });
+      if (!res.ok) return false;
+      const blob = await res.blob();
+      const png = blob.type === "image/png" ? blob : await toPngBlob(blob);
+      if (!png) return false;
+      await navigator.clipboard.write([new ClipboardItem({ "image/png": png })]);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async function copyMessage(msg) {
+    const { copyText } = await import("../ui/clipboard.js");
+    // 图片 / 表情：能进剪贴板就复制图，不能就给链接（http 内网常见）
+    if (msg.kind === "image" || msg.kind === "sticker") {
+      if (await copyMessageImage(msg)) {
+        Toast.success(t("已复制图片"));
+        return;
+      }
+      const name = (msg.payload || {}).name || "";
+      const url = `${location.origin}/api/chat/media/${name}`;
+      const okLink = await copyText(url);
+      okLink ? Toast.success(t("已复制图片链接")) : Toast.error(t("复制失败"));
+      return;
+    }
+    const text =
+      msg.kind === "text"
+        ? msg.body || ""
+        : ((msg.payload || {}).nodes || [])
+            .map((node) => node.name)
+            .filter(Boolean)
+            .join("\n");
+    if (!text) {
+      Toast.info(t("这条消息没有可以直接复制的内容"));
+      return;
+    }
+    const ok = await copyText(text);
+    ok ? Toast.success(t("已复制")) : Toast.error(t("复制失败"));
   }
 
   async function saveSticker(msg) {
@@ -1728,6 +1847,25 @@ export function renderChat(root, { sub = "" } = {}) {
         ],
       });
       return;
+    }
+    // 群成员（头像 / 名字）：右键出成员管理（禁言 / 管理员 / 移出）
+    const memberHit = event.target.closest(".msg__avatar[data-uid], .msg__name[data-uid]");
+    if (memberHit && state.current?.kind === "group") {
+      const uid = Number(memberHit.dataset.uid);
+      const member = (state.current.members || []).find((m) => m.id === uid);
+      if (member) {
+        const shown = openMemberMenu({
+          conv: state.current,
+          member,
+          x: event.clientX,
+          y: event.clientY,
+          onChanged: () => void loadConversations({ silent: true }),
+        });
+        if (shown) {
+          event.preventDefault();
+          return;
+        }
+      }
     }
     // 消息（含表情气泡）：右键等同点「更多」
     const msgEl = event.target.closest(".msg[data-mid]");
