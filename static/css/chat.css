@@ -1131,8 +1131,13 @@
 }
 .group-tabs {
   margin: 0 16px 8px;
-  display: flex;
-  flex-wrap: nowrap;
+  /* 这里别再改 display：.segmented 是「等宽网格 + 滑块」的组合，一旦改成 flex，
+     按钮就退回内容宽度、四个挤在左边，右边留出一大片空槽，看着像条没填满的横条。
+     只在宽度上收一下——跟着内容走（最多铺满对话框），四个页签就等分这块宽度。 */
+  align-self: flex-start;
+  width: max-content;
+  max-width: calc(100% - 32px);
+  flex: none;
   overflow-x: auto;
   scrollbar-width: none;
 }
@@ -1142,7 +1147,9 @@
 .group-tabs .segmented__btn {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 5px;
+  padding: 0 14px;
   white-space: nowrap;
 }
 .group-info,

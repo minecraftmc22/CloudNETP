@@ -928,6 +928,41 @@ def main() -> None:
         check(group["info"], "群聊头部有「群聊信息」入口")
         js("document.querySelector('[data-act=\"group-info\"]').click()")
         check(wait_for("!!document.querySelector('.picker--group .group-info__name')", 8), "群信息面板能打开")
+        # 页签条：四个页签要等分整条槽、滑块压在活动页签上。
+        # 早先 .group-tabs 被改成 display:flex，网格的 1fr 失效，四个页签缩成内容宽度挤在左边，
+        # 右边留下一大片空槽 —— 看着像条没填满的紫色横条
+        tab_geo = js(
+            """
+            (() => {
+              const seg = document.querySelector('.picker--group .group-tabs');
+              const thumb = seg && seg.querySelector('.segmented__thumb');
+              const btns = [...(seg?.querySelectorAll('.segmented__btn') || [])];
+              if (!seg || !thumb || !btns.length) return null;
+              const s = seg.getBoundingClientRect();
+              const active = btns.find((b) => b.classList.contains('is-active'));
+              const a = active.getBoundingClientRect();
+              const t = thumb.getBoundingClientRect();
+              const last = btns[btns.length - 1].getBoundingClientRect();
+              const cs = getComputedStyle(seg);
+              const padR = parseFloat(cs.paddingRight) || 0;
+              const widths = btns.map((b) => Math.round(b.getBoundingClientRect().width));
+              return {
+                trackW: Math.round(s.width),
+                widths,
+                deadRight: Math.round(s.right - padR - last.right),
+                thumbOk: Math.abs(t.width - a.width) <= 2 && Math.abs(t.left - a.left) <= 2,
+              };
+            })()
+            """
+        )
+        check(bool(tab_geo) and tab_geo["deadRight"] <= 6, f"页签条右侧没有空槽（{tab_geo}）")
+        # 等分是近似的：每列按自己文字的 max-content 算完再拉齐，字号/缩放不同会差几像素
+        check(
+            bool(tab_geo) and max(tab_geo["widths"]) - min(tab_geo["widths"]) <= 6,
+            f"四个页签等宽等分（{tab_geo and tab_geo['widths']}）",
+        )
+        check(bool(tab_geo) and tab_geo["thumbOk"], f"活动页签滑块贴合（{tab_geo}）")
+        shot("chat-group-info.png")
         # 群简介是多行输入：壳 .textbox 定高 36px，textarea 以前按默认 20×3 尺寸上下溢出，
         # 白底灰框正好把「群简介」标签整个盖住 —— 这里量一遍几何，别再退回去
         desc_geo = js(

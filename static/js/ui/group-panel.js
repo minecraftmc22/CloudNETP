@@ -36,6 +36,7 @@ export async function openGroupPanel(convId, { onChanged, onInvite } = {}) {
   const close = () => {
     backdrop.remove();
     document.removeEventListener("keydown", onKey);
+    window.removeEventListener("resize", layoutThumb);
   };
   const onKey = (event) => {
     if (event.key === "Escape") close();
@@ -257,6 +258,7 @@ export async function openGroupPanel(convId, { onChanged, onInvite } = {}) {
           <span>${escapeHtml(conv.title)}</span>
         </div>
         <div class="segmented group-tabs">
+          <div class="segmented__thumb" data-group-thumb></div>
           ${TABS.map(
             (item) => H`<button class="segmented__btn ${tab === item.id ? "is-active" : ""}" type="button"
                       data-gtab="${item.id}">
@@ -275,6 +277,18 @@ export async function openGroupPanel(convId, { onChanged, onInvite } = {}) {
         <input type="file" accept="image/*" data-avatar-input hidden>
         <input type="file" data-file-input hidden multiple>
       </div>`;
+    layoutThumb();
+  }
+
+  /* 页签滑块：paint() 每次都重建 DOM，量出来的 left/width 跟着失效，得重新摆一次。
+     做法和后台 .admin-tabs 一样——宽度取当前页签，水平位移 = 页签左边减掉槽的 3px 内边距。 */
+  function layoutThumb() {
+    const seg = backdrop.querySelector(".group-tabs");
+    const thumb = seg?.querySelector("[data-group-thumb]");
+    const active = seg?.querySelector(".segmented__btn.is-active");
+    if (!thumb || !active) return;
+    thumb.style.width = `${active.offsetWidth}px`;
+    thumb.style.transform = `translateX(${active.offsetLeft - 3}px)`;
   }
 
   async function reloadAll() {
@@ -354,6 +368,7 @@ export async function openGroupPanel(convId, { onChanged, onInvite } = {}) {
   paint();
   document.body.appendChild(backdrop);
   document.addEventListener("keydown", onKey);
+  window.addEventListener("resize", layoutThumb);
   await reloadAll();
 
   backdrop.addEventListener("click", async (event) => {
