@@ -107,6 +107,10 @@ async def lifespan(app: FastAPI):
     from . import mail_config
 
     mail_config.hydrate()
+    # 第三方登录（Google / GitHub）的客户端凭据：登录页每次都要问「哪些按钮该显示」
+    from . import oauth_config
+
+    oauth_config.hydrate()
     _startup_maintenance()
     # 存储空间的自动清理：管理员在后台设了整点才真正执行，没开时线程只是空转
     from . import cleanup_service
@@ -288,6 +292,7 @@ from .routers import feedback as feedback_router  # noqa: E402
 from .routers import social as social_router  # noqa: E402
 from .routers import live2d as live2d_router  # noqa: E402
 from .routers import nodes as nodes_router  # noqa: E402
+from .routers import oauth as oauth_router  # noqa: E402
 from .routers import passkeys as passkeys_router  # noqa: E402
 from .routers import profile as profile_router  # noqa: E402
 from .routers import quick as quick_router  # noqa: E402
@@ -296,6 +301,7 @@ from .routers import update as update_router  # noqa: E402
 from .routers import uploads as uploads_router  # noqa: E402
 
 app.include_router(auth_router.router)
+app.include_router(oauth_router.router)
 app.include_router(passkeys_router.router)
 app.include_router(ban_router.router)
 app.include_router(nodes_router.router)

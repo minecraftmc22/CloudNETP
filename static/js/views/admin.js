@@ -33,6 +33,7 @@ const TABS = [
   { id: "logs", label: "审计日志", icon: "i-clock" },
   { id: "storage", label: "存储", icon: "i-database" },
   { id: "mail", label: "邮箱服务", icon: "i-mail" },
+  { id: "oauth", label: "第三方登录", icon: "i-key" },
   { id: "settings", label: "系统设置", icon: "i-settings" },
 ];
 
@@ -4162,6 +4163,212 @@ export function renderAdmin(root, { tab } = {}) {
   }
 
   /* ---------------------------------------------------------------- */
+  /* 第三方登录                                                        */
+  /* ---------------------------------------------------------------- */
+  async function showOAuth() {
+    panel.innerHTML = loading();
+    let cfg = null;
+    try {
+      const data = await api.get("/api/admin/oauth");
+      cfg = data?.config || null;
+    } catch (err) {
+      panel.innerHTML = errorBlock(err.message);
+      return;
+    }
+    setSub(t("Google / GitHub 授权登录"));
+    panel.innerHTML = H`${oauthCardMarkup(cfg)}`;
+    bindOAuthCard();
+  }
+
+  /** 整卡重绘 + 重绑：保存后掩码与「来源」文案会变 */
+  function paintOAuthCard(config) {
+    const card = panel.querySelector('[data-card="oauth"]');
+    if (!card) return;
+    card.outerHTML = oauthCardMarkup(config);
+    bindOAuthCard();
+  }
+
+  function oauthProviderMarkup(cfg, provider) {
+    const p = cfg.providers[provider] || {};
+    const label = provider === "google" ? "Google" : "GitHub";
+    // 只有「后台保存过」的值才回填输入框；来自 .env / 默认值的一律走 placeholder
+    const idValue = p.clientIdSource === "admin" ? escapeHtml(p.clientId || "") : "";
+    const secretPlaceholder = p.hasSecret
+      ? p.secretSource === "env"
+        ? t("沿用 .env 的密钥 {mask}，留空不改", { mask: p.secretMask || "••••" })
+        : t("已保存 {mask}，留空不改", { mask: p.secretMask || "••••" })
+      : t("在 {provider} 后台创建应用后生成的 Secret", { provider: label });
+
+    return H`<div class="setting-row">
+        <div class="setting-row__main">
+          <div class="setting-row__label">${t("启用 {provider} 登录", { provider: label })}</div>
+          <div class="setting-row__desc">${t(
+            "开关打开且凭据齐全时，登录页才会显示对应的按钮"
+          )}</div>
+        </div>
+        <div class="ai-actions">
+          <span class="ai-status" data-state="${p.ready ? "ok" : "bad"}">${
+      p.ready ? t("已就绪") : t("未配置")
+    }</span>
+          <label class="switch">
+            <input type="checkbox" data-oauth-enabled="${provider}" ${p.enabled ? "checked" : ""}>
+            <span class="switch__track"><span class="switch__knob"></span></span>
+          </label>
+        </div>
+      </div>
+      <div class="admin-form-grid">
+        <label class="field">
+          <span class="field__label">Client ID</span>
+          <span class="textbox"><input data-oauth-id="${provider}" spellcheck="false" maxlength="200"
+            placeholder="${escapeHtml(p.clientId || "xxxxxxxx.apps.googleusercontent.com")}"
+            value="${idValue}"></span>
+        </label>
+        <label class="field">
+          <span class="field__label">Client Secret</span>
+          <span class="textbox">
+            <input data-oauth-secret="${provider}" type="password" autocomplete="off" maxlength="500"
+              placeholder="${escapeHtml(secretPlaceholder)}">
+            <button class="pwd-eye" type="button" data-eye aria-label="${t(
+              "显示密码"
+            )}" title="${t("显示密码")}" aria-pressed="false">
+              <svg class="icon"><use href="#i-eye"/></svg>
+            </button>
+          </span>
+          ${
+            p.secretSource === "admin"
+              ? H`<label class="lyr-clear"><input type="checkbox" data-oauth-clear-secret="${provider}">${t(
+                  "清除已保存的 Secret"
+                )}</label>`
+              : ""
+          }
+        </label>
+        <label class="field field--wide">
+          <span class="field__label">${t("回调地址（Redirect URI）")}</span>
+          <span class="textbox">
+            <input readonly spellcheck="false" value="${escapeHtml(p.callbackUrl || "")}"
+              data-oauth-callback="${provider}">
+            <button class="pwd-eye" type="button" data-oauth-copy="${provider}"
+              title="${t("复制")}" aria-label="${t("复制")}">
+              <svg class="icon"><use href="#i-doc"/></svg>
+            </button>
+          </span>
+          <span class="field__hint">${t("在 {provider} 后台的应用设置里填成完全一致的一串", {
+            provider: label,
+          })}</span>
+        </label>
+      </div>`;
+  }
+
+  function oauthCardMarkup(cfg) {
+    const head = `<div class="settings-card__head"><svg class="icon icon--s"><use href="#i-key"/></svg>${t(
+      "第三方登录"
+    )}</div>`;
+    if (!cfg) {
+      return H`<section class="settings-card" data-card="oauth">${head}
+        <div class="admin-hint">${t("第三方登录配置读取失败，刷新页面重试")}</div>
+      </section>`;
+    }
+    return H`<section class="settings-card" data-card="oauth">
+      ${head}
+      ${oauthProviderMarkup(cfg, "google")}
+      ${oauthProviderMarkup(cfg, "github")}
+      <div class="setting-row">
+        <div class="setting-row__main">
+          <div class="setting-row__label">${t("首次登录自动注册")}</div>
+          <div class="setting-row__desc">${t(
+            "关闭后，新来的第三方用户会看到「站点已关闭注册」；已绑定的账号不受影响"
+          )}</div>
+        </div>
+        <div class="ai-actions">
+          <label class="switch">
+            <input type="checkbox" data-oauth-autoreg ${cfg.autoRegister ? "checked" : ""}>
+            <span class="switch__track"><span class="switch__knob"></span></span>
+          </label>
+        </div>
+      </div>
+      <div class="admin-card__foot">
+        <button class="btn btn--accent" type="button" data-oauth-save>${t("保存第三方登录设置")}</button>
+        <button class="btn btn--subtle" type="button" data-oauth-reset>${t("恢复 .env 配置")}</button>
+      </div>
+      <p class="admin-hint">${t(
+        "Client Secret 加密存在服务端，接口只回掩码；留空表示沿用 .env。绑定信息存在 users 表，与站内账号一一对应。"
+      )}</p>
+    </section>`;
+  }
+
+  function bindOAuthCard() {
+    const card = panel.querySelector('[data-card="oauth"]');
+    if (!card || !card.querySelector("[data-oauth-save]")) return;
+    const pick = (sel) => card.querySelector(sel);
+    const text = (sel) => (pick(sel)?.value || "").trim();
+
+    // 密码显隐：后台页没有全局 data-eye 绑定，这里自己接一份
+    card.querySelectorAll("[data-eye]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const input = btn.closest(".textbox")?.querySelector("input");
+        if (!input) return;
+        const show = input.type === "password";
+        input.type = show ? "text" : "password";
+        btn.classList.toggle("is-on", show);
+        btn.setAttribute("aria-pressed", show ? "true" : "false");
+      });
+    });
+
+    // 复制回调地址：去 {provider} 后台粘贴的地方最容易抄错
+    card.querySelectorAll("[data-oauth-copy]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const input = card.querySelector(
+          `[data-oauth-callback="${btn.dataset.oauthCopy}"]`
+        );
+        if (input?.value) await copyText(input.value);
+      });
+    });
+
+    const collect = () => ({
+      googleEnabled: Boolean(pick('[data-oauth-enabled="google"]')?.checked),
+      googleClientId: text('[data-oauth-id="google"]'),
+      googleClientSecret: text('[data-oauth-secret="google"]'),
+      githubEnabled: Boolean(pick('[data-oauth-enabled="github"]')?.checked),
+      githubClientId: text('[data-oauth-id="github"]'),
+      githubClientSecret: text('[data-oauth-secret="github"]'),
+      autoRegister: Boolean(pick("[data-oauth-autoreg]")?.checked),
+      clearGoogleSecret: Boolean(pick('[data-oauth-clear-secret="google"]')?.checked),
+      clearGithubSecret: Boolean(pick('[data-oauth-clear-secret="github"]')?.checked),
+    });
+
+    pick("[data-oauth-save]")?.addEventListener("click", async (event) => {
+      const button = event.currentTarget;
+      button.disabled = true;
+      try {
+        const data = await api.put("/api/admin/oauth", collect());
+        Toast.success(t("第三方登录设置已保存"));
+        paintOAuthCard(data.config);
+      } catch (err) {
+        Toast.error(err.message || t("保存失败"));
+      } finally {
+        button.disabled = false;
+      }
+    });
+
+    pick("[data-oauth-reset]")?.addEventListener("click", async () => {
+      const ok = await Dialog.confirm({
+        title: t("恢复 .env 配置"),
+        message: t("会清掉后台保存的第三方登录配置，之后按 .env 的 GOOGLE_* / GITHUB_* 生效。"),
+        confirmText: t("恢复"),
+        danger: true,
+      });
+      if (!ok) return;
+      try {
+        const data = await api.del("/api/admin/oauth", {});
+        Toast.success(t("已恢复为 .env 配置"));
+        paintOAuthCard(data.config);
+      } catch (err) {
+        Toast.error(err.message || t("操作失败"));
+      }
+    });
+  }
+
+  /* ---------------------------------------------------------------- */
   /* 切换                                                              */
   /* ---------------------------------------------------------------- */
   function switchTab(name) {
@@ -4188,6 +4395,7 @@ export function renderAdmin(root, { tab } = {}) {
     else if (name === "logs") showLogs();
     else if (name === "storage") showStorage();
     else if (name === "mail") showMail();
+    else if (name === "oauth") showOAuth();
     else showSettings();
   }
 

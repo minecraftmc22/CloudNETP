@@ -653,6 +653,26 @@ class AdminMailIn(CamelModel):
     clear_smtp_pass: bool = False
 
 
+class AdminOAuthIn(CamelModel):
+    """后台保存第三方登录配置。
+
+    ``None``（省略）= 不改；Client ID 传空串 = 删掉后台覆盖、回落 .env；
+    ``*ClientSecret`` 留空 = **不改**，要清空请用 clearGoogleSecret / clearGithubSecret。
+    """
+
+    google_enabled: bool | None = None
+    google_client_id: str | None = Field(default=None, max_length=200)
+    google_client_secret: str | None = Field(default=None, max_length=500)
+    github_enabled: bool | None = None
+    github_client_id: str | None = Field(default=None, max_length=200)
+    github_client_secret: str | None = Field(default=None, max_length=500)
+    # 第三方首次登录是否自动建号
+    auto_register: bool | None = None
+
+    clear_google_secret: bool = False
+    clear_github_secret: bool = False
+
+
 class AdminMailTestIn(CamelModel):
     """测试发信：可以带上还没保存的表单值先试一次。"""
 

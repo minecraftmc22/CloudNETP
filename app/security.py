@@ -265,6 +265,71 @@ def verify_pending(token: str, user_id: int, token_version: int) -> str | None:
 
 
 # --------------------------------------------------------------------------- #
+# 第三方登录（OAuth）的 state
+# --------------------------------------------------------------------------- #
+_SAFE_NEXT_MAX = 300
+
+
+def safe_next(path: str | None) -> str:
+    """只放行站内相对路径：`//evil.com`、`https://evil.com` 一律回首页。
+
+    OAuth 回调的最后一步是 302，任由 `next` 带外站地址就成了开放重定向。
+    """
+    text = (path or "").strip()
+    if not text.startswith("/") or text.startswith("//"):
+        return "/"
+    if len(text) > _SAFE_NEXT_MAX or "\n" in text or "\r" in text:
+        return "/"
+    return text
+
+
+def _oauth_state_raw(
+    provider: str, mode: str, uid: int, exp: int, nonce: str, next_b64: str
+) -> bytes:
+    return f"oauth:{provider}:{mode}:{uid}:{exp}:{nonce}:{next_b64}".encode()
+
+
+def sign_oauth_state(
+    provider: str,
+    mode: str = "login",
+    uid: int = 0,
+    next_path: str = "/",
+    ttl: int = 600,
+) -> str:
+    """签发 OAuth `state`（防 CSRF + 记住回来之后去哪）。
+
+    同时把 `mode`（登录 / 绑定）和 `uid` 签进去，回调就不必再信 URL 上的参数：
+    改一个字节签名就对不上。`next` 编码进签名，也不需要额外 Cookie。
+    """
+    exp = int(time.time()) + ttl
+    nonce = secrets.token_urlsafe(9)
+    next_b64 = _b64e(safe_next(next_path).encode())
+    sig = _sign(_oauth_state_raw(provider, mode, uid, exp, nonce, next_b64))
+    return f"{provider}.{mode}.{uid}.{exp}.{nonce}.{next_b64}.{sig}"
+
+
+def verify_oauth_state(state: str) -> dict | None:
+    """校验 state，返回 {provider, mode, uid, next}；无效/过期返回 None。"""
+    try:
+        provider, mode, uid_s, exp_s, nonce, next_b64, sig = state.split(".")
+        uid, exp = int(uid_s), int(exp_s)
+    except (ValueError, AttributeError):
+        return None
+    if exp < int(time.time()):
+        return None
+    raw = _oauth_state_raw(provider, mode, uid, exp, nonce, next_b64)
+    if not hmac.compare_digest(_sign(raw), sig):
+        return None
+    if mode not in {"login", "bind"}:
+        return None
+    try:
+        target = _b64d(next_b64).decode()
+    except (ValueError, UnicodeDecodeError):
+        target = "/"
+    return {"provider": provider, "mode": mode, "uid": uid, "next": safe_next(target)}
+
+
+# --------------------------------------------------------------------------- #
 # 请求来源 / IP
 # --------------------------------------------------------------------------- #
 def client_ip(request: Request) -> str:

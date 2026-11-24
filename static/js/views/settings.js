@@ -926,6 +926,18 @@ export function renderSettings(root, { tab } = {}) {
           </div>
         </section>
 
+        <section class="settings-card" data-card="oauth">
+          <div class="settings-card__head"><svg class="icon icon--s"><use href="#i-key"/></svg>${t("第三方账号")}</div>
+          <div class="settings-card__body">
+            <p class="setting-panel__hint">${
+              t("绑定 Google / GitHub 账号后可以直接用它登录本站；解绑后继续用密码登录。")
+            }</p>
+            <div class="passkey-list" data-oauth-list>
+              <p class="setting-panel__hint">${t("正在读取…")}</p>
+            </div>
+          </div>
+        </section>
+
         <section class="settings-card" data-card="devices">
           <div class="settings-card__head"><svg class="icon icon--s"><use href="#i-monitor"/></svg>${t("登录设备管理")}</div>
           <div class="settings-card__body">
@@ -1402,6 +1414,78 @@ export function renderSettings(root, { tab } = {}) {
   });
 
   /* 通行密钥 */
+  /* --- 第三方账号绑定 --- */
+  const OAUTH_LABELS = { google: "Google", github: "GitHub" };
+
+  function renderOAuthRows(data) {
+    const box = q("[data-oauth-list]");
+    if (!box) return;
+    const providers = data?.providers || {};
+    const rows = Object.keys(OAUTH_LABELS)
+      .map((provider) => {
+        const info = providers[provider] || {};
+        const label = OAUTH_LABELS[provider];
+        return H`<div class="setting-row">
+          <div class="setting-row__main">
+            <div class="setting-row__label">${label}</div>
+            <div class="setting-row__desc">${
+              info.linked
+                ? t("已绑定，可直接用它登录")
+                : info.ready
+                  ? t("未绑定")
+                  : t("管理员未启用")
+            }</div>
+          </div>
+          ${
+            info.linked
+              ? H`<button class="btn btn--subtle" type="button" data-oauth-unlink="${provider}">${t("解绑")}</button>`
+              : info.ready
+                ? H`<a class="btn btn--subtle" href="/api/auth/oauth/${provider}/start?mode=bind&amp;next=${encodeURIComponent(
+                    "/#/settings"
+                  )}">${t("绑定")}</a>`
+                : H`<span class="chip">${t("未启用")}</span>`
+          }
+        </div>`;
+      })
+      .join("");
+    box.innerHTML = rows;
+  }
+
+  async function refreshOAuthRows() {
+    try {
+      const data = await api.get("/api/me/oauth");
+      renderOAuthRows(data);
+    } catch {
+      const box = q("[data-oauth-list]");
+      if (box) box.innerHTML = H`<p class="setting-panel__hint">${t("第三方账号读取失败")}</p>`;
+    }
+  }
+
+  q("[data-oauth-list]")?.addEventListener("click", async (event) => {
+    const btn = event.target.closest("[data-oauth-unlink]");
+    if (!btn) return;
+    const provider = btn.dataset.oauthUnlink;
+    const ok = await Dialog.confirm({
+      title: t("解绑 {provider}", { provider: OAUTH_LABELS[provider] || provider }),
+      message: t(
+        "解绑后将不能再直接用该账号登录。如果这是唯一的登录方式，请先绑定邮箱以便找回。"
+      ),
+      confirmText: t("解绑"),
+      danger: true,
+    });
+    if (!ok) return;
+    btn.disabled = true;
+    try {
+      await api.del(`/api/auth/oauth/${encodeURIComponent(provider)}`);
+      Toast.success(t("已解绑"));
+      await refreshOAuthRows();
+    } catch (err) {
+      Toast.error(err?.message || t("解绑失败"));
+      btn.disabled = false;
+    }
+  });
+  refreshOAuthRows();
+
   /* --- 登录设备管理 --- */
   function renderDevices(items) {
     const box = q("[data-device-list]");

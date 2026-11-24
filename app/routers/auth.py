@@ -19,6 +19,7 @@ from .. import ban_service
 from .. import captcha as cap
 from .. import email_code
 from .. import mail_config
+from .. import oauth_config
 from .. import passkey_service
 from .. import profile_service as ps
 from .. import dav_auth as da
@@ -204,6 +205,8 @@ def meta(db: Session = Depends(get_db)) -> dict:
         "codeResendSeconds": mail_config.resend_seconds(mail_cfg),
         # 通行密钥依赖服务端装了 webauthn；HTTP 页面另外由前端 isSecureContext 拦
         "passkeyReady": passkey_service.available(),
+        # 第三方登录：只回「哪些按钮该显示」，Client ID / Secret 绝不出服务端
+        "oauth": oauth_config.ready_providers(),
         "contactEmail": settings_store.get_value(db, "contact_email"),
         "contactQq": settings_store.get_value(db, "contact_qq"),
         # 管理员开启后，前端登录时自动查一次新版本（只提示）

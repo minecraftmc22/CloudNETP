@@ -54,6 +54,11 @@ class User(Base):
     profile_cover: Mapped[str | None] = mapped_column(String(64), nullable=True)
     # 公开分享主页的随机标识；NULL = 没开分享（/u/<token> 打不开）
     profile_token: Mapped[str | None] = mapped_column(String(24), unique=True, nullable=True)
+    # 第三方登录绑定：存 provider 侧**稳定不变**的 ID（Google 的 OIDC `sub`、
+    # GitHub 的数字 `id`），NULL = 没绑定。邮箱不能当主键——它会变、也可能重复。
+    # 两个 provider 各占一列：一个账号可以同时绑 Google 和 GitHub。
+    oauth_google: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    oauth_github: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     # WebDAV Digest 用的 HA1 = MD5(lower(username):realm:password)
     # 只在注册 / 改密 / 登录时写入，老账号为 NULL 时需先登录一次补齐
     dav_ha1: Mapped[str | None] = mapped_column(String(32), nullable=True)

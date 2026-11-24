@@ -29,6 +29,7 @@ from .. import mail_service
 from .. import session_service
 from .. import netease_auth as ng
 from .. import node_service as ns
+from .. import oauth_config
 from .. import profile_service as ps
 from .. import quick_service as qs
 from .. import storage
@@ -46,6 +47,7 @@ from ..schemas import (
     AdminLyricsIn,
     AdminMailIn,
     AdminMailTestIn,
+    AdminOAuthIn,
     AdminOrphanGcIn,
     AdminQuickCleanupIn,
     ChatReportHandleIn,
@@ -915,6 +917,50 @@ def _mask_addr(addr: str) -> str:
         return "***"
     head = name[:2] if len(name) > 2 else name[:1]
     return f"{head}***@{domain}"
+
+
+# --------------------------------------------------------------------------- #
+# 第三方登录（Google / GitHub OAuth）
+# --------------------------------------------------------------------------- #
+@router.get("/oauth")
+def oauth_status(_: AdminUser) -> dict:
+    """生效配置。Client Secret 只回掩码，原文不出服务端。"""
+    return {"config": oauth_config.snapshot()}
+
+
+@router.put("/oauth")
+def oauth_save(
+    payload: AdminOAuthIn, request: Request, db: DbSession, me: AdminUser
+) -> dict:
+    """保存第三方登录配置（存 system_settings，立即生效）。"""
+    check_origin(request)
+    config = oauth_config.save(db, payload.model_dump(exclude_none=True, by_alias=True))
+    log_action(
+        db,
+        "admin_oauth_save",
+        me.id,
+        {
+            "google": config["providers"]["google"]["enabled"],
+            "hasGoogleSecret": config["providers"]["google"]["hasSecret"],
+            "github": config["providers"]["github"]["enabled"],
+            "hasGithubSecret": config["providers"]["github"]["hasSecret"],
+            "autoRegister": config["autoRegister"],
+            "ready": config["ready"],
+        },
+        request,
+    )
+    db.commit()
+    return {"config": config}
+
+
+@router.delete("/oauth")
+def oauth_clear(request: Request, db: DbSession, me: AdminUser) -> dict:
+    """清掉后台覆盖，全部回到 .env。"""
+    check_origin(request)
+    config = oauth_config.clear(db)
+    log_action(db, "admin_oauth_clear", me.id, {}, request)
+    db.commit()
+    return {"config": config}
 
 
 # --------------------------------------------------------------------------- #

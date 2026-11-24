@@ -133,6 +133,52 @@ function takeNextPath() {
 /* ------------------------------------------------------------------ */
 /* 启动                                                               */
 /* ------------------------------------------------------------------ */
+/** 第三方登录回调的失败码 → 文案（与 app/oauth_service.py 的 ERRORS 对应）。
+ *  每一条都写静态字符串再 t()：`t(变量)` 扫不到，翻译会漏。 */
+function oauthErrorText(code) {
+  switch (code) {
+    case "denied":
+      return t("你取消了第三方授权");
+    case "state":
+      return t("授权状态已失效，请重新点击登录");
+    case "exchange":
+      return t("换取授权凭证失败，请稍后重试");
+    case "profile":
+      return t("读取第三方账号信息失败，请稍后重试");
+    case "email_taken":
+      return t("该邮箱已被其它账号绑定，请先用密码登录，再到「账号安全」里绑定");
+    case "disabled":
+      return t("该登录方式暂未开放");
+    case "not_linked":
+      return t("该第三方账号还没有绑定到你的账号");
+    case "already_linked":
+      return t("该第三方账号已绑定到其它账号");
+    case "banned":
+      return t("该账号已被封禁，无法登录");
+    case "need_2fa":
+      return t("该账号开启了两步验证，请改用密码登录");
+    case "closed":
+      return t("站点已关闭注册，请联系管理员");
+    default:
+      return t("第三方登录暂时不可用，请稍后重试");
+  }
+}
+
+/** 消费 `?oauth_error=<code>`：提示一次就把参数抹掉，刷新不再重复弹。 */
+function consumeOAuthError() {
+  const params = new URLSearchParams(location.search);
+  const code = params.get("oauth_error");
+  if (!code) return;
+  params.delete("oauth_error");
+  const search = params.toString();
+  history.replaceState(
+    null,
+    "",
+    `${location.pathname}${search ? `?${search}` : ""}${location.hash}`
+  );
+  Toast.error(oauthErrorText(code));
+}
+
 async function boot() {
   initI18n();
   initSelectUI();
@@ -156,6 +202,10 @@ async function boot() {
   } catch {
     /* 元信息失败不阻塞登录 */
   }
+
+  // 第三方登录失败是 302 回到 /?oauth_error=<code>：提示一次，然后把参数抹掉，
+  // 否则用户每刷新一次都会被同一条错误再轰一遍（绑定流程回到设置页也一样）。
+  consumeOAuthError();
 
   // 申诉页不依赖登录态：带上登录被拒时存下的票据就能看封禁详情
   if (location.hash.startsWith("#/appeal")) {

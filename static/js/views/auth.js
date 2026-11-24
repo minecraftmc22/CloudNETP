@@ -178,6 +178,8 @@ const template = () => H`
         <button class="btn btn--accent btn--block auth-form__submit" type="submit" data-submit>
           <span>登录</span>
         </button>
+        <!-- 第三方登录：只在管理员配好凭据时才渲染内容（见 renderOAuthButtons） -->
+        <div class="auth-oauth" data-oauth hidden></div>
         <div class="auth-links" data-links>
           <button class="link-btn" type="button" data-act="reg-back" hidden>上一步</button>
           <button class="link-btn" type="button" data-act="forgot">忘记密码？</button>
@@ -303,6 +305,64 @@ const template = () => H`
   </div>
 `;
 
+/**
+ * 第三方登录按钮。
+ *
+ * 走的是整页跳转（`/api/auth/oauth/<provider>/start`），不是 fetch：
+ * Google / GitHub 的授权页禁止被 iframe 嵌套，X-Frame-Options 会直接拦住。
+ * 因此没有回调处理代码——回来时服务端已经发好会话 Cookie，页面重新加载即可。
+ *
+ * 图标是品牌色实心 logo，跟站内的线性图标不是一套，所以直接内联在这里，
+ * 不塞进 index.html 的 sprite（那个 sprite 全是 stroke 风格）。
+ */
+const BRAND_ICONS = {
+  google: `<svg class="auth-oauth__icon" viewBox="0 0 24 24" aria-hidden="true">
+      <path fill="#4285F4" d="M23.5 12.27c0-.79-.07-1.54-.2-2.27H12v4.51h6.47a5.53 5.53 0 0 1-2.4 3.58v3h3.86c2.26-2.09 3.57-5.17 3.57-8.82Z"/>
+      <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.86-3c-1.08.72-2.45 1.16-4.07 1.16-3.13 0-5.78-2.11-6.73-4.96H1.29v3.09A11.99 11.99 0 0 0 12 24Z"/>
+      <path fill="#FBBC05" d="M5.27 14.29a7.2 7.2 0 0 1 0-4.58V6.62H1.29a11.99 11.99 0 0 0 0 10.76l3.98-3.09Z"/>
+      <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.7 0 3.99 2.47 1.29 6.62l3.98 3.09C6.22 6.86 8.87 4.75 12 4.75Z"/>
+    </svg>`,
+  github: `<svg class="auth-oauth__icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M12 .5a12 12 0 0 0-3.79 23.4c.6.1.82-.26.82-.57v-2.23c-3.34.73-4.04-1.41-4.04-1.41-.55-1.4-1.34-1.77-1.34-1.77-1.09-.75.08-.73.08-.73 1.2.08 1.84 1.24 1.84 1.24 1.07 1.84 2.81 1.31 3.5 1 .11-.78.42-1.31.76-1.61-2.67-.3-5.47-1.34-5.47-5.96 0-1.32.47-2.39 1.24-3.23-.13-.3-.54-1.52.11-3.18 0 0 1.01-.32 3.3 1.23a11.5 11.5 0 0 1 6.01 0c2.29-1.55 3.3-1.23 3.3-1.23.65 1.66.24 2.88.12 3.18.77.84 1.23 1.91 1.23 3.23 0 4.63-2.81 5.65-5.49 5.95.43.37.82 1.1.82 2.22v3.29c0 .31.21.68.83.57A12 12 0 0 0 12 .5Z"/>
+    </svg>`,
+};
+
+const OAUTH_NAMES = { google: "Google", github: "GitHub" };
+
+/**
+ * 按 `meta.oauth`（服务端算好的可用列表）渲染按钮。
+ *
+ * 后端已经确认「开关打开 + 凭据齐全」才会出现在这个数组里，
+ * 前端不再重复判断，避免两边开关不一致时出现「点了才报未配置」。
+ */
+function renderOAuthButtons(box, providers) {
+  if (!box) return;
+  const list = Array.isArray(providers)
+    ? providers.filter((p) => p === "google" || p === "github")
+    : [];
+  if (!list.length) {
+    box.hidden = true;
+    box.innerHTML = "";
+    return;
+  }
+
+  // 从分享页点「登录」过来的会带 ?next=，第三方登录也要把人送回原页
+  const params = new URLSearchParams(location.search);
+  const next = params.get("next") || "/";
+  const buttons = list
+    .map(
+      (p) => `<a class="btn btn--subtle auth-oauth__btn" href="/api/auth/oauth/${p}/start?next=${encodeURIComponent(
+        next
+      )}" data-oauth-provider="${p}">${BRAND_ICONS[p]}<span>${t("使用 {name} 登录", {
+        name: OAUTH_NAMES[p],
+      })}</span></a>`
+    )
+    .join("");
+
+  box.innerHTML = `<div class="auth-oauth__divider"><span>${t("或使用第三方账号")}</span></div>${buttons}`;
+  box.hidden = false;
+}
+
 export function renderAuth(root, { meta = {}, onSuccess, onBanned }) {
   // #auth-root 是常驻节点，window 上的监听要随这次渲染一起收尾，别越叠越多
   authViewAbort?.abort();
@@ -310,6 +370,9 @@ export function renderAuth(root, { meta = {}, onSuccess, onBanned }) {
   const authSignal = authViewAbort.signal;
 
   root.innerHTML = template();
+
+  // 第三方登录按钮：管理员没配凭据时 meta.oauth 是空数组，按钮整块隐藏
+  renderOAuthButtons(root.querySelector("[data-oauth]"), meta.oauth);
 
   const el = (sel) => root.querySelector(sel);
   const form = el("[data-form]");

@@ -42,6 +42,10 @@ ACTIONS: dict[str, dict[str, str]] = {
     "passkey_remove": {"label": "移除通行密钥", "tone": "warn", "group": "账号"},
     "passkey_used": {"label": "通行密钥验证", "tone": "info", "group": "账号"},
     "passkey_clone_warn": {"label": "通行密钥计数异常", "tone": "danger", "group": "账号"},
+    # ---- 第三方登录 ----
+    "oauth_register": {"label": "第三方登录注册", "tone": "success", "group": "账号"},
+    "oauth_bind": {"label": "绑定第三方账号", "tone": "success", "group": "账号"},
+    "oauth_unlink": {"label": "解绑第三方账号", "tone": "warn", "group": "账号"},
     # ---- 文件 ----
     "folder_create": {"label": "新建文件夹", "tone": "info", "group": "文件"},
     "node_rename": {"label": "重命名", "tone": "info", "group": "文件"},
@@ -96,6 +100,8 @@ ACTIONS: dict[str, dict[str, str]] = {
     "admin_mail_save": {"label": "修改邮箱服务", "tone": "warn", "group": "管理"},
     "admin_mail_clear": {"label": "清除邮箱服务配置", "tone": "warn", "group": "管理"},
     "admin_mail_test": {"label": "测试邮件服务", "tone": "info", "group": "管理"},
+    "admin_oauth_save": {"label": "修改第三方登录", "tone": "warn", "group": "管理"},
+    "admin_oauth_clear": {"label": "清除第三方登录配置", "tone": "warn", "group": "管理"},
     "admin_user_super": {"label": "变更超管身份", "tone": "warn", "group": "管理"},
     "admin_appeal_approve": {"label": "申诉通过·解封", "tone": "success", "group": "管理"},
     "admin_appeal_reject": {"label": "申诉驳回", "tone": "info", "group": "管理"},

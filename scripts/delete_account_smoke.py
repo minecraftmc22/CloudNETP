@@ -109,6 +109,8 @@ SHA = "b" * 64
 
 with SessionLocal() as db:
     victim = make_user(db, "delvictim", email="victim@example.com")
+    # 0.6.0 起注销要求「已验证邮箱 + 邮件服务就绪」才验验证码；钉行为需要已验证
+    victim.email_verified = True
     other = make_user(db, "delother", role=1, is_super=True)
     admin = make_user(db, "deladmin", role=0)
 
@@ -200,54 +202,79 @@ with SessionLocal() as db:
     )
 
 print("== 身份校验 ==")
-with SessionLocal() as db:
-    victim = db.get(User, victim_id)
-    try:
-        auth_router.delete_me(
-            AccountDeleteIn(password="wrong-pass", email="victim@example.com"),
-            req(),
-            Response(),
-            victim,
-            db,
-        )
-        check("密码错被拒", False)
-    except HTTPException as exc:
-        check("密码错被拒", exc.status_code == 400, str(exc.detail))
+# 0.6.0 起的流程是「密码 + 发到绑定邮箱的验证码」：邮件服务就绪且邮箱已验证时
+# 必须带验证码。冒烟环境没有 SMTP，这里把 ready 与 verify 换成假实现来钉行为。
+from app import email_code as email_code_mod  # noqa: E402
 
-    try:
-        auth_router.delete_me(AccountDeleteIn(password="Passw0rd!2024"), req(), Response(), victim, db)
-        check("绑了邮箱必须填邮箱", False)
-    except HTTPException as exc:
-        check("绑了邮箱必须填邮箱", exc.status_code == 400, str(exc.detail))
-
-    try:
-        auth_router.delete_me(
-            AccountDeleteIn(password="Passw0rd!2024", email="other@example.com"),
-            req(),
-            Response(),
-            victim,
-            db,
-        )
-        check("邮箱对不上被拒", False)
-    except HTTPException as exc:
-        check("邮箱对不上被拒", exc.status_code == 400, str(exc.detail))
-
-    check("三次失败后账号还在", db.get(User, victim_id) is not None)
-
-print("== 正常注销 ==")
-with SessionLocal() as db:
-    victim = db.get(User, victim_id)
-    response = Response()
-    out = auth_router.delete_me(
-        AccountDeleteIn(password="Passw0rd!2024", email="VICTIM@example.com"),  # 邮箱大小写不敏感
-        req(),
-        response,
-        victim,
-        db,
+_real_ready = auth_router.mail_config.ready
+_real_verify = email_code_mod.verify
+auth_router.mail_config.ready = lambda: True
+email_code_mod.verify = (
+    lambda scene, email, code: (
+        bool(code == "246810" and email == "victim@example.com"),
+        "" if (code == "246810" and email == "victim@example.com") else "验证码不正确",
     )
-    check("注销成功", out.get("deleted") is True, str(out))
-    check("返回删了多少", out.get("nodes", 0) >= 2, str(out))
+)
 
+try:
+    with SessionLocal() as db:
+        victim = db.get(User, victim_id)
+        try:
+            auth_router.delete_me(
+                AccountDeleteIn(password="wrong-pass", email_code="246810"),
+                req(),
+                Response(),
+                victim,
+                db,
+            )
+            check("密码错被拒", False)
+        except HTTPException as exc:
+            check("密码错被拒", exc.status_code == 400, str(exc.detail))
+
+        try:
+            auth_router.delete_me(AccountDeleteIn(password="Passw0rd!2024"), req(), Response(), victim, db)
+            check("绑了邮箱必须填验证码", False)
+        except HTTPException as exc:
+            check("绑了邮箱必须填验证码", exc.status_code == 400, str(exc.detail))
+
+        try:
+            auth_router.delete_me(
+                AccountDeleteIn(password="Passw0rd!2024", email_code="000000"),
+                req(),
+                Response(),
+                victim,
+                db,
+            )
+            check("验证码错被拒", False)
+        except HTTPException as exc:
+            check("验证码错被拒", exc.status_code == 400, str(exc.detail))
+
+        check("三次失败后账号还在", db.get(User, victim_id) is not None)
+
+    print("== 正常注销 ==")
+    with SessionLocal() as db:
+        victim = db.get(User, victim_id)
+        response = Response()
+        out = auth_router.delete_me(
+            AccountDeleteIn(password="Passw0rd!2024", email_code="246810"),
+            req(),
+            response,
+            victim,
+            db,
+        )
+        check("注销成功", out.get("deleted") is True, str(out))
+        check("返回删了多少", out.get("nodes", 0) >= 2, str(out))
+        cookie_header = response.headers.get("set-cookie", "")
+        check(
+            "清了登录 cookie",
+            settings.COOKIE_NAME in cookie_header and "Max-Age=0" in cookie_header,
+            cookie_header[:80],
+        )
+finally:
+    auth_router.mail_config.ready = _real_ready
+    email_code_mod.verify = _real_verify
+
+with SessionLocal() as db:
     check("用户已删除", db.get(User, victim_id) is None)
     check("节点已删除", count(db, Node, Node.user_id == victim_id) == 0)
     check("分享已删除", count(db, Share, Share.user_id == victim_id) == 0)
@@ -270,9 +297,6 @@ with SessionLocal() as db:
     check("记了审计", log is not None)
     check("审计里写了用户名", log is not None and "delvictim" in (log.detail or ""), (log.detail or "")[:80])
     check("审计不挂在已删用户上", log is not None and log.user_id is None)
-
-    cookie_header = response.headers.get("set-cookie", "")
-    check("清了登录 cookie", settings.COOKIE_NAME in cookie_header and "Max-Age=0" in cookie_header, cookie_header[:80])
 
 print("== 没绑邮箱：只验密码 ==")
 with SessionLocal() as db:

@@ -470,6 +470,49 @@
   justify-content: flex-end;
   margin-top: -4px;
 }
+
+/* ---- 第三方登录 ---- */
+.auth-oauth {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+.auth-oauth[hidden] {
+  display: none;
+}
+.auth-oauth__divider {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  color: var(--text-3);
+  font-size: 12px;
+}
+.auth-oauth__divider::before,
+.auth-oauth__divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--stroke);
+}
+.auth-oauth__btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  width: 100%;
+}
+.auth-oauth__icon {
+  width: 18px;
+  height: 18px;
+  flex: none;
+}
+/* 手机上两个按钮并排放不下就换列；再窄一点图标不变，文字照常收缩 */
+@media (max-width: 480px) {
+  .auth-oauth__btn {
+    font-size: 13px;
+  }
+}
+
 .link-btn {
   padding: 0;
   border: 0;

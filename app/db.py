@@ -227,6 +227,9 @@ _COLUMN_PATCHES: dict[str, dict[str, str]] = {
         "profile_token": "VARCHAR(24) NULL",
         # 个人主页顶部背景图（只存文件名）；老库补列后为 NULL = 用默认渐变
         "profile_cover": "VARCHAR(64) NULL",
+        # 第三方登录绑定（provider 侧稳定 ID）；老库补列后为 NULL = 没绑定
+        "oauth_google": "VARCHAR(128) NULL",
+        "oauth_github": "VARCHAR(64) NULL",
     },
     "shares": {
         # 合集分享：根节点 id 的 JSON 数组；NULL = 单节点分享

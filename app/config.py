@@ -111,7 +111,7 @@ def _compose_database_url() -> str:
 class Settings:
     # ---- 应用 ----
     APP_NAME: str = _get("APP_NAME", "CloudNETP")
-    VERSION: str = "0.6.4"
+    VERSION: str = "0.6.5"
     DEBUG: bool = _get_bool("DEBUG", True)
 
     # ---- 监听与对外地址 ----
@@ -271,6 +271,17 @@ class Settings:
         from . import mail_config
 
         return mail_config.ready()
+
+    # ---- 第三方登录（Google / GitHub OAuth）----
+    # 实际配置以「管理后台 → 第三方登录」为准（存 system_settings，热生效）；
+    # 这里只是 .env 兜底。回调地址固定为 {SITE_URL}/api/auth/oauth/<provider>/callback，
+    # 在 Google Cloud Console / GitHub OAuth App 里要填成一模一样的一串。
+    GOOGLE_CLIENT_ID: str = _get("GOOGLE_CLIENT_ID").strip()
+    GOOGLE_CLIENT_SECRET: str = _get("GOOGLE_CLIENT_SECRET").strip()
+    GITHUB_CLIENT_ID: str = _get("GITHUB_CLIENT_ID").strip()
+    GITHUB_CLIENT_SECRET: str = _get("GITHUB_CLIENT_SECRET").strip()
+    # 第三方登录首次进来时自动建号；留空 = 自动（配了任一 provider 就允许）
+    OAUTH_AUTO_REGISTER: str = _get("OAUTH_AUTO_REGISTER", "").strip().lower()
 
     # ---- 存储 ----
     STORAGE_DIR: Path = Path(_get("STORAGE_DIR") or str(BASE_DIR / "storage")).resolve()
