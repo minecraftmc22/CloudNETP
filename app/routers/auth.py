@@ -1281,6 +1281,9 @@ def update_settings(
         # 快传接收偏好（存放目录另走 PUT /api/quick/inbox-folder，因为要支持恢复默认）
         "quick_receive_enabled",
         "quick_auto_accept",
+        # 消息提醒开关
+        "notify_inapp",
+        "notify_desktop",
     }
     for field, value in payload.model_dump(exclude_none=True).items():
         if field in allowed:

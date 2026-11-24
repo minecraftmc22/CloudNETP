@@ -20,6 +20,14 @@ import { pickNodes } from "../ui/file-browser.js";
 import { openMenu } from "../ui/menu.js";
 import { Toast } from "../ui/toast.js";
 import { refreshNoticeBadge } from "../ui/notice.js";
+import { hoverUserCard, scheduleCloseUserCard } from "../ui/usercard.js";
+import {
+  hideStickerPreview,
+  hideStickerPreviewIfStale,
+  hoverStickerPreview,
+  scheduleHideStickerPreview,
+} from "../ui/sticker-preview.js";
+import { openGroupPanel } from "../ui/group-panel.js";
 
 const POLL_MS = 3000;
 const LIST_POLL_MS = 20000;
@@ -30,7 +38,15 @@ const KINDS = {
   sticker: "i-spark",
 };
 
+// 文档级监听（点面板外面收起表情）跟着视图走：每次进聊天页换一个新控制器
+let docView = null;
+
 export function renderChat(root, { sub = "" } = {}) {
+  // 上一份文档级监听先撤掉，否则点一下会命中一串残留监听（它们操作的是已卸载的旧 DOM）
+  docView?.abort();
+  docView = typeof AbortController === "function" ? new AbortController() : null;
+  hideStickerPreview();
+
   const me = store.get().user || {};
   const state = {
     convs: [],
@@ -46,6 +62,8 @@ export function renderChat(root, { sub = "" } = {}) {
     recallMinutes: 10,
     stickers: [],
     stickerOpen: false,
+    // 正在引用的消息（右键「引用」后挂在输入框上方）
+    reply: null,
     busy: false,
     loadingOlder: false,
     hasMore: false,
@@ -97,6 +115,14 @@ export function renderChat(root, { sub = "" } = {}) {
   /* ---------------------------------------------------------------- */
   function convAvatar(conv) {
     if (conv.kind === "group") {
+      // 群头像：设过就显示图片，没设还是「一群人」的默认图标
+      if (conv.avatarUrl) {
+        return `<span class="chat-ava chat-ava--group">${avatarMarkup({
+          avatarUrl: conv.avatarUrl,
+          displayName: conv.title,
+          username: conv.title,
+        })}</span>`;
+      }
       return `<span class="chat-ava chat-ava--group"><svg class="icon"><use href="#i-users"/></svg></span>`;
     }
     return `<span class="chat-ava">${avatarMarkup({
@@ -238,16 +264,24 @@ export function renderChat(root, { sub = "" } = {}) {
     }
     const mine = msg.sender?.id === me.id;
     const sender = msg.sender || {};
+    // 备注优先：群里我给他起的名字 > 好友备注（后端已在 members 里合并好）
+    const member = state.current?.members?.find((m) => m.id === sender.id);
+    const senderName = member?.alias || sender.displayName || "";
     return H`
       <div class="msg ${mine ? "msg--mine" : ""}" data-mid="${msg.id}" data-kind="${msg.kind}">
-        <span class="msg__avatar">${avatarMarkup(sender)}</span>
+        <span class="msg__avatar" data-uid="${sender.id || 0}" title="${escapeHtml(senderName)}">${avatarMarkup(
+          member ? { ...sender, displayName: senderName } : sender
+        )}</span>
         <div class="msg__main">
           <div class="msg__meta">
-            ${state.current?.kind === "group" && !mine ? H`<span class="msg__name">${escapeHtml(sender.displayName || "")}</span>` : ""}
+            ${state.current?.kind === "group" && !mine ? H`<span class="msg__name">${escapeHtml(senderName)}</span>` : ""}
             <span class="msg__time">${timeText(msg.createdAt)}</span>
             ${msg.forwardedFrom ? H`<span class="msg__tag">${t("转发")}</span>` : ""}
           </div>
-          <div class="msg__bubble ${msg.kind === "text" ? "" : "msg__bubble--plain"}">${bodyHtml(msg, mine)}</div>
+          <div class="msg__bubble ${msg.kind === "text" ? "" : "msg__bubble--plain"}">${quoteHtml(msg)}${bodyHtml(
+            msg,
+            mine
+          )}</div>
         </div>
         ${
           msg.recalled
@@ -302,6 +336,16 @@ export function renderChat(root, { sub = "" } = {}) {
         <div class="chat-feed__list" data-feed-list></div>
       </div>
       <div class="chat-compose">
+        <div class="chat-reply" data-reply-bar hidden>
+          <svg class="icon icon--s chat-reply__icon"><use href="#i-reply"/></svg>
+          <span class="chat-reply__main">
+            <span class="chat-reply__name" data-reply-name></span>
+            <span class="chat-reply__text" data-reply-text></span>
+          </span>
+          <button class="icon-btn chat-reply__close" type="button" data-act="cancel-reply" title="${t("取消引用")}">
+            <svg class="icon icon--s"><use href="#i-close"/></svg>
+          </button>
+        </div>
         <div class="sticker-panel" data-sticker-panel hidden>
           <div class="sticker-panel__head">
             <span>${t("我的表情")}</span>
@@ -336,6 +380,7 @@ export function renderChat(root, { sub = "" } = {}) {
       </div>`;
     paintThreadHead();
     paintFeed();
+    paintReply();
     if (conv.kind === "group") {
       // 群名跟着消息里的系统提示变，重新拉一次就同步了
     }
@@ -391,6 +436,8 @@ export function renderChat(root, { sub = "" } = {}) {
     state.messages = [];
     state.lastId = 0;
     state.hasMore = false;
+    // 引用只在当时那个会话里有意义，换会话就丢掉（否则会把引用挂到别的会话里）
+    state.reply = null;
     bodyEl.classList.add("is-thread");
     paintList();
     paintThread();
@@ -499,15 +546,19 @@ export function renderChat(root, { sub = "" } = {}) {
   async function send(kind, payload, body = "") {
     if (!state.current || state.busy) return;
     state.busy = true;
+    // 引用挂在「下一条要发的消息」上：发出去就清掉，避免手滑连发两条都带着引用
+    const quoted = state.reply;
     try {
       const data = await api.post(`/api/chat/conversations/${state.current.id}/messages`, {
         kind,
         body,
         payload,
+        replyTo: quoted ? quoted.id : null,
       });
       const msg = data.message;
       state.messages.push(msg);
       state.lastId = Math.max(state.lastId, msg.id);
+      if (quoted && state.reply === quoted) cancelReply();
       const list = mainEl.querySelector("[data-feed-list]");
       if (list) {
         const placeholder = list.querySelector(".chat-loading");
@@ -531,6 +582,81 @@ export function renderChat(root, { sub = "" } = {}) {
     input.value = "";
     input.style.height = "auto";
     await send("text", null, text);
+  }
+
+  /* ---------------------------------------------------------------- */
+  /* 引用回复                                                          */
+  /* ---------------------------------------------------------------- */
+  /** 一条消息在引用里怎么显示（本地对象用，服务端会另给 reply.text） */
+  function previewOf(msg) {
+    if (!msg) return "";
+    if (msg.kind === "text") return (msg.body || "").slice(0, 80);
+    if (msg.kind === "image") return t("[图片]");
+    if (msg.kind === "sticker") return t("[表情]");
+    if (msg.kind === "file") {
+      const nodes = (msg.payload || {}).nodes || [];
+      return nodes.length === 1
+        ? t("[文件] {name}", { name: nodes[0].name || "" })
+        : t("[文件] {n} 项", { n: nodes.length });
+    }
+    return "";
+  }
+
+  function nameOf(uid, fallback = "") {
+    if (uid && uid === me.id) return t("你");
+    const member = state.current?.members?.find((m) => m.id === uid);
+    return (member && member.alias) || fallback || "";
+  }
+
+  function startReply(msg) {
+    if (!msg || msg.recalled) return;
+    state.reply = msg;
+    paintReply();
+    const input = mainEl.querySelector("[data-input]");
+    if (input && !input.disabled) input.focus();
+  }
+
+  function cancelReply() {
+    state.reply = null;
+    paintReply();
+  }
+
+  function paintReply() {
+    const bar = mainEl.querySelector("[data-reply-bar]");
+    if (!bar) return;
+    const msg = state.reply;
+    bar.hidden = !msg;
+    if (!msg) return;
+    bar.querySelector("[data-reply-name]").textContent = nameOf(msg.sender?.id, msg.sender?.displayName);
+    bar.querySelector("[data-reply-text]").textContent = previewOf(msg);
+  }
+
+  /** 气泡里那块引用：点一下跳回原消息 */
+  function quoteHtml(msg) {
+    const quote = msg.reply;
+    if (!quote) return "";
+    return H`
+      <button class="msg__quote" type="button" data-act="jump" data-target="${quote.id}">
+        <span class="msg__quote-name">${escapeHtml(
+          nameOf(quote.senderId, quote.senderName) || quote.senderName || ""
+        )}</span>
+        <span class="msg__quote-text">${escapeHtml(quote.text || "")}</span>
+      </button>`;
+  }
+
+  function jumpToMessage(mid) {
+    const el = [...mainEl.querySelectorAll(".msg[data-mid]")].find(
+      (node) => Number(node.dataset.mid) === Number(mid)
+    );
+    if (!el) {
+      Toast.info(t("这条消息在更早的聊天记录里，往上翻一翻"));
+      return;
+    }
+    el.scrollIntoView({ block: "center", behavior: "smooth" });
+    el.classList.remove("is-flash");
+    void el.offsetWidth;
+    el.classList.add("is-flash");
+    window.setTimeout(() => el.classList.remove("is-flash"), 1400);
   }
 
   async function uploadImage(file) {
@@ -576,6 +702,8 @@ export function renderChat(root, { sub = "" } = {}) {
   function paintStickers() {
     const grid = mainEl.querySelector("[data-sticker-grid]");
     if (!grid) return;
+    // 重画会换掉格子节点：浮层要是挂在这些旧节点上，收掉；还在排队的悬停不打断
+    hideStickerPreviewIfStale();
     const count = mainEl.querySelector("[data-sticker-count]");
     if (count) count.textContent = `${state.stickers.length}/${state.stickerLimit}`;
     const hint = mainEl.querySelector("[data-sticker-hint]");
@@ -610,6 +738,7 @@ export function renderChat(root, { sub = "" } = {}) {
     state.stickerOpen = force === undefined ? !state.stickerOpen : Boolean(force);
     panel.hidden = !state.stickerOpen;
     if (state.stickerOpen) void loadStickers();
+    else hideStickerPreview();
   }
 
   async function deleteSticker(id, name = "") {
@@ -636,6 +765,7 @@ export function renderChat(root, { sub = "" } = {}) {
   function leaveThread() {
     state.current = null;
     state.messages = [];
+    state.reply = null;
     bodyEl.classList.remove("is-thread");
     history.replaceState(null, "", "#/chat");
     paintThread();
@@ -740,6 +870,14 @@ export function renderChat(root, { sub = "" } = {}) {
   function openMessageMenuAt(msg, x, y, anchor = null) {
     const mine = msg.sender?.id === me.id;
     const items = [];
+    // 引用放最前面：这是右键里最常点的一项
+    if (!msg.recalled) {
+      items.push({
+        label: t("引用"),
+        icon: "i-reply",
+        onClick: () => startReply(msg),
+      });
+    }
     if (msg.kind === "text" && msg.body) {
       items.push({
         label: t("复制文字"),
@@ -1065,6 +1203,67 @@ export function renderChat(root, { sub = "" } = {}) {
     });
   }
 
+  /** 多选好友（邀请进群用）：返回 id 数组；取消返回 null */
+  function pickFriendsMulti({ title, friends, confirmText = "邀请" }) {
+    return new Promise((resolve) => {
+      const chosen = new Set();
+      const backdrop = document.createElement("div");
+      backdrop.className = "picker-backdrop";
+      backdrop.innerHTML = H`
+        <div class="picker picker--friend" role="dialog" aria-modal="true">
+          <div class="picker__head">
+            <svg class="icon icon--s"><use href="#i-user-plus"/></svg><span>${title}</span>
+          </div>
+          <div class="picker__body friend-pick__list" data-list></div>
+          <div class="picker__foot">
+            <span class="muted" data-count></span>
+            <span class="grow"></span>
+            <button class="btn btn--subtle" type="button" data-act="cancel">${t("取消")}</button>
+            <button class="btn btn--accent" type="button" data-act="ok" disabled>${t(confirmText)}</button>
+          </div>
+        </div>`;
+      document.body.appendChild(backdrop);
+      const listEl = backdrop.querySelector("[data-list]");
+      const okBtn = backdrop.querySelector('[data-act="ok"]');
+      const countEl = backdrop.querySelector("[data-count]");
+      listEl.innerHTML = friends
+        .map(
+          (f) => H`
+        <button class="friend-pick__row" type="button" data-id="${f.id}">
+          <span class="friend-pick__avatar">${avatarMarkup(f)}</span>
+          <span class="friend-pick__main">
+            <span class="friend-pick__name">${escapeHtml(f.alias || f.displayName)}</span>
+            <span class="friend-pick__meta">@${escapeHtml(f.username)}</span>
+          </span>
+          <svg class="icon icon--s friend-pick__check"><use href="#i-check"/></svg>
+        </button>`
+        )
+        .join("");
+      const close = (value) => {
+        backdrop.remove();
+        resolve(value);
+      };
+      const sync = () => {
+        okBtn.disabled = !chosen.size;
+        countEl.textContent = chosen.size ? t("已选 {n} 人", { n: chosen.size }) : "";
+      };
+      listEl.addEventListener("click", (event) => {
+        const row = event.target.closest("[data-id]");
+        if (!row) return;
+        const id = Number(row.dataset.id);
+        if (chosen.has(id)) chosen.delete(id);
+        else chosen.add(id);
+        row.classList.toggle("is-active", chosen.has(id));
+        sync();
+      });
+      okBtn.addEventListener("click", () => close([...chosen]));
+      backdrop.querySelector('[data-act="cancel"]').addEventListener("click", () => close(null));
+      backdrop.addEventListener("click", (event) => {
+        if (!event.composedPath().includes(backdrop.querySelector(".picker"))) close(null);
+      });
+    });
+  }
+
   async function newGroupChat() {
     const friends = await ensureFriends();
     if (!friends.length) {
@@ -1164,143 +1363,249 @@ export function renderChat(root, { sub = "" } = {}) {
   async function showGroupInfo() {
     const conv = state.current;
     if (!conv || conv.kind !== "group") return;
-    await groupInfoDialog(conv);
+    await openGroupPanel(conv.id, {
+      onChanged: async (info) => {
+        if (info?.left) {
+          state.current = null;
+          state.messages = [];
+          bodyEl.classList.remove("is-thread");
+          history.replaceState(null, "", "#/chat");
+          await loadConversations();
+          paintThread();
+          return;
+        }
+        await loadConversations({ silent: true });
+        const fresh = state.convs.find((c) => c.id === conv.id);
+        if (fresh) {
+          state.current = fresh;
+          paintThreadHead();
+        }
+        // 群名/头像变了，列表与标题都得跟着换
+        paintList();
+      },
+      onInvite: () => void inviteToGroup(conv),
+    });
   }
 
-  async function groupInfoDialog(conv) {
+  /** 邀请好友进群：复用「选好友」面板（只能选自己的好友，与建群同一套规则） */
+  async function inviteToGroup(conv) {
+    const friends = await ensureFriends();
+    if (!friends.length) {
+      Toast.info(t("先加几个好友才能邀请"));
+      return;
+    }
+    const ids = await pickFriendsMulti({ title: t("邀请好友进群"), friends });
+    if (!ids?.length) return;
+    try {
+      await api.post(`/api/chat/conversations/${conv.id}/members`, { userIds: ids });
+      Toast.success(t("已邀请 {n} 位好友", { n: ids.length }));
+      await loadConversations({ silent: true });
+      const fresh = state.convs.find((c) => c.id === conv.id);
+      if (fresh) {
+        state.current = fresh;
+        paintThreadHead();
+      }
+    } catch (err) {
+      Toast.error(err?.message || t("邀请失败"));
+    }
+  }
+
+  /** 加入群聊：搜公开群 / 贴群号 / 贴邀请链接，一个框全接住 */
+  async function openJoinGroup() {
     const backdrop = document.createElement("div");
     backdrop.className = "picker-backdrop";
-    const paint = () => {
-      backdrop.innerHTML = H`
-        <div class="picker picker--friend" role="dialog" aria-modal="true">
-          <div class="picker__head">
-            <svg class="icon icon--s"><use href="#i-users"/></svg><span>${escapeHtml(conv.title)}</span>
-          </div>
-          <div class="picker__body">
-            <div class="group-info__row">
-              <span class="muted">${t("成员 {n} 人", { n: conv.memberCount })}</span>
-              <span class="grow"></span>
-              ${
-                conv.isOwner
-                  ? H`<button class="btn btn--subtle" type="button" data-act="rename">${t("改群名")}</button>`
-                  : ""
-              }
-            </div>
-            <div class="friend-pick__list">
-              ${(conv.members || [])
-                .map(
-                  (m) => H`
-                <div class="friend-pick__row ${m.id === conv.ownerId ? "is-owner" : ""}" data-uid="${m.id}">
-                  <span class="friend-pick__avatar">${avatarMarkup(m)}</span>
-                  <span class="friend-pick__main">
-                    <span class="friend-pick__name">${escapeHtml(m.displayName)}${
-                      m.id === me.id ? H` <span class="chip">${t("我")}</span>` : ""
-                    }${m.id === conv.ownerId ? H` <span class="chip">${t("群主")}</span>` : ""}</span>
-                    <span class="friend-pick__meta">@${escapeHtml(m.username)}</span>
-                  </span>
-                  ${
-                    conv.isOwner && m.id !== me.id && m.id !== conv.ownerId
-                      ? H`<button class="btn btn--subtle" type="button" data-act="kick" data-uid="${m.id}">${t("移出")}</button>`
-                      : ""
-                  }
-                </div>`
-                )
-                .join("")}
-            </div>
-          </div>
-          <div class="picker__foot">
-            <button class="btn btn--subtle" type="button" data-act="leave">${t("退出群聊")}</button>
-            <span style="flex:1"></span>
-            <button class="btn btn--accent" type="button" data-act="close">${t("关闭")}</button>
-          </div>
-        </div>`;
-      backdrop.querySelector('[data-act="close"]').addEventListener("click", () => backdrop.remove());
+    const close = () => {
+      backdrop.remove();
+      document.removeEventListener("keydown", onKey);
     };
-    paint();
-    document.body.appendChild(backdrop);
     const onKey = (event) => {
-      if (event.key === "Escape") backdrop.remove();
+      if (event.key === "Escape") close();
     };
+    backdrop.innerHTML = H`
+      <div class="picker picker--narrow" role="dialog" aria-modal="true">
+        <div class="picker__head">
+          <svg class="icon icon--s"><use href="#i-users"/></svg><span>${t("加入群聊")}</span>
+        </div>
+        <div class="picker__body">
+          <div class="searchbox">
+            <span class="textbox">
+              <svg class="icon icon--s"><use href="#i-search"/></svg>
+              <input type="search" data-gq placeholder="${t("搜索公开群，或输入群号")}" autocomplete="off">
+            </span>
+            <button class="btn" type="button" data-act="search">${t("搜索")}</button>
+          </div>
+          <p class="muted">${t("私密群搜不到，让群主或管理员发邀请链接给你；点链接会自动进群。")}</p>
+          <div data-glist></div>
+        </div>
+        <div class="picker__foot">
+          <span style="flex:1"></span>
+          <button class="btn btn--subtle" type="button" data-act="close">${t("关闭")}</button>
+        </div>
+      </div>`;
+    document.body.appendChild(backdrop);
     document.addEventListener("keydown", onKey);
+
+    const input = backdrop.querySelector("[data-gq]");
+    const listBox = backdrop.querySelector("[data-glist]");
+
+    const joinBy = async (body) => {
+      try {
+        const data = await api.post("/api/chat/groups/join", body);
+        Toast.success(data.joined ? t("已加入群聊") : t("你已经在这个群里了"));
+        close();
+        await loadConversations();
+        if (data.conversation?.id) void openConversation(data.conversation.id);
+      } catch (err) {
+        Toast.error(err?.message || t("加入失败"));
+      }
+    };
+
+    const paintResults = (items) => {
+      if (!items.length) {
+        listBox.innerHTML = H`<div class="empty"><div class="empty__title">${t("没有找到公开群")}</div>
+            <div class="empty__desc">${t("群号只对公开群有效；私密群需要邀请链接。")}</div></div>`;
+        return;
+      }
+      listBox.innerHTML = H`<div class="friend-pick__list">
+          ${items
+            .map(
+              (g) => H`
+            <div class="friend-pick__row" data-gid="${g.id}">
+              <span class="friend-pick__avatar">${avatarMarkup({
+                avatarUrl: g.avatarUrl,
+                displayName: g.title,
+                username: g.title,
+              })}</span>
+              <span class="friend-pick__main">
+                <span class="friend-pick__name">${escapeHtml(g.title)}</span>
+                <span class="friend-pick__meta">${t("{n} 人", { n: g.memberCount })}${
+                  g.groupNo ? H` · ${t("群号 {no}", { no: g.groupNo })}` : ""
+                }</span>
+                ${g.description ? H`<span class="friend-pick__meta">${escapeHtml(g.description)}</span>` : ""}
+              </span>
+              <button class="btn btn--accent" type="button" data-act="join" data-gid="${g.id}">${t("加入")}</button>
+            </div>`
+            )
+            .join("")}
+        </div>`;
+    };
+
+    const search = async () => {
+      const q = input.value.trim();
+      if (!q) return;
+      // 整条邀请链接也能直接粘进来：从 URL 里把 token 抠出来
+      const linkMatch = q.match(/\/g\/([A-Za-z0-9]{6,24})/);
+      if (linkMatch) {
+        await joinBy({ token: linkMatch[1] });
+        return;
+      }
+      try {
+        const data = await api.get(`/api/chat/groups/search?q=${encodeURIComponent(q)}`);
+        const items = data.items || [];
+        // 看起来像群号（纯数字）且没搜到：直接按群号加一次，省一步
+        if (!items.length && /^\d{6,12}$/.test(q)) {
+          await joinBy({ no: q });
+          return;
+        }
+        paintResults(items);
+      } catch (err) {
+        Toast.error(err?.message || t("搜索失败"));
+      }
+    };
+
     backdrop.addEventListener("click", (event) => {
       if (!event.composedPath().includes(backdrop.querySelector(".picker"))) {
-        backdrop.remove();
-        document.removeEventListener("keydown", onKey);
+        close();
         return;
       }
       const btn = event.target.closest("[data-act]");
       if (!btn) return;
-      const act = btn.dataset.act;
-      if (act === "rename") {
-        void (async () => {
-          const name = await Dialog.prompt({
-            title: t("改群名"),
-            label: t("群名"),
-            value: conv.title,
-            confirmText: t("保存"),
-          });
-          if (!name || !name.trim()) return;
-          try {
-            const data = await api.patch(`/api/chat/conversations/${conv.id}`, {
-              title: name.trim(),
-            });
-            Object.assign(conv, data.conversation || {});
-            paint();
-            paintThreadHead();
-            await loadConversations({ silent: true });
-          } catch (err) {
-            Toast.error(err?.message || t("改名失败"));
-          }
-        })();
-      } else if (act === "kick") {
-        const uid = Number(btn.dataset.uid);
-        void (async () => {
-          const ok = await Dialog.confirm({
-            title: t("移出成员"),
-            message: t("他会收到一条通知，之前的消息仍留在群里。"),
-            confirmText: t("移出"),
-            danger: true,
-          });
-          if (!ok) return;
-          try {
-            await api.del(`/api/chat/conversations/${conv.id}/members/${uid}`);
-            Toast.success(t("已移出"));
-            await loadConversations({ silent: true });
-            const fresh = state.convs.find((c) => c.id === conv.id);
-            if (fresh) {
-              state.current = fresh;
-              Object.assign(conv, fresh);
-            }
-            paint();
-            paintThreadHead();
-          } catch (err) {
-            Toast.error(err?.message || t("操作失败"));
-          }
-        })();
-      } else if (act === "leave") {
-        void (async () => {
-          const ok = await Dialog.confirm({
-            title: t("退出群聊"),
-            message: t("退出后不会收到这个群的消息，重新加入要群主再邀请一次。"),
-            confirmText: t("退出"),
-            danger: true,
-          });
-          if (!ok) return;
-          try {
-            await api.post(`/api/chat/conversations/${conv.id}/leave`, {});
-            backdrop.remove();
-            document.removeEventListener("keydown", onKey);
-            state.current = null;
-            state.messages = [];
-            bodyEl.classList.remove("is-thread");
-            history.replaceState(null, "", "#/chat");
-            await loadConversations();
-            paintThread();
-            Toast.success(t("已退出群聊"));
-          } catch (err) {
-            Toast.error(err?.message || t("操作失败"));
-          }
-        })();
+      if (btn.dataset.act === "close") close();
+      else if (btn.dataset.act === "search") void search();
+      else if (btn.dataset.act === "join") void joinBy({ conversationId: Number(btn.dataset.gid) });
+    });
+    backdrop.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && event.target === input) {
+        event.preventDefault();
+        void search();
+      }
+    });
+    input.focus();
+  }
+
+  /** 邀请链接（#/chat/join/<token>）：先给群摘要，确认了再进 */
+  async function handleInviteRoute(token) {
+    let group = null;
+    try {
+      const data = await api.get(`/api/public/groups/${encodeURIComponent(token)}`);
+      group = data.group;
+    } catch (err) {
+      Toast.error(err?.message || t("邀请链接已失效"));
+      history.replaceState(null, "", "#/chat");
+      return;
+    }
+    const backdrop = document.createElement("div");
+    backdrop.className = "picker-backdrop";
+    const close = () => {
+      backdrop.remove();
+      document.removeEventListener("keydown", onKey);
+      history.replaceState(null, "", "#/chat");
+    };
+    const onKey = (event) => {
+      if (event.key === "Escape") close();
+    };
+    backdrop.innerHTML = H`
+      <div class="picker picker--narrow" role="dialog" aria-modal="true">
+        <div class="picker__head">
+          <svg class="icon icon--s"><use href="#i-users"/></svg><span>${t("群邀请")}</span>
+        </div>
+        <div class="picker__body">
+          <div class="group-invite">
+            <span class="group-invite__avatar">${avatarMarkup({
+              avatarUrl: group.avatarUrl,
+              displayName: group.title,
+              username: group.title,
+            })}</span>
+            <div class="group-invite__text">
+              <div class="group-invite__name">${escapeHtml(group.title)}</div>
+              <div class="muted">${t("{n} 人", { n: group.memberCount })} · ${
+                group.isPublic ? t("公开群") : t("私密群")
+              }</div>
+              ${group.description ? H`<p class="muted">${escapeHtml(group.description)}</p>` : ""}
+            </div>
+          </div>
+        </div>
+        <div class="picker__foot">
+          <button class="btn btn--subtle" type="button" data-act="cancel">${t("取消")}</button>
+          <span style="flex:1"></span>
+          <button class="btn btn--accent" type="button" data-act="join">${t("加入群聊")}</button>
+        </div>
+      </div>`;
+    document.body.appendChild(backdrop);
+    document.addEventListener("keydown", onKey);
+    backdrop.addEventListener("click", async (event) => {
+      if (!event.composedPath().includes(backdrop.querySelector(".picker"))) {
+        close();
+        return;
+      }
+      const btn = event.target.closest("[data-act]");
+      if (!btn) return;
+      if (btn.dataset.act === "cancel") {
+        close();
+        return;
+      }
+      if (btn.dataset.act === "join") {
+        btn.disabled = true;
+        try {
+          const data = await api.post("/api/chat/groups/join", { token });
+          Toast.success(data.joined ? t("已加入群聊") : t("你已经在这个群里了"));
+          close();
+          await loadConversations();
+          if (data.conversation?.id) void openConversation(data.conversation.id);
+        } catch (err) {
+          Toast.error(err?.message || t("加入失败"));
+          btn.disabled = false;
+        }
       }
     });
   }
@@ -1309,7 +1614,20 @@ export function renderChat(root, { sub = "" } = {}) {
   /* 事件绑定                                                          */
   /* ---------------------------------------------------------------- */
   root.querySelector('[data-act="new-chat"]').addEventListener("click", () => void newDirectChat());
-  root.querySelector('[data-act="new-group"]').addEventListener("click", () => void newGroupChat());
+  root.querySelector('[data-act="new-group"]').addEventListener("click", (event) => {
+    // 新建 / 加入二选一：同一个「+」里出菜单，省一个按钮
+    const rect = event.currentTarget.getBoundingClientRect();
+    openMenu({
+      x: rect.left,
+      y: rect.bottom + 8,
+      anchor: event.currentTarget,
+      align: "end",
+      items: [
+        { label: t("新建群聊"), icon: "i-plus", onClick: () => void newGroupChat() },
+        { label: t("加入群聊"), icon: "i-users", onClick: () => void openJoinGroup() },
+      ],
+    });
+  });
 
   root.querySelector("[data-filter]").addEventListener("input", (event) => {
     state.query = event.target.value;
@@ -1329,6 +1647,57 @@ export function renderChat(root, { sub = "" } = {}) {
     const conv = state.convs.find((c) => c.id === Number(row.dataset.conv));
     if (!conv) return;
     openConvMenu(conv, event.clientX, event.clientY);
+  });
+
+  /* 头像悬停 2.5 秒出名片；离开就取消（避免鼠标划过一片时连环弹） */
+  mainEl.addEventListener("mouseover", (event) => {
+    // 我的表情：停一下放大看清楚，浮层里直接发送 / 删除
+    const stickerEl = event.target.closest(".sticker-item[data-sticker-id]");
+    if (stickerEl) {
+      if (stickerEl.contains(event.relatedTarget)) return;
+      const sid = Number(stickerEl.dataset.stickerId);
+      const sticker = state.stickers.find((s) => s.id === sid);
+      if (sticker) {
+        hoverStickerPreview(sticker, stickerEl, {
+          onSend: (id) => {
+            toggleStickers(false);
+            void send("sticker", { stickerId: id });
+          },
+          onDelete: (id, name) => void deleteSticker(id, name),
+        });
+      }
+      return;
+    }
+    const ava = event.target.closest(".msg__avatar[data-uid]");
+    if (!ava || ava.contains(event.relatedTarget)) return;
+    const uid = Number(ava.dataset.uid);
+    if (!uid) return;
+    hoverUserCard(uid, ava);
+  });
+  mainEl.addEventListener("mouseout", (event) => {
+    const stickerEl = event.target.closest(".sticker-item[data-sticker-id]");
+    if (stickerEl) {
+      if (stickerEl.contains(event.relatedTarget)) return;
+      scheduleHideStickerPreview();
+      return;
+    }
+    const ava = event.target.closest(".msg__avatar[data-uid]");
+    if (!ava || ava.contains(event.relatedTarget)) return;
+    scheduleCloseUserCard();
+  });
+
+  /* 点面板外面就收起「我的表情」：比再去找开关顺手（跟项目里 .popover 的脾气一致） */
+  const closeStickersOutside = (event) => {
+    if (!state.stickerOpen) return;
+    // 面板本身、顶部开关、预览浮层、确认框都算「里面」
+    if (event.target.closest?.(".sticker-panel, [data-act=\"open-stickers\"], .sticker-preview, .dialog")) {
+      return;
+    }
+    toggleStickers(false);
+  };
+  document.addEventListener("pointerdown", closeStickersOutside, {
+    capture: true,
+    ...(docView ? { signal: docView.signal } : {}),
   });
 
   mainEl.addEventListener("contextmenu", (event) => {
@@ -1370,6 +1739,12 @@ export function renderChat(root, { sub = "" } = {}) {
   });
 
   mainEl.addEventListener("click", (event) => {
+    // 点头像 = 进个人主页（悬停出名片只是预览）
+    const avatarHit = event.target.closest(".msg__avatar[data-uid]");
+    if (avatarHit && Number(avatarHit.dataset.uid)) {
+      location.hash = `#/profile/${avatarHit.dataset.uid}`;
+      return;
+    }
     // 图片/表情点击放大：放在最前面，放大层自己的关闭按钮单独处理
     const zoom = event.target.closest('[data-act="zoom"]');
     if (zoom) {
@@ -1379,6 +1754,14 @@ export function renderChat(root, { sub = "" } = {}) {
     const btn = event.target.closest("[data-act]");
     if (!btn) return;
     const act = btn.dataset.act;
+    if (act === "cancel-reply") {
+      cancelReply();
+      return;
+    }
+    if (act === "jump") {
+      jumpToMessage(btn.dataset.target);
+      return;
+    }
     if (act === "more") {
       const msg = messageById(btn.dataset.mid);
       if (msg) openMessageMenu(btn, msg);
@@ -1470,9 +1853,27 @@ export function renderChat(root, { sub = "" } = {}) {
     }
   });
 
+  /* Ctrl+V 直接粘图：截图工具复制完就能发，不用先存成文件 */
+  mainEl.addEventListener("paste", (event) => {
+    const input = event.target.closest?.("[data-input]");
+    if (!input || input.disabled) return;
+    const clipboard = event.clipboardData;
+    if (!clipboard) return;
+    const file = [...(clipboard.items || [])]
+      .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
+      .map((item) => item.getAsFile())
+      .find(Boolean);
+    // 没有图就让浏览器照常粘文字
+    if (!file) return;
+    event.preventDefault();
+    void uploadImage(file);
+  });
+
   mainEl.addEventListener(
     "scroll",
     (event) => {
+      // 表情格子滚走了，浮层还钉在原处就成了幽灵
+      if (event.target.matches?.(".sticker-grid")) hideStickerPreview();
       if (!event.target.matches("[data-feed]")) return;
       if (event.target.scrollTop < 40 && state.hasMore) void loadOlder();
     },
@@ -1542,7 +1943,10 @@ export function renderChat(root, { sub = "" } = {}) {
   void (async () => {
     await loadConversations({ silent: true });
     if (!root.isConnected) return;
-    if (sub) await openConversation(sub, { fromRoute: true });
+    // #/chat/join/<token>：邀请链接直接进「加群」确认框
+    const invite = /^join\/([A-Za-z0-9]{6,24})$/.exec(sub || "");
+    if (invite) await handleInviteRoute(invite[1]);
+    else if (sub) await openConversation(sub, { fromRoute: true });
     state.timer = window.setInterval(() => {
       if (!root.isConnected) {
         window.clearInterval(state.timer);

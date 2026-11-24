@@ -14,14 +14,18 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
 from .. import chat_service as cs
+from .. import group_service as gs
 from ..db import get_db
 from ..deps import get_current_user
-from ..models import ChatMessage, User
+from ..models import ChatConversation, ChatMessage, User
 from ..schemas import (
+    ChatAdminIn,
     ChatDirectIn,
     ChatForwardIn,
     ChatGroupIn,
     ChatGroupPatch,
+    ChatJoinIn,
+    ChatMemberNoteIn,
     ChatMembersIn,
     ChatReadIn,
     ChatReportIn,
@@ -80,10 +84,199 @@ def conversation_detail(conversation_id: int, db: DbSession, user: CurrentUser) 
 def patch_conversation(
     conversation_id: int, payload: ChatGroupPatch, request: Request, db: DbSession, user: CurrentUser
 ) -> dict:
+    """群资料局部更新：群名 / 简介 / 公开私密（只有群主能改公开性）。"""
     check_origin(request)
-    cs.rename_group(db, user, conversation_id, payload.title)
+    gs.update_group(db, user, conversation_id, payload.model_dump(exclude_none=True, by_alias=True))
     db.commit()
     return conversation_detail(conversation_id, db, user)
+
+
+@router.put("/conversations/{conversation_id}/avatar")
+async def upload_group_avatar(
+    conversation_id: int, request: Request, db: DbSession, user: CurrentUser
+) -> dict:
+    """群头像：原始字节上传，服务端裁方图 + 缩到 256px（与用户头像同一套规格）。"""
+    check_origin(request)
+    declared = request.headers.get("content-length")
+    if declared and declared.isdigit() and int(declared) > gs.AVATAR_MAX_BYTES:
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "群头像不能超过 4 MB")
+    raw = await request.body()
+    gs.save_avatar(db, user, conversation_id, raw)
+    db.commit()
+    return conversation_detail(conversation_id, db, user)
+
+
+@router.get("/group-avatar/{name}")
+def group_avatar(name: str):
+    """群头像：登录即可读（和用户头像同理，群成员之外的人也能看到分享页里的头像）。"""
+    from fastapi.responses import FileResponse
+
+    path = gs.avatar_path(name)
+    if not path:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "头像不存在")
+    return FileResponse(
+        path,
+        media_type=gs.avatar_media_type(name),
+        headers={"Cache-Control": "private, max-age=604800"},
+    )
+
+
+@router.put("/conversations/{conversation_id}/members/{member_id}/note")
+def set_member_note(
+    conversation_id: int,
+    member_id: int,
+    payload: ChatMemberNoteIn,
+    request: Request,
+    db: DbSession,
+    user: CurrentUser,
+) -> dict:
+    """群内备注：只对我生效，别人看到的还是他自己的备注/昵称。"""
+    check_origin(request)
+    if int(member_id) != int(payload.user_id):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "成员 id 对不上")
+    result = cs.set_member_note(db, user, conversation_id, member_id, payload.alias)
+    db.commit()
+    return result
+
+
+@router.post("/conversations/{conversation_id}/admins")
+def set_group_admin(
+    conversation_id: int, payload: ChatAdminIn, request: Request, db: DbSession, user: CurrentUser
+) -> dict:
+    """设 / 取消群管理员（只有群主能操作）。"""
+    check_origin(request)
+    result = gs.set_admin(db, user, conversation_id, payload.user_id, payload.admin)
+    db.commit()
+    return result
+
+
+# --------------------------------------------------------------------------- #
+# 群分享 / 找群
+# --------------------------------------------------------------------------- #
+@router.get("/conversations/{conversation_id}/share")
+def group_share(conversation_id: int, request: Request, db: DbSession, user: CurrentUser) -> dict:
+    """群号 + 邀请链接 + 二维码（成员都能看，转发邀请是正常需求）。"""
+    return gs.share_info(db, user, conversation_id, str(request.base_url))
+
+
+@router.post("/conversations/{conversation_id}/share")
+def group_share_reset(
+    conversation_id: int, request: Request, db: DbSession, user: CurrentUser
+) -> dict:
+    """重置邀请链接：旧链接立即失效（群主 / 管理员可用）。"""
+    check_origin(request)
+    result = gs.reset_share(db, user, conversation_id, str(request.base_url))
+    db.commit()
+    return result
+
+
+@router.get("/groups/search")
+def search_groups(
+    db: DbSession, user: CurrentUser, q: str = Query(default="", max_length=60)
+) -> dict:
+    return {"items": gs.search_public(db, user, q)}
+
+
+@router.post("/groups/join")
+def join_group(payload: ChatJoinIn, request: Request, db: DbSession, user: CurrentUser) -> dict:
+    """加群：公开群点进来 / 输群号 / 点邀请链接。私密群只认邀请链接。"""
+    check_origin(request)
+    via = "群号"
+    if payload.conversation_id:
+        conv = db.get(ChatConversation, int(payload.conversation_id))
+        if not conv or conv.kind != "group":
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "群不存在")
+        if not conv.is_public:
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN, "这个群没有公开，需要群主或管理员发邀请链接"
+            )
+        via = "公开群"
+    elif payload.token:
+        conv = gs.find_by_token(db, payload.token)
+        via = "邀请链接"
+    elif payload.no:
+        conv = gs.find_by_no(db, payload.no)
+        via = "群号"
+    else:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "请提供群号或邀请链接")
+    result = gs.join(db, user, conv, via=via)
+    db.commit()
+    return result
+
+
+# --------------------------------------------------------------------------- #
+# 群文件
+# --------------------------------------------------------------------------- #
+@router.get("/conversations/{conversation_id}/files")
+def list_group_files(conversation_id: int, db: DbSession, user: CurrentUser) -> dict:
+    return gs.list_files(db, user, conversation_id)
+
+
+@router.put("/conversations/{conversation_id}/files", status_code=status.HTTP_201_CREATED)
+async def upload_group_file(
+    conversation_id: int,
+    request: Request,
+    db: DbSession,
+    user: CurrentUser,
+    name: str = Query(..., min_length=1, max_length=200),
+) -> dict:
+    """上传群文件：流式落盘（不把整个文件读进内存），边写边核配额。"""
+    check_origin(request)
+    declared = request.headers.get("content-length")
+    size = int(declared) if declared and declared.isdigit() else 0
+    conv, path, stored = gs.prepare_upload(db, user, conversation_id, name, size)
+    total = 0
+    try:
+        with path.open("wb") as fh:
+            async for chunk in request.stream():
+                total += len(chunk)
+                if total > gs.FILE_MAX_BYTES:
+                    raise HTTPException(
+                        status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                        f"单个群文件不能超过 {gs.FILE_MAX_BYTES // 1024**3} GB",
+                    )
+                if total > gs.check_room(db, conv):
+                    raise HTTPException(
+                        status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "群文件空间已满"
+                    )
+                fh.write(chunk)
+        if total == 0:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "没有收到文件内容")
+        row = gs.commit_file(db, conv, user, name, stored, total)
+        db.commit()
+    except BaseException:
+        path.unlink(missing_ok=True)
+        raise
+    return {
+        "file": {
+            "id": row.id,
+            "name": row.name,
+            "size": row.size,
+            "mime": row.mime,
+            "uploaderId": row.uploader_id,
+            "uploaderName": cs._name_of(user),
+            "canDelete": True,
+        },
+        "used": int(conv.file_bytes or 0),
+        "quota": gs.file_quota_bytes(db),
+    }
+
+
+@router.get("/group-files/{file_id}/download")
+def download_group_file(file_id: int, request: Request, db: DbSession, user: CurrentUser):
+    row, conv = gs.file_row(db, user, file_id)
+    path = gs.file_path(conv.id, row.file)
+    return storage.file_response(path, row.name, row.mime, request)
+
+
+@router.delete("/group-files/{file_id}")
+def delete_group_file(
+    file_id: int, request: Request, db: DbSession, user: CurrentUser
+) -> dict:
+    check_origin(request)
+    result = gs.delete_file(db, user, file_id)
+    db.commit()
+    return result
 
 
 @router.post("/conversations/{conversation_id}/members")
@@ -198,9 +391,10 @@ def send_message(
         kind=payload.kind,
         body=payload.body,
         payload=payload.payload,
+        reply_to=payload.reply_to,
     )
     db.commit()
-    return {"message": cs.message_payload(db, msg)}
+    return {"message": cs.sent_payload(db, msg)}
 
 
 @router.post("/conversations/{conversation_id}/read")
@@ -217,6 +411,19 @@ def read_conversation(
 def unread(user: CurrentUser, db: DbSession) -> dict:
     """导航角标用：所有会话的未读合计。"""
     return {"unread": cs.total_unread(db, user)}
+
+
+@router.get("/alerts")
+def alerts(
+    db: DbSession,
+    user: CurrentUser,
+    after: int = Query(default=0, ge=0),
+) -> dict:
+    """消息提醒：``after``（上次提醒到的消息 id）之后的新消息摘要。
+
+    前端全局轮询这个接口：页面可见时弹站内小卡片，页面在后台时发系统通知。
+    """
+    return cs.alert_summary(db, user, after_id=after)
 
 
 @router.post("/messages/{message_id}/recall")

@@ -1,0 +1,569 @@
+/* ------------------------------------------------------------
+   个人主页 / 用户名片浮层 / 消息提醒小卡片
+   ------------------------------------------------------------
+   底色一律「层色 + 主题色 tinт」，不写 background 简写，
+   否则会把 tint 背景图一起清掉（全站统一规矩）。
+   ------------------------------------------------------------ */
+
+/* ---------------- 个人主页 ---------------- */
+.profile-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-bottom: 24px;
+  min-width: 0;
+}
+
+.profile-card {
+  position: relative;
+  border-radius: var(--radius-l);
+  border: 1px solid var(--stroke-hair);
+  background-color: var(--layer-1);
+  background-image: var(--accent-tint);
+  overflow: hidden;
+}
+.profile-card__cover {
+  height: 96px;
+  background-color: var(--layer-2);
+  background-image: var(--accent-tint);
+  border-bottom: 1px solid var(--stroke-hair);
+}
+.profile-card__main {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 0 20px 18px;
+  margin-top: -40px;
+  min-width: 0;
+}
+.profile-card__avatar {
+  flex: 0 0 auto;
+  width: 88px;
+  height: 88px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+  /* 头像压在封面与卡片交界处：底色必须是实色，半透明的话上半截会跟封面糊成一片，
+     看上去像被裁掉了半个圆 */
+  background-color: var(--panel-surface);
+  background-image: var(--accent-tint);
+  border: 3px solid var(--panel-surface);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.14);
+}
+.profile-card__avatar img,
+.profile-card__avatar .avatar-initial {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: grid;
+  place-items: center;
+  font-size: 30px;
+}
+.profile-card__text {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding-top: 44px;
+}
+.profile-card__name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 19px;
+  font-weight: 650;
+  color: var(--text-1);
+}
+.profile-card__meta {
+  margin-top: 4px;
+  font-size: 12.5px;
+  color: var(--text-2);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.profile-card__bio {
+  margin: 8px 0 0;
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--text-2);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.profile-card__ops {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 44px;
+}
+
+.profile-panels {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 14px;
+}
+.profile-panel {
+  padding: 14px 16px;
+  border-radius: var(--radius-l);
+  border: 1px solid var(--stroke-hair);
+  background-color: var(--layer-1);
+  background-image: var(--accent-tint);
+  min-width: 0;
+}
+.profile-panel__title {
+  margin: 0 0 10px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-2);
+  letter-spacing: 0.02em;
+}
+.profile-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 0;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--text-2);
+  border-bottom: 1px dashed var(--stroke-hair);
+}
+.profile-link:last-child {
+  border-bottom: 0;
+}
+.profile-link .icon {
+  flex: 0 0 auto;
+  color: var(--accent);
+}
+.profile-link__label {
+  flex: 0 0 auto;
+  min-width: 84px;
+  color: var(--text-2);
+}
+.profile-link__value {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--text-1);
+  text-align: right;
+  overflow-wrap: anywhere;
+  text-decoration: none;
+}
+a.profile-link__value:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+.profile-empty {
+  padding: 10px 0;
+  font-size: 12.5px;
+  color: var(--text-2);
+  opacity: 0.8;
+}
+
+/* ---------------- 编辑资料 ---------------- */
+.picker--editor {
+  width: min(720px, calc(100vw - 32px));
+  max-height: min(90vh, 900px);
+}
+.picker--editor .picker__body {
+  overflow-y: auto;
+}
+.profile-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.profile-form__row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+/* 性别用分段控件：一定要 display:flex + flex:1，
+   用 inline-flex 的话按钮按内容宽度挤在一起，看着像「不填男女其他」一串字 */
+.profile-form .segmented {
+  display: flex;
+}
+.profile-form .segmented__btn {
+  flex: 1;
+  min-width: 0;
+}
+/* 简介是多行输入：.textbox 默认定高 36px，多行内容会上下各溢出一半，
+   正好压住上面的「简介」标签 —— 这里让它按内容长高 */
+.profile-form .textbox {
+  align-items: stretch;
+  height: auto;
+  min-height: 36px;
+  padding: 6px 10px;
+}
+.profile-form .textbox textarea {
+  flex: 1;
+  width: 100%;
+  min-width: 0;
+  min-height: 54px;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--text-1);
+  font: inherit;
+  font-size: 13.5px;
+  line-height: 1.5;
+  resize: vertical;
+}
+.profile-form .textbox textarea::placeholder {
+  color: var(--text-3);
+}
+.profile-form__hint {
+  font-size: 12px;
+  color: var(--text-2);
+  padding-top: 2px;
+}
+.profile-form__links {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 14px;
+}
+.profile-form__link {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.profile-form__link-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--text-2);
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.profile-form__link .textbox {
+  min-width: 0;
+  /* 18 行挤在一个弹窗里，输入框压到 32px 才不用滚 */
+  height: 32px;
+  padding: 0 8px;
+}
+.profile-form__link input[type="text"] {
+  width: 100%;
+  min-width: 0;
+  font-size: 12.5px;
+}
+.profile-form__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11.5px;
+  color: var(--text-2);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.profile-form__toggle input {
+  accent-color: var(--accent);
+}
+.share-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+.share-link .textbox {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.share-link input {
+  width: 100%;
+  font-size: 12.5px;
+}
+.picker--narrow {
+  width: min(520px, calc(100vw - 32px));
+}
+
+/* ---------------- 用户名片浮层 ---------------- */
+.usercard {
+  position: fixed;
+  z-index: 1400;
+  width: 268px;
+  padding: 12px 14px;
+  border-radius: var(--radius-m);
+  border: 1px solid var(--stroke-hair);
+  background-color: var(--dialog-surface, var(--layer-1));
+  background-image: var(--accent-tint);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.24);
+  animation: usercard-in 0.12s ease-out;
+}
+@keyframes usercard-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+.usercard__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.usercard__avatar {
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  background-color: var(--layer-2);
+}
+.usercard__avatar img,
+.usercard__avatar .avatar-initial {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: grid;
+  place-items: center;
+}
+.usercard__names {
+  min-width: 0;
+}
+.usercard__name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.usercard__meta {
+  font-size: 11.5px;
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.usercard__bio {
+  margin-top: 8px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-2);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.usercard__links {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--stroke-hair);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.usercard__link {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--text-2);
+  min-width: 0;
+}
+.usercard__link .icon {
+  color: var(--accent);
+  flex: 0 0 auto;
+}
+.usercard__link-label {
+  flex: 0 0 auto;
+  min-width: 60px;
+}
+.usercard__link-value {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--text-1);
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.usercard__ops {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+.usercard__ops .btn {
+  flex: 1 1 0;
+  justify-content: center;
+  padding: 5px 10px;
+  font-size: 12.5px;
+}
+
+/* ---------------- 消息提醒小卡片 ---------------- */
+.notify-stack {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 1500;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(320px, calc(100vw - 32px));
+  pointer-events: none;
+}
+.notify-card {
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius-m);
+  border: 1px solid var(--stroke-hair);
+  background-color: var(--dialog-surface, var(--layer-1));
+  background-image: var(--accent-tint);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.24);
+  cursor: pointer;
+  text-align: left;
+  color: var(--text-1);
+  animation: notify-in 0.16s ease-out;
+}
+@keyframes notify-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+.notify-card__avatar {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  background-color: var(--layer-2);
+}
+.notify-card__avatar img,
+.notify-card__avatar .avatar-initial {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.notify-card__main {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.notify-card__title {
+  /* 两个都是 span，不加 block 会挤在同一行：「阿蓝 提醒卡片测试」 */
+  display: block;
+  font-size: 12.5px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.notify-card__text {
+  display: block;
+  margin-top: 2px;
+  font-size: 12.5px;
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.notify-card__close {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+}
+.notify-card__close:hover {
+  background-color: var(--layer-2);
+  color: var(--text-1);
+}
+
+/* ---------------- 公开主页（/u/<token>） ---------------- */
+/* 独立文档：全局 body{overflow:hidden} 是为应用壳准备的，这里要能滚，
+   否则资料多的时候下半截直接被锁在视口外 */
+body.page-profile {
+  height: auto;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+.profile-public {
+  width: min(860px, calc(100vw - 24px));
+  margin: auto;
+  padding: 34px 0 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.profile-public__loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 60px 0;
+  color: var(--text-2);
+  font-size: 13px;
+}
+.profile-public__foot {
+  padding: 6px 0 26px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-2);
+  opacity: 0.85;
+}
+.profile-panel--empty {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-2);
+  font-size: 13px;
+}
+.profile-panel--empty .icon {
+  color: var(--accent);
+}
+
+@media (max-width: 720px) {
+  .profile-card__main {
+    flex-wrap: wrap;
+    padding: 0 14px 14px;
+  }
+  .profile-card__cover {
+    height: 74px;
+  }
+  .profile-card__avatar {
+    width: 72px;
+    height: 72px;
+    margin-top: -6px;
+  }
+  .profile-card__text {
+    padding-top: 6px;
+    flex-basis: calc(100% - 88px);
+  }
+  .profile-card__ops {
+    padding-top: 0;
+    flex-basis: 100%;
+    flex-wrap: wrap;
+  }
+  .profile-form__row,
+  .profile-form__links {
+    grid-template-columns: 1fr;
+  }
+  .notify-stack {
+    right: 10px;
+    bottom: 10px;
+    left: 10px;
+    width: auto;
+  }
+}

@@ -35,8 +35,10 @@ from .models import (
     ChatBlock,
     ChatConversation,
     ChatMember,
+    ChatMemberNote,
     ChatMessage,
     ChatReport,
+    Friendship,
     Node,
     Sticker,
     User,
@@ -271,19 +273,33 @@ def _conv_payload(
     member: ChatMember | None = None,
     i_blocked: bool = False,
     blocked_by_peer: bool = False,
+    peer_alias: str = "",
+    notes: dict[int, str] | None = None,
 ) -> dict[str, Any]:
     rows = members if members is not None else members_of(db, conv.id)
     users = _users(db, [row.user_id for row in rows])
-    people = [user_card(users.get(row.user_id)) for row in rows]
+    note_map = notes or {}
+    people = []
+    for row in rows:
+        item = user_card(users.get(row.user_id))
+        alias = note_map.get(int(row.user_id)) or ""
+        if alias:
+            item["alias"] = alias
+        item["isAdmin"] = row.admin_at is not None
+        people.append(item)
     mine = next((p for p in people if p["id"] == me.id), None)
     if conv.kind == "direct":
         peer = next((p for p in people if p["id"] != me.id), None)
-        title = peer["displayName"] if peer else "已注销用户"
+        # 好友备注优先于昵称：备注就是「我认得的那个名字」
+        title = peer_alias or (peer["displayName"] if peer else "已注销用户")
         avatar_url = peer["avatarUrl"] if peer else None
     else:
         title = conv.title or "群聊"
-        avatar_url = None
+        avatar_url = f"/api/chat/group-avatar/{conv.avatar}" if conv.avatar else None
         peer = None
+
+    my_role = "owner" if conv.owner_id == me.id else ("admin" if member and member.admin_at else "member")
+    is_group = conv.kind == "group"
 
     # 「清空聊天记录」只影响我这边：清空点之前的最后一条不该再当预览显示
     cleared = int(getattr(member, "cleared_id", 0) or 0)
@@ -298,6 +314,13 @@ def _conv_payload(
         "peerId": (peer or {}).get("id") if conv.kind == "direct" else None,
         "ownerId": conv.owner_id,
         "isOwner": conv.owner_id == me.id,
+        # 群资料：单聊一律为空 / false，前端不用再判断 kind
+        "description": conv.description or "" if is_group else "",
+        "isPublic": bool(conv.is_public) if is_group else False,
+        "groupNo": conv.group_no if is_group else None,
+        "shareEnabled": bool(conv.share_token) if is_group else False,
+        "myRole": my_role if is_group else "member",
+        "canManage": bool(is_group and (conv.owner_id == me.id or (member and member.admin_at))),
         "members": people,
         "memberCount": len(people),
         "me": mine,
@@ -391,12 +414,17 @@ def list_conversations(db: Session, me: User) -> dict[str, Any]:
     # 拉黑状态一次查全，别在循环里每人两条 SQL
     i_blocked = blocked_ids(db, me.id)
     blocked_me = blocked_me_ids(db, me.id)
+    friend_aliases = alias_map(db, me.id)
+    group_notes = member_notes_map(db, me.id, conv_ids)
 
     items = []
     for conv in convs:
         member = mine_by_conv[conv.id]
         people = by_conv.get(conv.id, [])
         peer_ids = [row.user_id for row in people if row.user_id != me.id]
+        # 群里我起的备注优先，其次用好友备注兜底：备注就是「我认得的那个名字」
+        merged = dict(friend_aliases)
+        merged.update(group_notes.get(conv.id, {}))
         items.append(
             _conv_payload(
                 db,
@@ -408,6 +436,8 @@ def list_conversations(db: Session, me: User) -> dict[str, Any]:
                 member=member,
                 i_blocked=any(pid in i_blocked for pid in peer_ids),
                 blocked_by_peer=any(pid in blocked_me for pid in peer_ids),
+                peer_alias=merged.get(peer_ids[0], "") if conv.kind == "direct" and peer_ids else "",
+                notes=merged,
             )
         )
     # 隐藏的会话不参与未读统计：否则角标会指向一个列表里看不到的会话
@@ -419,6 +449,83 @@ def friends_for_picker(db: Session, me: User) -> list[dict[str, Any]]:
     """新建单聊 / 群聊 / 快传选人用的好友简表。"""
     data = fsv.list_all(db, me)
     return data.get("friends", [])
+
+
+def alias_map(db: Session, me_id: int) -> dict[int, str]:
+    """我对每位好友的备注：{对方 id: 备注}。会话标题优先用它。"""
+    rows = db.scalars(
+        select(Friendship).where(
+            Friendship.status == "accepted",
+            or_(Friendship.requester_id == me_id, Friendship.addressee_id == me_id),
+        )
+    ).all()
+    out: dict[int, str] = {}
+    for row in rows:
+        other = row.addressee_id if row.requester_id == me_id else row.requester_id
+        alias = (row.requester_alias if row.requester_id == me_id else row.addressee_alias) or ""
+        if alias:
+            out[int(other)] = alias
+    return out
+
+
+def member_notes_map(db: Session, me_id: int, conv_ids: list[int]) -> dict[int, dict[int, str]]:
+    """我在这些群里给成员起的备注：{群 id: {成员 id: 备注}}。一次查全，别按会话循环。"""
+    if not conv_ids:
+        return {}
+    rows = db.scalars(
+        select(ChatMemberNote).where(
+            ChatMemberNote.owner_id == me_id,
+            ChatMemberNote.conversation_id.in_(conv_ids),
+        )
+    ).all()
+    out: dict[int, dict[int, str]] = {}
+    for row in rows:
+        if row.alias:
+            out.setdefault(int(row.conversation_id), {})[int(row.target_id)] = row.alias
+    return out
+
+
+def note_of(db: Session, me_id: int, conv_id: int, target_id: int) -> str:
+    row = db.get(
+        ChatMemberNote,
+        {"conversation_id": int(conv_id), "owner_id": int(me_id), "target_id": int(target_id)},
+    )
+    return (row.alias if row else "") or ""
+
+
+def set_member_note(db: Session, me: User, conv_id: int, target_id: int, alias: str) -> dict[str, Any]:
+    """给群里的某位成员起备注。备注只对我可见；空串 = 删除备注。"""
+    conv, _ = require_member(db, conv_id, me)
+    if conv.kind != "group":
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "单聊请用好友备注")
+    target_id = int(target_id)
+    if target_id == me.id:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "不用给自己起备注")
+    if not member_of(db, conv.id, target_id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "他不在这个群里")
+    text = " ".join((alias or "").split())[:32]
+    row = db.get(
+        ChatMemberNote,
+        {"conversation_id": conv.id, "owner_id": me.id, "target_id": target_id},
+    )
+    if text:
+        if row:
+            row.alias = text
+            row.updated_at = utcnow()
+        else:
+            db.add(
+                ChatMemberNote(
+                    conversation_id=conv.id,
+                    owner_id=me.id,
+                    target_id=target_id,
+                    alias=text,
+                    updated_at=utcnow(),
+                )
+            )
+    elif row:
+        db.delete(row)
+    db.flush()
+    return {"ok": True, "alias": text}
 
 
 def get_or_create_direct(db: Session, me: User, other_id: int) -> ChatConversation:
@@ -525,6 +632,11 @@ def create_group(
     for uid in ids:
         db.add(ChatMember(conversation_id=conv.id, user_id=uid, role="member"))
     db.flush()
+    # 建群就给一个群号：搜索、分享、二维码都要用，别等到第一次打开分享面板才生成
+    from . import group_service
+
+    group_service.ensure_group_no(db, conv)
+    group_service.ensure_share_token(db, conv)
     _system_message(db, conv, f"{_name_of(me)} 创建了群聊")
     return conv
 
@@ -533,8 +645,8 @@ def rename_group(db: Session, me: User, conversation_id: int, title: str) -> Cha
     conv, member = require_member(db, conversation_id, me)
     if conv.kind != "group":
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "单聊没有群名")
-    if conv.owner_id != me.id:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "只有群主能改群名")
+    if conv.owner_id != me.id and not (member and member.admin_at):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "只有群主和管理员能改群名")
     name = (title or "").strip()[:60]
     if not name:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "群名不能为空")
@@ -545,11 +657,11 @@ def rename_group(db: Session, me: User, conversation_id: int, title: str) -> Cha
 
 
 def add_members(db: Session, me: User, conversation_id: int, ids: list[int]) -> ChatConversation:
-    conv, _ = require_member(db, conversation_id, me)
+    conv, member = require_member(db, conversation_id, me)
     if conv.kind != "group":
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "单聊不能加人")
-    if conv.owner_id != me.id:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "只有群主能邀请成员")
+    if conv.owner_id != me.id and not (member and member.admin_at):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "只有群主和管理员能邀请成员")
     current = members_of(db, conv.id)
     have = {row.user_id for row in current}
     limit = group_max(db)
@@ -577,19 +689,31 @@ def add_members(db: Session, me: User, conversation_id: int, ids: list[int]) -> 
 
 
 def remove_member(db: Session, me: User, conversation_id: int, user_id: int) -> dict[str, Any]:
-    conv, _ = require_member(db, conversation_id, me)
+    conv, member = require_member(db, conversation_id, me)
     if conv.kind != "group":
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "单聊不能踢人")
     user_id = int(user_id)
     if user_id == me.id:
         return leave_group(db, me, conversation_id)
-    if conv.owner_id != me.id:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "只有群主能移除成员")
+    is_owner = conv.owner_id == me.id
+    is_admin = bool(member and member.admin_at)
+    if not (is_owner or is_admin):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "只有群主和管理员能移除成员")
     row = member_of(db, conv.id, user_id)
     if not row:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "他不在这个群里")
+    # 管理员只能清普通成员：不能踢群主、也不能踢同级管理员
+    if not is_owner and (user_id == conv.owner_id or row.admin_at):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "没有权限移除群主或管理员")
     db.delete(row)
     db.flush()
+    for note in db.scalars(
+        select(ChatMemberNote).where(
+            ChatMemberNote.conversation_id == conv.id,
+            (ChatMemberNote.owner_id == user_id) | (ChatMemberNote.target_id == user_id),
+        )
+    ).all():
+        db.delete(note)
     target = db.get(User, user_id)
     _system_message(db, conv, f"{_name_of(target)} 被移出了群聊")
     notice.notify(
@@ -603,16 +727,29 @@ def leave_group(db: Session, me: User, conversation_id: int) -> dict[str, Any]:
     if conv.kind != "group":
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "单聊不能退出，删好友即可")
     db.delete(row)
+    # 我在这个群里给别人写的备注跟着一起走（别人的备注不受影响）
+    for note in db.scalars(
+        select(ChatMemberNote).where(
+            ChatMemberNote.conversation_id == conv.id, ChatMemberNote.owner_id == me.id
+        )
+    ).all():
+        db.delete(note)
     db.flush()
     rows = members_of(db, conv.id)
     _system_message(db, conv, f"{_name_of(me)} 退出了群聊")
     if not rows:
+        conv_id = conv.id
         db.delete(conv)
+        db.flush()
+        from . import group_service
+
+        group_service.purge_storage(conv_id)
         return {"ok": True, "closed": True}
     # 群主退群 → 顺位交给最早加入的人，否则没人能邀请/移除
     if conv.owner_id == me.id:
         heir = rows[0]
         heir.role = "owner"
+        heir.admin_at = None
         conv.owner_id = heir.user_id
         _system_message(db, conv, f"{_name_of(db.get(User, heir.user_id))} 成为新群主")
     return {"ok": True, "left": True}
@@ -637,15 +774,38 @@ def _system_message(db: Session, conv: ChatConversation, text: str) -> ChatMessa
     return msg
 
 
+def _quote_text(msg: ChatMessage) -> str:
+    """引用块里显示的一行摘要。只存 id，所以撤回/改名都能实时反映。"""
+    if msg.recalled_at:
+        return "消息已撤回"
+    if msg.kind == "text":
+        return (msg.body or "")[:80]
+    if msg.kind == "image":
+        return "[图片]"
+    if msg.kind == "sticker":
+        return "[表情]"
+    if msg.kind == "file":
+        try:
+            nodes = (json.loads(msg.payload or "{}") or {}).get("nodes") or []
+        except Exception:
+            nodes = []
+        if len(nodes) == 1:
+            return f"[文件] {nodes[0].get('name') or ''}"[:80]
+        return f"[文件] {len(nodes)} 项" if nodes else "[文件]"
+    return ""
+
+
 def message_payload(
     db: Session,
     msg: ChatMessage,
     senders: dict[int, User] | None = None,
     recall_window: int | None = None,
+    quotes: dict[int, ChatMessage] | None = None,
 ) -> dict[str, Any]:
     """recall_window：可撤回的时间窗（秒），None/0 表示不限。
 
     撤回时限算在服务端，前端只看 recallable —— 客户端时钟不准时也不会误判。
+    quotes：被引用的消息（批量查好传进来，避免每条消息一次查询）。
     """
     if senders is not None and msg.sender_id in senders:
         sender = senders[msg.sender_id]
@@ -663,6 +823,19 @@ def message_payload(
     recallable = not recalled and msg.kind != "system"
     if recallable and recall_window:
         recallable = (utcnow() - msg.created_at).total_seconds() <= recall_window
+    reply = None
+    if msg.reply_to:
+        quoted = quotes.get(msg.reply_to) if quotes is not None else db.get(ChatMessage, msg.reply_to)
+        if quoted is not None:
+            qs = (senders or {}).get(quoted.sender_id) or db.get(User, quoted.sender_id)
+            reply = {
+                "id": quoted.id,
+                "senderId": quoted.sender_id,
+                "senderName": user_card(qs).get("displayName") if qs else "",
+                "kind": quoted.kind,
+                "text": _quote_text(quoted),
+                "recalled": quoted.recalled_at is not None,
+            }
     return {
         "id": msg.id,
         "conversationId": msg.conversation_id,
@@ -673,6 +846,7 @@ def message_payload(
         "recalled": recalled,
         "recallable": recallable,
         "forwardedFrom": msg.forwarded_from,
+        "reply": reply,
         "createdAt": iso(msg.created_at),
     }
 
@@ -703,10 +877,33 @@ def list_messages(
         rows.reverse()
     senders = _users(db, [m.sender_id for m in rows if m.sender_id])
     window = recall_minutes(db) * 60 or None
+    # 引用到的原消息可能在更早的一页里，单独批量取一次
+    reply_ids = {m.reply_to for m in rows if m.reply_to}
+    quotes: dict[int, ChatMessage] = {}
+    if reply_ids:
+        quotes = {
+            q.id: q
+            for q in db.scalars(select(ChatMessage).where(ChatMessage.id.in_(reply_ids))).all()
+        }
+        for q in quotes.values():
+            if q.sender_id and q.sender_id not in senders:
+                sender = db.get(User, q.sender_id)
+                if sender:
+                    senders[q.sender_id] = sender
     return {
-        "items": [message_payload(db, m, senders, window) for m in rows],
+        "items": [message_payload(db, m, senders, window, quotes) for m in rows],
         "hasMore": len(rows) == limit and not after_id,
     }
+
+
+def sent_payload(db: Session, msg: ChatMessage) -> dict[str, Any]:
+    """刚发出去那条的 payload：引用最多指向一条消息，顺手带上省一次往返。"""
+    quotes: dict[int, ChatMessage] = {}
+    if msg.reply_to:
+        quoted = db.get(ChatMessage, msg.reply_to)
+        if quoted is not None:
+            quotes[quoted.id] = quoted
+    return message_payload(db, msg, quotes=quotes)
 
 
 def _check_text(body: str) -> str:
@@ -769,6 +966,7 @@ def send_message(
     kind: str = "text",
     body: str = "",
     payload: dict[str, Any] | None = None,
+    reply_to: int | None = None,
 ) -> ChatMessage:
     conv, _ = require_member(db, conversation_id, me)
     if conv.kind == "direct":
@@ -815,12 +1013,21 @@ def send_message(
     else:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "不支持的消息类型")
 
+    quoted = None
+    if reply_to:
+        quoted = db.get(ChatMessage, int(reply_to))
+        if quoted is None or quoted.conversation_id != conv.id:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "引用的消息不在了")
+        if quoted.recalled_at is not None:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "这条消息已撤回，换一条引用吧")
+
     msg = ChatMessage(
         conversation_id=conv.id,
         sender_id=me.id,
         kind=kind,
         body=text,
         payload=json.dumps(data, ensure_ascii=False) if data else None,
+        reply_to=quoted.id if quoted else None,
         created_at=utcnow(),
     )
     db.add(msg)
@@ -1359,14 +1566,96 @@ def drop_sticker_file(file: str | None) -> None:
 
 
 def total_unread(db: Session, me: User) -> int:
-    visible = set(
-        db.scalars(
+
+    visible = set(        db.scalars(
             select(ChatMember.conversation_id).where(
                 ChatMember.user_id == me.id, ChatMember.hidden_at.is_(None)
             )
         ).all()
     )
     return sum(n for cid, n in unread_map(db, me).items() if cid in visible)
+
+
+def alert_summary(db: Session, me: User, after_id: int = 0, limit: int = 6) -> dict[str, Any]:
+    """消息提醒用的轻量摘要：``after_id`` 之后的未读消息，最多几条。
+
+    为什么不让前端直接看会话列表：那个接口按会话聚合（成员、最后一条、未读），
+    每 20 秒轮询一次太重；这里只读「比上次提醒点更新的未读消息」，
+    一条 join 查询就够，页面在后台时也靠它弹系统通知。
+    """
+    rows = db.execute(
+        select(ChatMessage, ChatConversation)
+        .join(
+            ChatMember,
+            and_(
+                ChatMember.conversation_id == ChatMessage.conversation_id,
+                ChatMember.user_id == me.id,
+            ),
+        )
+        .join(ChatConversation, ChatConversation.id == ChatMessage.conversation_id)
+        .where(
+            ChatMessage.id > int(after_id or 0),
+            ChatMessage.sender_id != me.id,
+            ChatMessage.kind != "system",
+            ChatMember.hidden_at.is_(None),
+            ChatMessage.id > ChatMember.cleared_id,
+        )
+        .order_by(ChatMessage.id.desc())
+        .limit(max(1, min(20, limit)))
+    ).all()
+
+    latest = int(after_id or 0)
+    unread = total_unread(db, me)
+    if not rows:
+        return {"messages": [], "latest": latest, "unread": unread}
+
+    # 拉黑的、撤回的都不提醒：前者是用户明确表示不想看见，后者没有内容可看
+    blocked = blocked_ids(db, me.id)
+    rows = [r for r in rows if r[0].sender_id not in blocked and not r[0].recalled_at]
+    if not rows:
+        return {"messages": [], "latest": latest, "unread": unread}
+
+    convs = {conv.id: conv for _, conv in rows}
+    direct_ids = [cid for cid, conv in convs.items() if conv.kind == "direct"]
+    peer_of: dict[int, int] = {}
+    if direct_ids:
+        for cid, uid in db.execute(
+            select(ChatMember.conversation_id, ChatMember.user_id).where(
+                ChatMember.conversation_id.in_(direct_ids), ChatMember.user_id != me.id
+            )
+        ).all():
+            peer_of[int(cid)] = int(uid)
+
+    senders = _users(db, [msg.sender_id for msg, _ in rows])
+    aliases = alias_map(db, me.id)
+    notes = member_notes_map(db, me.id, list(convs))
+    peers = _users(db, [peer for peer in peer_of.values()])
+    out = []
+    for msg, conv in rows:
+        group_notes = notes.get(conv.id, {})
+        # 铃铛里显示「谁在哪儿说了什么」：群聊给群名、单聊给对方（备注优先）
+        if conv.kind == "direct":
+            title = aliases.get(peer_of.get(conv.id, 0), "") or _name_of(
+                peers.get(peer_of.get(conv.id, 0))
+            )
+        else:
+            title = conv.title or "群聊"
+        out.append(
+            {
+                "id": msg.id,
+                "conversationId": conv.id,
+                "kind": conv.kind,
+                "title": title,
+                "senderName": group_notes.get(msg.sender_id)
+                or aliases.get(msg.sender_id, "")
+                or _name_of(senders.get(msg.sender_id)),
+                "senderId": msg.sender_id,
+                "preview": _preview(msg),
+                "createdAt": iso(msg.created_at),
+            }
+        )
+    out.reverse()  # 按时间正序：弹通知时先弹早的，最新的最后落下
+    return {"messages": out, "latest": max(item["id"] for item in out), "unread": unread}
 
 
 # --------------------------------------------------------------------------- #

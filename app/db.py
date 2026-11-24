@@ -159,6 +159,9 @@ _COLUMN_PATCHES: dict[str, dict[str, str]] = {
         "quick_receive_enabled": "BOOLEAN NOT NULL DEFAULT 1",
         "quick_auto_accept": "BOOLEAN NOT NULL DEFAULT 0",
         "quick_inbox_folder": "BIGINT NULL",
+        # 消息提醒：站内小卡片默认开，桌面通知默认关（还要浏览器授权）
+        "notify_inapp": "BOOLEAN NOT NULL DEFAULT 1",
+        "notify_desktop": "BOOLEAN NOT NULL DEFAULT 0",
     },
     "quick_transfers": {
         # 站内快传改成「接收方同意后才进我的文件」：老记录都是已投递的，按已接收处理
@@ -175,10 +178,30 @@ _COLUMN_PATCHES: dict[str, dict[str, str]] = {
         "cleared_id": "BIGINT NOT NULL DEFAULT 0",
         # 「删除聊天」只对本人隐藏；老库补列后为 NULL，即照常显示
         "hidden_at": "DATETIME NULL",
+        # 管理员标记；老库补列后为 NULL，即都不是管理员
+        "admin_at": "DATETIME NULL",
+    },
+    "friendships": {
+        # 双方各自给对方起的备注：老库补列后为空串 = 用对方昵称
+        "requester_alias": "VARCHAR(32) NOT NULL DEFAULT ''",
+        "addressee_alias": "VARCHAR(32) NOT NULL DEFAULT ''",
+    },
+    "chat_conversations": {
+        # 群资料：头像 / 简介 / 公开可搜 / 群号 / 分享标识 / 群文件已用字节
+        "avatar": "VARCHAR(64) NULL",
+        "description": "VARCHAR(200) NOT NULL DEFAULT ''",
+        "is_public": "BOOLEAN NOT NULL DEFAULT 0",
+        "group_no": "VARCHAR(12) NULL",
+        "share_token": "VARCHAR(24) NULL",
+        "file_bytes": "BIGINT NOT NULL DEFAULT 0",
     },
     "stickers": {
         # 表情去重用的哈希：老库补列后为 NULL，用到时按文件内容回填
         "hash": "VARCHAR(64) NULL",
+    },
+    "chat_messages": {
+        # 引用回复的原消息 id：老库补列后为 NULL，即没有引用
+        "reply_to": "BIGINT NULL",
     },
     "users": {
         "display_name": "VARCHAR(32) NULL",
@@ -196,6 +219,10 @@ _COLUMN_PATCHES: dict[str, dict[str, str]] = {
         "banned_by": "BIGINT NULL",
         # 两步验证开关；凭证本身在 passkeys 表里（新表由 create_all 建）
         "two_factor_enabled": "BOOLEAN NOT NULL DEFAULT 0",
+        # 个人主页扩展资料（JSON）；老库补列后为 NULL，读取处按空对象处理
+        "profile": "JSON NULL",
+        # 公开分享主页的随机标识；NULL = 没开分享
+        "profile_token": "VARCHAR(24) NULL",
     },
     "shares": {
         # 合集分享：根节点 id 的 JSON 数组；NULL = 单节点分享

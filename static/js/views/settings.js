@@ -28,6 +28,7 @@ import {
   snapshotDataUrl,
 } from "../theme.js";
 import { getMascotScale, isMascotWheelZoom, setMascotScale, setMascotWheelZoom } from "../ui/live2d.js";
+import { askDesktopPermission, desktopPermission, resetNotifierCursor } from "../ui/notify.js";
 import { isMascotLocked, setMascotLocked } from "../ui/mascot-actions.js";
 import { mountAiSettings } from "../ui/ai-config.js";
 import { fuzzyScore, highlight, splitTokens } from "../ui/fuzzy.js";
@@ -587,6 +588,32 @@ export function renderSettings(root, { tab } = {}) {
           </div>
         </section>
 
+        <section class="settings-card">
+          <div class="settings-card__head"><svg class="icon icon--s"><use href="#i-bell"/></svg>消息提醒</div>
+          <div class="settings-card__body">
+            <div class="setting-row">
+              <div class="setting-row__main">
+                <div class="setting-row__label">站内提醒</div>
+                <div class="setting-row__desc">收到新消息时在右下角弹一张小卡片，点一下直接进那个会话（正在看的会话不打扰）</div>
+              </div>
+              <label class="switch">
+                <input type="checkbox" data-toggle="notifyInapp" ${s.notifyInapp === false ? "" : "checked"}>
+                <span class="switch__track"><span class="switch__knob"></span></span>
+              </label>
+            </div>
+            <div class="setting-row">
+              <div class="setting-row__main">
+                <div class="setting-row__label">浏览器通知<span class="chip" data-notify-perm hidden></span></div>
+                <div class="setting-row__desc" data-notify-desc>页面在后台或最小化时用系统通知提醒你。第一次开启需要允许浏览器通知。</div>
+              </div>
+              <label class="switch">
+                <input type="checkbox" data-toggle="notifyDesktop" ${s.notifyDesktop ? "checked" : ""}>
+                <span class="switch__track"><span class="switch__knob"></span></span>
+              </label>
+            </div>
+          </div>
+        </section>
+
         </div>
 
         <div class="settings-pane" data-settings-pane="quick">
@@ -668,6 +695,7 @@ export function renderSettings(root, { tab } = {}) {
                     quota: formatBytes(user?.quotaBytes || 0),
                   })}</span>
                   <span style="flex:1"></span>
+                  <button class="btn btn--subtle" type="button" data-act="open-profile">${t("个人主页")}</button>
                   <button class="btn btn--subtle" type="button" data-act="avatar-clear"
                           ${user?.avatarUrl ? "" : "hidden"}>移除头像</button>
                   <button class="btn btn--accent" type="button" data-act="profile-save">保存资料</button>
@@ -2255,11 +2283,56 @@ export function renderSettings(root, { tab } = {}) {
   })();
 
   /* --- 开关 --- */
+  const notifyPermChip = root.querySelector("[data-notify-perm]");
+  const notifyPermDesc = root.querySelector("[data-notify-desc]");
+  const NOTIFY_DESC = notifyPermDesc?.textContent || "";
+
+  /** 浏览器通知权限：未授权 / 已授权 / 被拒绝 / 不支持，四种状态都直说 */
+  function paintNotifyPerm() {
+    if (!notifyPermChip) return;
+    const state = desktopPermission();
+    notifyPermChip.hidden = false;
+    notifyPermChip.className = "chip";
+    if (state === "granted") {
+      notifyPermChip.textContent = t("已授权");
+      notifyPermChip.classList.add("chip--accent");
+      if (notifyPermDesc) notifyPermDesc.textContent = NOTIFY_DESC;
+    } else if (state === "denied") {
+      notifyPermChip.textContent = t("已被浏览器拒绝");
+      notifyPermChip.classList.add("chip--danger");
+      if (notifyPermDesc) {
+        notifyPermDesc.textContent = t(
+          "浏览器里已经拒绝过通知：点地址栏左侧的图标 → 通知 → 允许，再回来打开开关。"
+        );
+      }
+    } else if (state === "unsupported") {
+      notifyPermChip.textContent = t("浏览器不支持");
+      if (notifyPermDesc) notifyPermDesc.textContent = t("这个浏览器不支持系统通知，站内提醒仍然可用。");
+    } else {
+      notifyPermChip.textContent = t("未授权");
+      if (notifyPermDesc) notifyPermDesc.textContent = NOTIFY_DESC;
+    }
+  }
+  paintNotifyPerm();
+
   root.querySelectorAll("[data-toggle]").forEach((input) => {
     input.addEventListener("change", () => {
       const key = input.dataset.toggle;
       if (key === "trashEnabled") return; // 回收站开关有独立的二次确认流程
       persist({ [key]: input.checked });
+      if (key === "notifyDesktop" && input.checked) {
+        // 开关必须和浏览器授权一致：没授权就等于收不到，别让它停在「开着」的假象
+        void (async () => {
+          const state = await askDesktopPermission();
+          paintNotifyPerm();
+          if (state !== "granted") {
+            Toast.error(t("浏览器没有授权通知，暂时收不到系统提醒"));
+            input.checked = false;
+            persist({ notifyDesktop: false });
+          }
+        })();
+      }
+      if (key === "notifyInapp" || key === "notifyDesktop") resetNotifierCursor();
       if (key === "showMascot") {
         document.getElementById("mascot")?.classList.toggle("is-hidden", !input.checked);
       }
@@ -2484,6 +2557,10 @@ export function renderSettings(root, { tab } = {}) {
 
   root.querySelector('[data-field="displayName"]')?.addEventListener("keydown", (event) => {
     if (event.key === "Enter") root.querySelector('[data-act="profile-save"]')?.click();
+  });
+
+  root.querySelector('[data-act="open-profile"]')?.addEventListener("click", () => {
+    location.hash = `#/profile/${user?.id || ""}`;
   });
 
   /* --- 注销账号：先说清后果，再在面板里验密码 + 邮箱验证码 --- */

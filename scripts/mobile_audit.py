@@ -246,6 +246,7 @@ PAGES = [
     ("08_notices", "notices", "#/notices", ".notice-list, .empty"),
     ("09_friends", "friends", "#/friends", ".friend-list, .empty"),
     ("10_chat", "chat", "#/chat", ".chat-body"),
+    ("11_profile", "profile", "#/profile/me", ".profile-card"),
     ("20_mascot", "mascot", "#/mascot", ".cdp-hero"),
 ]
 

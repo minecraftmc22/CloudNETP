@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#fdf4fa">
+  <meta name="version" content="0.6.0">
+  <title>个人主页 · CloudNETP</title>
+  <link rel="icon" href="/assets/favicon.ico" sizes="any">
+  <link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon-32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/assets/favicon-16.png">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="CloudNETP">
+  <!-- 个人主页是私链，不让搜索引擎收录 -->
+  <meta name="robots" content="noindex, nofollow">
+  <link rel="stylesheet" href="/static/css/theme.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+  <link rel="stylesheet" href="/static/css/profile.css">
+  <link rel="stylesheet" href="/static/css/mobile.css">
+</head>
+<body class="page-profile">
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8.4" r="3.6"/><path d="M4.8 19.6c0-3.4 3.2-5.6 7.2-5.6s7.2 2.2 7.2 5.6"/></symbol>
+      <symbol id="i-link" viewBox="0 0 24 24"><path d="M10.4 13.6a3.2 3.2 0 0 0 4.5 0l2.6-2.6a3.2 3.2 0 0 0-4.5-4.5l-1.3 1.3"/><path d="M13.6 10.4a3.2 3.2 0 0 0-4.5 0l-2.6 2.6a3.2 3.2 0 0 0 4.5 4.5l1.3-1.3"/></symbol>
+      <symbol id="i-arrow-up-right" viewBox="0 0 24 24"><path d="M8 16 16 8"/><path d="M9.4 8H16v6.6"/></symbol>
+      <symbol id="i-mail" viewBox="0 0 24 24"><rect x="3.6" y="5.6" width="16.8" height="12.8" rx="2.4"/><path d="m4.6 7 7.4 5.6L19.4 7"/></symbol>
+      <symbol id="i-chat" viewBox="0 0 24 24"><path d="M4.4 6.6A2.2 2.2 0 0 1 6.6 4.4h10.8a2.2 2.2 0 0 1 2.2 2.2v7.2a2.2 2.2 0 0 1-2.2 2.2H10l-4 3.4v-3.4h-.2a1.4 1.4 0 0 1-1.4-1.4Z"/></symbol>
+      <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.2"/><path d="m15.6 15.6 3.8 3.8"/></symbol>
+      <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9.4" cy="9" r="3.2"/><path d="M3.4 19c0-3 2.7-4.9 6-4.9s6 1.9 6 4.9"/><path d="M15.6 6.2a3 3 0 0 1 0 5.7"/><path d="M17 14.4c2.2.5 3.6 2 3.6 4.2"/></symbol>
+      <symbol id="i-play" viewBox="0 0 24 24"><rect x="3.4" y="5.8" width="17.2" height="12.4" rx="2.6"/><path d="m10.4 9.9 4.3 2.1-4.3 2.1Z"/></symbol>
+      <symbol id="i-music" viewBox="0 0 24 24"><path d="M9.6 17.2V6.8l7.8-1.6v8.8"/><circle cx="7.4" cy="17.6" r="2.2"/><circle cx="15.2" cy="16" r="2.2"/></symbol>
+      <symbol id="i-video" viewBox="0 0 24 24"><rect x="3.4" y="5.8" width="12.6" height="12.4" rx="2.6"/><path d="m17.4 12 3.2-2.6v7.2L17.4 14Z"/></symbol>
+      <symbol id="i-image" viewBox="0 0 24 24"><rect x="3.8" y="5" width="16.4" height="14" rx="2.4"/><circle cx="9" cy="10" r="1.6"/><path d="m5.4 17.4 4.6-4.4 3.4 3.2 2.6-2.4 3.4 3.2"/></symbol>
+      <symbol id="i-github" viewBox="0 0 24 24"><path d="M9.2 20.4v-2.6c-3 .5-3.6-1.4-3.6-1.4-.5-1.2-1.2-1.5-1.2-1.5-1-.7.1-.7.1-.7 1.1.1 1.7 1.1 1.7 1.1 1 1.7 2.6 1.2 3.2.9.1-.7.4-1.2.7-1.5-2.4-.3-4.9-1.2-4.9-5.3 0-1.2.4-2.2 1.1-3-.1-.3-.5-1.4.1-2.9 0 0 .9-.3 3 1.1a10.2 10.2 0 0 1 5.4 0c2.1-1.4 3-1.1 3-1.1.6 1.5.2 2.6.1 2.9.7.8 1.1 1.8 1.1 3 0 4.1-2.5 5-4.9 5.3.4.4.8 1.1.8 2.1v3.5"/></symbol>
+      <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.2"/><path d="M12 7.6V12l3 1.8"/></symbol>
+      <symbol id="i-share" viewBox="0 0 24 24"><circle cx="17.4" cy="6.4" r="2.6"/><circle cx="6.6" cy="12" r="2.6"/><circle cx="17.4" cy="17.6" r="2.6"/><path d="m9 10.7 5.9-3M9 13.3l5.9 3"/></symbol>
+      <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5.4" y="10.2" width="13.2" height="9" rx="2.2"/><path d="M8.6 10.2V8a3.4 3.4 0 0 1 6.8 0v2.2"/></symbol>
+    </defs>
+  </svg>
+
+  <main class="profile-public" id="profile-root">
+    <div class="profile-public__loading"><span class="spinner"></span><span data-i18n="正在打开主页…">正在打开主页…</span></div>
+  </main>
+
+  <footer class="profile-public__foot" data-i18n="由 CloudNETP 提供">由 CloudNETP 提供</footer>
+
+  <script type="module" src="/static/js/public-profile.js"></script>
+</body>
+</html>

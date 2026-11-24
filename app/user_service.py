@@ -74,6 +74,9 @@ def user_payload(db: Session, user: User) -> dict[str, Any]:
             "quickReceiveEnabled": bool(s.quick_receive_enabled),
             "quickAutoAccept": bool(s.quick_auto_accept),
             "quickInboxFolder": s.quick_inbox_folder,
+            # 消息提醒：站内小卡片 / 浏览器桌面通知
+            "notifyInapp": bool(s.notify_inapp),
+            "notifyDesktop": bool(s.notify_desktop),
         },
     }
 

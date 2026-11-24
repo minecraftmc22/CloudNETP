@@ -85,11 +85,18 @@ def call_raw(path: str, token: str, data: bytes, content_type: str = "image/png"
         with urllib.request.urlopen(req, timeout=30) as res:
             return res.status, json.loads(res.read() or b"{}")
     except urllib.error.HTTPError as err:
-        raw = err.read()
+        # 服务端按上限提前掐断时可能直接关连接，读 body 会 ConnectionReset
+        try:
+            raw = err.read()
+        except Exception:
+            raw = b""
         try:
             return err.code, json.loads(raw or b"{}")
         except Exception:
             return err.code, {"raw": raw.decode("utf-8", "replace")}
+    except ConnectionError:
+        # 大包被服务端拒收时也可能是「连接被重置」而不是 HTTPError
+        return 413, {"detail": "连接被重置"}
 
 
 def fetch_bytes(path: str, token: str):
@@ -300,6 +307,23 @@ def main() -> None:
     code, data = call("/api/chat/unread", ta)
     check(data.get("unread") == 1, f"Alice 未读 1（{data.get('unread')}）")
 
+    # ---- 引用回复 ----
+    code, data = call(f"/api/chat/conversations/{conv_id}/messages", tb, "POST",
+                      {"kind": "text", "body": "引用一下", "replyTo": msg1_id})
+    check(code == 201, f"能发引用消息（{code}）")
+    quote = (data.get("message") or {}).get("reply") or {}
+    check(quote.get("id") == msg1_id, "引用带回原消息 id")
+    check(quote.get("senderName") == "chat_alice", f"引用块带原发送者（{quote.get('senderName')}）")
+    check(quote.get("text") == "你好 Bob", f"引用块带摘要（{quote.get('text')}）")
+
+    code, data = call(f"/api/chat/conversations/{conv_id}/messages", ta)
+    hit = next((m for m in (data.get("items") or []) if (m.get("reply") or {}).get("id") == msg1_id), None)
+    check(hit is not None, "消息列表里也带引用信息")
+
+    code, data = call(f"/api/chat/conversations/{conv_id}/messages", ta, "POST",
+                      {"kind": "text", "body": "引用一条不存在的", "replyTo": 99999999})
+    check(code == 400, f"引用不存在的消息被拦（{code}）")
+
     # 单聊新消息 → 消息中心一条（只在对方已读完时提示，不会每条都响）
     code, data = call("/api/notices?unreadOnly=true", tb)
     chat_notices = [n for n in (data.get("items") or []) if n.get("kind") == "chat"]
@@ -376,6 +400,14 @@ def main() -> None:
     hit = next((m for m in (data.get("items") or []) if m["id"] == msg1_id), None)
     check((hit or {}).get("recalled") is True, "对方看到的是「已撤回」")
     check(not (hit or {}).get("body"), "已撤回的消息不带正文")
+
+    # 撤回后不能再被引用；已有的引用块会显示「消息已撤回」
+    code, data = call(f"/api/chat/conversations/{conv_id}/messages", tb, "POST",
+                      {"kind": "text", "body": "引用已撤回的", "replyTo": msg1_id})
+    check(code == 400, f"已撤回的消息不能被引用（{code}）")
+    code, data = call(f"/api/chat/conversations/{conv_id}/messages", ta)
+    holder = next((m for m in (data.get("items") or []) if (m.get("reply") or {}).get("id") == msg1_id), None)
+    check((holder or {}).get("reply", {}).get("recalled") is True, "引用块跟着变成「已撤回」")
 
     # ---- 撤回时限：后台设的分钟数要真的管用，前端也要拿到 ----
     code, data = call("/api/chat/friends", ta)

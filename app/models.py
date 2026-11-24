@@ -46,6 +46,11 @@ class User(Base):
     display_name: Mapped[str | None] = mapped_column(String(32), nullable=True)
     bio: Mapped[str | None] = mapped_column(String(200), nullable=True)
     avatar: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # 个人主页扩展资料（JSON）：{gender, birthday, links:{qq,wechat,...}, show:{...}}
+    # 名称与简介走 display_name / bio（总是展示），这里只放可选字段与各自的可见开关
+    profile: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    # 公开分享主页的随机标识；NULL = 没开分享（/u/<token> 打不开）
+    profile_token: Mapped[str | None] = mapped_column(String(24), unique=True, nullable=True)
     # WebDAV Digest 用的 HA1 = MD5(lower(username):realm:password)
     # 只在注册 / 改密 / 登录时写入，老账号为 NULL 时需先登录一次补齐
     dav_ha1: Mapped[str | None] = mapped_column(String(32), nullable=True)
@@ -162,6 +167,9 @@ class UserSetting(Base):
     quick_receive_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     # 收到就自动同意、直接存进「我的文件」，不用人工点同意
     quick_auto_accept: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # 消息提醒：页面内的新消息小卡片 / 浏览器桌面通知（后者还要浏览器授权）
+    notify_inapp: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    notify_desktop: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     # 收到的文件存到哪个目录；NULL = 默认的 我的文件/快传的文件
     quick_inbox_folder: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
 
@@ -518,6 +526,9 @@ class Friendship(Base):
     status: Mapped[str] = mapped_column(String(12), nullable=False, default="pending")
     # 申请附言（可选，最多 120 字）
     message: Mapped[str] = mapped_column(String(120), nullable=False, default="")
+    # 双方各自给对方起的备注：方向性数据，一人一列（我写的备注别人看不见）
+    requester_alias: Mapped[str] = mapped_column(String(32), nullable=False, default="")
+    addressee_alias: Mapped[str] = mapped_column(String(32), nullable=False, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
 
@@ -542,6 +553,16 @@ class ChatConversation(Base):
     kind: Mapped[str] = mapped_column(String(8), nullable=False, default="direct")
     title: Mapped[str] = mapped_column(String(60), nullable=False, default="")
     owner_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    # 群资料（单聊不用）：头像文件名（storage/groups/）、群简介、是否公开可搜
+    avatar: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    description: Mapped[str] = mapped_column(String(200), nullable=False, default="")
+    is_public: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # 群号：纯数字定长串，加群/搜索用（唯一）；老群补列后为 NULL，首次分享时补发
+    group_no: Mapped[str | None] = mapped_column(String(12), unique=True, nullable=True)
+    # 群分享链接的随机标识，可重置；NULL = 链接已关闭
+    share_token: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    # 群文件已用字节（上传累加、删除扣减），用于群配额判断
+    file_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     # 单聊去重键："12-15"（小的 id 在前）；群聊为 NULL（唯一索引允许多个 NULL）
     direct_key: Mapped[str | None] = mapped_column(String(40), nullable=True, unique=True)
     # 列表页最后一条消息的冗余，省一次 N+1 查询；消息被撤回时只改 body，不改指针
@@ -575,6 +596,8 @@ class ChatMember(Base):
     cleared_id: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     # 「删除聊天」：只对我隐藏会话，别人照旧。对方再发新消息时自动恢复显示。
     hidden_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # 群管理员：非空即已被群主设为管理员。不复用 role，避免给老库改 CHECK 约束
+    admin_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     # 退群用软标记？不：直接删行。历史消息仍在，sender_id 由消息表自己记着
     __table_args__ = (
         CheckConstraint("role IN ('owner', 'member')", name="ck_member_role"),
@@ -613,6 +636,9 @@ class ChatMessage(Base):
     )
     # 转发来源（原消息 id），只做溯源展示
     forwarded_from: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    # 引用回复：被引用的消息 id（同一会话内）。只存 id 不存快照，
+    # 这样对方撤回后引用块会自动显示「已撤回」，改备注也能跟着变。
+    reply_to: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     recalled_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
 
@@ -644,6 +670,55 @@ class Sticker(Base):
     # 归一化后字节的 sha256：判断「这张表情是不是已经在我的表情里了」。
     # 老库补列后为 NULL，用到时按文件内容回填一次。
     hash: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
+
+
+class ChatMemberNote(Base):
+    """群内备注：我在某个群里给某位成员起的名字。
+
+    单独一张表而不是 ``chat_members.alias``：一个群里有 N 个成员，
+    成员行只有一个 alias 列装不下「我给别人起的好几个备注」。
+    与好友备注（``friendships.*_alias``）各管各的：群备注只在这个群生效，
+    好友备注全局生效；同时存在时群备注优先。
+    """
+
+    __tablename__ = "chat_member_notes"
+
+    conversation_id: Mapped[int] = mapped_column(
+        ForeignKey("chat_conversations.id", ondelete="CASCADE"), primary_key=True
+    )
+    owner_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    target_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    alias: Mapped[str] = mapped_column(String(32), nullable=False, default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
+
+
+class GroupFile(Base):
+    """群文件：整个群共享的持久文件。
+
+    与聊天里的「文件消息」不同：文件消息只快照元数据（回源到发送者的网盘），
+    群文件是真正存下来的副本，成员随时能下载，发送者删了自己的文件也不影响。
+
+    存放在 ``storage/groups/<conversation_id>/`` 下，不占个人配额，
+    只计入 ``chat_conversations.file_bytes``（群配额，默认每群 10 GB，后台可调）。
+    """
+
+    __tablename__ = "group_files"
+
+    id: Mapped[int] = mapped_column(AutoPK, primary_key=True, autoincrement=True)
+    conversation_id: Mapped[int] = mapped_column(
+        ForeignKey("chat_conversations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    uploader_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    # 落盘文件名：<随机 16 hex>.<后缀>，避免同名覆盖与路径穿越
+    file: Mapped[str] = mapped_column(String(80), nullable=False)
+    size: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    mime: Mapped[str] = mapped_column(String(120), nullable=False, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
 
 

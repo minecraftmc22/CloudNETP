@@ -26,7 +26,8 @@ MAX_PENDING_OUT = 30
 SEARCH_LIMIT = 20
 
 
-def card(user: User) -> dict[str, Any]:
+def card(user: User, alias: str = "") -> dict[str, Any]:
+    """用户简表。``alias`` 是我给他起的备注（空串 = 用对方昵称）。"""
     return {
         "id": user.id,
         "username": user.username,
@@ -34,7 +35,31 @@ def card(user: User) -> dict[str, Any]:
         "avatarUrl": f"/api/avatar/{user.avatar}" if user.avatar else None,
         "bio": user.bio or "",
         "role": user.role,
+        "alias": alias or "",
     }
+
+
+def alias_of(row: Friendship, me_id: int) -> str:
+    """这一行关系里「我」写下的备注。"""
+    return (row.requester_alias if row.requester_id == me_id else row.addressee_alias) or ""
+
+
+def set_alias(db: Session, me: User, other_id: int, alias: str) -> dict[str, Any]:
+    """给好友改备注（只影响我这里显示的名字，对方看不到）。空串 = 清空。"""
+    other_id = int(other_id)
+    row = db.scalar(
+        select(Friendship).where(_pair(me.id, other_id), Friendship.status == "accepted").limit(1)
+    )
+    if not row:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "你们还不是好友")
+    text = " ".join((alias or "").split())[:32]
+    if row.requester_id == me.id:
+        row.requester_alias = text
+    else:
+        row.addressee_alias = text
+    row.updated_at = utcnow()
+    db.flush()
+    return {"ok": True, "alias": text}
 
 
 def _pair(a: int, b: int):
@@ -119,7 +144,7 @@ def list_all(db: Session, me: User) -> dict[str, Any]:
         user = users.get(other_id)
         if not user:
             continue  # 对方已注销：列表里不显示
-        item = card(user)
+        item = card(user, alias_of(row, me.id))
         item["since"] = iso(row.updated_at or row.created_at)
         item["requestId"] = row.id
         item["message"] = row.message or ""

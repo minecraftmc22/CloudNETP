@@ -39,6 +39,7 @@ import { renderFeedback } from "./views/feedback.js";
 import { renderFriends } from "./views/friends.js";
 import { renderMascotPage, unmountMascotPage } from "./views/mascot.js";
 import { renderNotices } from "./views/notices.js";
+import { renderProfile } from "./views/profile.js";
 import { renderQuick } from "./views/quick.js";
 import { renderShares } from "./views/shares.js";
 import { renderTrash } from "./views/trash.js";
@@ -48,6 +49,7 @@ import {
   startNoticeWatch,
   stopNoticeWatch,
 } from "./ui/notice.js";
+import { startNotifier, stopNotifier } from "./ui/notify.js";
 
 /**
  * 标签页里的站点名：后台填了 SEO 标题就用它，跟服务端注入的 <title> 保持一致。
@@ -87,6 +89,8 @@ const TITLES = {
   trash: "回收站",
   chat: "聊天",
   friends: "好友",
+  // 个人主页不在导航里，但要有标题才能被 #/profile/<id> 命中
+  profile: "个人主页",
   mascot: "CDP娘",
   notices: "消息中心",
   settings: "设置",
@@ -333,6 +337,8 @@ function enterApp(user) {
 
   updateThemeIcon();
   startBanWatch();
+  // 消息提醒（站内卡片 + 桌面通知）：登录后才开始轮询
+  startNotifier();
   void autoCheckUpdates(user);
 }
 
@@ -534,6 +540,7 @@ function route() {
   else if (name === "trash") renderTrash(root, { user });
   else if (name === "chat") renderChat(root, { sub });
   else if (name === "friends") renderFriends(root);
+  else if (name === "profile") renderProfile(root, { user, sub });
   else if (name === "mascot") renderMascotPage(root);
   else if (name === "notices") renderNotices(root, { user });
   else if (name === "settings") renderSettings(root, { tab: sub });
@@ -651,6 +658,7 @@ async function logout() {
     /* 忽略 */
   }
   stopPetals();
+  stopNotifier();
   dropCachedBackground();
   resetUploads();
   showAuth();

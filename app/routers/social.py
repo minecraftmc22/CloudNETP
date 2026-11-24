@@ -19,7 +19,7 @@ from .. import notice_service as ns
 from ..db import get_db
 from ..deps import get_current_user
 from ..models import Notice, User
-from ..schemas import FriendRequestIn, NoticeReadIn
+from ..schemas import FriendAliasIn, FriendRequestIn, NoticeReadIn
 from ..security import check_origin
 from ..user_service import log_action
 
@@ -118,6 +118,17 @@ def accept_friend(request_id: int, request: Request, db: DbSession, user: Curren
 def reject_friend(request_id: int, request: Request, db: DbSession, user: CurrentUser) -> dict:
     check_origin(request)
     result = fsv.reject(db, user, request_id)
+    db.commit()
+    return result
+
+
+@router.patch("/friends/{other_id}")
+def set_friend_alias(
+    other_id: int, payload: FriendAliasIn, request: Request, db: DbSession, user: CurrentUser
+) -> dict:
+    """给好友改备注：只影响我这里显示的名字，对方看不到。空串 = 清空。"""
+    check_origin(request)
+    result = fsv.set_alias(db, user, other_id, payload.alias)
     db.commit()
     return result
 

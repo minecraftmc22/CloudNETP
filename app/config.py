@@ -111,7 +111,7 @@ def _compose_database_url() -> str:
 class Settings:
     # ---- 应用 ----
     APP_NAME: str = _get("APP_NAME", "CloudNETP")
-    VERSION: str = "0.5.5"
+    VERSION: str = "0.6.0"
     DEBUG: bool = _get_bool("DEBUG", True)
 
     # ---- 监听与对外地址 ----
@@ -342,6 +342,15 @@ class Settings:
         走内容寻址没有收益，反而让删表情时要小心引用计数。
         """
         return self.STORAGE_DIR / "chat"
+
+    @property
+    def group_dir(self) -> Path:
+        """群头像与群文件：storage/groups/<群 id>/...
+
+        群文件是持久副本（不跟着发送者的网盘走），独立存放；
+        群头像与用户头像同一套规格化逻辑，但单独一个目录方便整目录清理。
+        """
+        return self.STORAGE_DIR / "groups"
 
     # ---- 主库 / 次库 ----
     @property

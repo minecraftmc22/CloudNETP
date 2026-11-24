@@ -12,6 +12,7 @@
 """
 from __future__ import annotations
 
+import base64
 import io
 import json
 import subprocess
@@ -534,6 +535,145 @@ def main() -> None:
         check(js("document.querySelector('.chat-compose__input textarea').value") == "",
               "发送后输入框被清空")
 
+        # 引用回复：右键最后一条 → 引用 → 发出去带引用块
+        js(
+            """
+            (() => {
+              const msgs = [...document.querySelectorAll('.chat-feed .msg')];
+              const el = msgs[msgs.length - 1];
+              const r = el.getBoundingClientRect();
+              el.dispatchEvent(new MouseEvent('contextmenu', {
+                bubbles: true, cancelable: true, clientX: r.left + 40, clientY: r.top + 10,
+              }));
+            })()
+            """
+        )
+        check(wait_for("!!document.querySelector('.popover')", 8), "消息右键弹出菜单")
+        msg_menu = js(
+            "[...document.querySelectorAll('.popover .menu-item')].map((b) => b.textContent.trim())"
+        )
+        check("引用" in msg_menu, f"消息菜单有「引用」（{msg_menu}）")
+        js(
+            """
+            (() => {
+              const hit = [...document.querySelectorAll('.popover .menu-item')]
+                .find((b) => b.textContent.trim() === '引用');
+              hit && hit.click();
+            })()
+            """
+        )
+        check(wait_for("!document.querySelector('[data-reply-bar]').hidden", 6), "引用条出现在输入上方")
+        shot("chat-reply-bar.png")
+        reply_text = js("(document.querySelector('[data-reply-text]')?.textContent || '').trim()")
+        check("回车发送" in reply_text, f"引用条显示被引用的内容（{reply_text}）")
+        js(
+            """
+            (() => {
+              const input = document.querySelector('.chat-compose__input textarea');
+              input.focus();
+              input.value = '界面测试：引用你上一条';
+              input.dispatchEvent(new Event('input', { bubbles: true }));
+            })()
+            """
+        )
+        before = js("document.querySelectorAll('.chat-feed .msg').length")
+        js(
+            "document.querySelector('.chat-compose__input textarea')"
+            ".dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))"
+        )
+        check(wait_for(f"document.querySelectorAll('.chat-feed .msg').length > {before}", 12),
+              "引用消息发出去了")
+        quote = js(
+            """
+            (() => {
+              const last = [...document.querySelectorAll('.chat-feed .msg')].pop();
+              const q = last?.querySelector('.msg__quote');
+              if (!q) return null;
+              return {
+                name: (q.querySelector('.msg__quote-name')?.textContent || '').trim(),
+                text: (q.querySelector('.msg__quote-text')?.textContent || '').trim(),
+                hidden: document.querySelector('[data-reply-bar]').hidden,
+                target: q.dataset.target,
+              };
+            })()
+            """
+        )
+        check(bool(quote) and "回车发送" in quote["text"], f"气泡里带引用块（{quote and quote['text']}）")
+        check(bool(quote) and quote["name"] == "你", f"引用的是自己的消息（{quote and quote['name']}）")
+        check(bool(quote) and quote["hidden"] is True, "发出去之后引用条收起")
+        # 看板娘浮在右下角，正好盖住我的气泡；截引用块时先请她让开
+        js("document.querySelector('#mascot')?.style.setProperty('display', 'none')")
+        time.sleep(0.3)
+        shot("chat-quote.png")
+        js("document.querySelector('#mascot')?.style.removeProperty('display')")
+        # 点引用块跳回原消息（目标会被闪一下）
+        js("document.querySelectorAll('.msg__quote')[0].click()")
+        check(wait_for("!!document.querySelector('.msg.is-flash')", 4), "点引用块能跳回原消息")
+        # 取消引用
+        js(
+            """
+            (() => {
+              const el = [...document.querySelectorAll('.chat-feed .msg')].pop();
+              const r = el.getBoundingClientRect();
+              el.dispatchEvent(new MouseEvent('contextmenu', {
+                bubbles: true, cancelable: true, clientX: r.left + 40, clientY: r.top + 10,
+              }));
+            })()
+            """
+        )
+        check(wait_for("!!document.querySelector('.popover')", 8), "再弹一次消息菜单")
+        js(
+            """
+            (() => {
+              const hit = [...document.querySelectorAll('.popover .menu-item')]
+                .find((b) => b.textContent.trim() === '引用');
+              hit && hit.click();
+            })()
+            """
+        )
+        check(wait_for("!document.querySelector('[data-reply-bar]').hidden", 6), "再引用一次")
+        js("document.querySelector('[data-act=\"cancel-reply\"]').click()")
+        check(wait_for("document.querySelector('[data-reply-bar]').hidden", 4), "能取消引用")
+
+        # Ctrl+V 粘图：剪贴板里塞一张 PNG，直接发成图片消息
+        before = js("document.querySelectorAll('.chat-feed .msg').length")
+        paste_b64 = base64.b64encode(png_bytes(48, 36, (210, 130, 160))).decode()
+        js(
+            f"""
+            (() => {{
+              const b64 = '{paste_b64}';
+              const bin = atob(b64);
+              const buf = new Uint8Array(bin.length);
+              for (let i = 0; i < bin.length; i += 1) buf[i] = bin.charCodeAt(i);
+              const file = new File([buf], 'paste.png', {{ type: 'image/png' }});
+              const dt = new DataTransfer();
+              dt.items.add(file);
+              const input = document.querySelector('.chat-compose__input textarea');
+              input.focus();
+              // Chromium 不接受在构造函数里塞 clipboardData，得手动 define
+              const ev = new Event('paste', {{ bubbles: true, cancelable: true }});
+              Object.defineProperty(ev, 'clipboardData', {{ value: dt }});
+              input.dispatchEvent(ev);
+            }})()
+            """
+        )
+        check(wait_for(f"document.querySelectorAll('.chat-feed .msg').length > {before}", 15),
+              "Ctrl+V 粘图发出图片消息")
+        pasted = js(
+            """
+            (() => {
+              const last = [...document.querySelectorAll('.chat-feed .msg')].pop();
+              return {
+                kind: last?.dataset.kind || '',
+                img: !!last?.querySelector('.msg__image img'),
+                text: (document.querySelector('.chat-compose__input textarea').value || ''),
+              };
+            })()
+            """
+        )
+        check(pasted and pasted["kind"] == "image" and pasted["img"], f"粘出来的是图片消息（{pasted}）")
+        check(pasted and pasted["text"] == "", "粘贴图片不会把文件名塞进输入框")
+
         # 表情面板
         js("document.querySelector('[data-act=\"open-stickers\"]').click()")
         check(wait_for("!document.querySelector('[data-sticker-panel]').hidden", 8), "表情面板能打开")
@@ -546,6 +686,47 @@ def main() -> None:
               "点表情直接发出去")
         check(js("document.querySelector('[data-sticker-panel]').hidden") is True,
               "发完表情面板自动收起")
+
+        # 表情悬停预览 + 面板外点击收起
+        js("document.querySelector('[data-act=\"open-stickers\"]').click()")
+        check(wait_for("!document.querySelector('[data-sticker-panel]').hidden", 8), "表情面板能再打开")
+        # 等这一轮 /stickers 拉完再悬停：重画会把刚悬停的格子换掉
+        time.sleep(0.9)
+        js(
+            "document.querySelector('.sticker-item')"
+            ".dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))"
+        )
+        check(wait_for("!!document.querySelector('.sticker-preview')", 6), "悬停表情弹出大图预览")
+        pv = js(
+            """
+            (() => {
+              const card = document.querySelector('.sticker-preview');
+              if (!card) return null;
+              const r = card.getBoundingClientRect();
+              return {
+                src: card.querySelector('img')?.getAttribute('src') || '',
+                ops: [...card.querySelectorAll('[data-sp]')].map((b) => b.dataset.sp),
+                inside: r.left >= 0 && r.top >= 0
+                  && r.right <= window.innerWidth + 1 && r.bottom <= window.innerHeight + 1,
+              };
+            })()
+            """
+        )
+        check(bool(pv) and "/api/chat/media/" in pv["src"], f"预览是原图（{pv and pv['src']}）")
+        check(bool(pv) and set(pv["ops"]) == {"send", "del"}, "预览里有发送和删除")
+        check(bool(pv) and pv["inside"], "预览浮层没跑出可视区")
+        js("document.querySelector('.sticker-preview [data-sp=\"del\"]').click()")
+        check(wait_for("!!document.querySelector('.dialog')", 6), "预览里的删除会先确认")
+        check("删除表情" in (js("document.querySelector('.dialog__title')?.textContent || ''")),
+              "确认框标题是「删除表情」")
+        js("document.querySelector('.dialog__actions [data-act=\"cancel\"]').click()")
+        time.sleep(0.6)
+        js(
+            "document.querySelector('[data-feed]')"
+            ".dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))"
+        )
+        check(wait_for("document.querySelector('[data-sticker-panel]').hidden", 6), "点别处立刻收起表情面板")
+        check(wait_for("!document.querySelector('.sticker-preview')", 4), "面板收起时预览也一起消失")
 
         # 会话右键：清空 / 删除
         js(
@@ -745,7 +926,19 @@ def main() -> None:
         check(any("创建了群聊" in x for x in group["sys"]), f"有建群系统消息（{group['sys']}）")
         check(group["info"], "群聊头部有「群聊信息」入口")
         js("document.querySelector('[data-act=\"group-info\"]').click()")
-        check(wait_for("!!document.querySelector('.group-info__row')", 8), "群信息弹窗能打开")
+        check(wait_for("!!document.querySelector('.picker--group .group-info__name')", 8), "群信息面板能打开")
+        tabs = js(
+            "[...document.querySelectorAll('.picker--group [data-gtab]')].map((b) => b.textContent.trim())"
+        )
+        check(len(tabs) == 4 and "分享" in tabs, f"群面板四个页签（{tabs}）")
+        js("document.querySelector('.picker--group [data-gtab=\"members\"]').click()")
+        check(wait_for("document.querySelectorAll('.picker--group .group-member').length >= 3", 8),
+              "成员页签列出成员")
+        js("document.querySelector('.picker--group [data-gtab=\"share\"]').click()")
+        # 群号/链接是后端现算的，等一会儿
+        check(wait_for(
+            "(document.querySelector('.group-share__value')?.textContent || '').trim().length === 9", 12
+        ), "分享页签显示 9 位群号")
         shot("chat-desktop-group.png")
         js("document.querySelector('.picker-backdrop')?.remove()")
 

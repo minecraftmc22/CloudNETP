@@ -82,13 +82,15 @@ export function renderFriends(root) {
   }
 
   function friendRow(item) {
+    // 备注优先：备注就是「我认得的那个名字」，原名放第二行备查
+    const shown = item.alias || item.displayName;
     return H`<div class="friend-row" data-user="${item.id}">
         ${rowAvatar(item)}
         <div class="friend-row__main">
-          <div class="friend-row__name"><span>${escapeHtml(item.displayName)}</span></div>
+          <div class="friend-row__name"><span>${escapeHtml(shown)}</span></div>
           <div class="friend-row__meta">@${escapeHtml(item.username)}${
-            item.bio ? H` · ${escapeHtml(item.bio)}` : ""
-          }</div>
+            item.alias ? H` · ${escapeHtml(item.displayName)}` : ""
+          }${item.bio ? H` · ${escapeHtml(item.bio)}` : ""}</div>
         </div>
         <div class="friend-row__ops">
           <button class="btn btn--accent" type="button" data-act="chat" data-id="${item.id}">发消息</button>
@@ -402,6 +404,29 @@ export function renderFriends(root) {
     await act(() => api.post("/api/chat/blocks", { userId: Number(id) }), t("已拉黑并删除好友"));
   }
 
+  /** 好友备注：只改我这里显示的名字，对方看不到；留空恢复昵称 */
+  async function setAlias(id) {
+    const item = state.data.friends.find((x) => x.id === Number(id));
+    const alias = await Dialog.prompt({
+      title: t("设置备注"),
+      message: t("只对你自己可见；留空就恢复对方的昵称。"),
+      label: t("备注"),
+      value: item?.alias || "",
+      placeholder: item?.displayName || "",
+      confirmText: t("保存"),
+    });
+    if (alias === null) return;
+    await act(
+      () => api.patch(`/api/friends/${id}`, { alias: alias.trim() }),
+      alias.trim() ? t("备注已保存") : t("备注已清除")
+    );
+  }
+
+  /** 打开个人主页 */
+  function openProfile(id) {
+    location.hash = `#/profile/${id}`;
+  }
+
   function friendMoreMenu(button, id) {
     const rect = button.getBoundingClientRect();
     const item = [...state.data.friends, ...state.data.blocks].find((x) => x.id === Number(id));
@@ -412,6 +437,10 @@ export function renderFriends(root) {
       align: "end",
       header: item ? { name: item.displayName, meta: `@${item.username}` } : null,
       items: [
+        { label: t("查看个人主页"), icon: "i-user", onClick: () => openProfile(id) },
+        { label: t("设置备注"), icon: "i-text", onClick: () => void setAlias(id) },
+        { label: t("发消息"), icon: "i-chat", onClick: () => void openChat(id) },
+        { sep: true },
         { label: t("删除好友"), icon: "i-user", onClick: () => void removeFriend(id) },
         {
           label: t("拉黑并删除好友"),

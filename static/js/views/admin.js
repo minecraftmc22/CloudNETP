@@ -2859,8 +2859,16 @@ export function renderAdmin(root, { tab } = {}) {
               <span class="admin-unit__suffix">人</span>
             </span>
           </label>
+          <label class="field">
+            <span class="field__label">每群文件空间</span>
+            <span class="textbox admin-unit">
+              <input data-key="groupFileQuotaGb" data-kind="number" data-multiplier="1" type="number" min="1" max="1024" step="1"
+                     value="${settings.groupFileQuotaGb ?? 10}">
+              <span class="admin-unit__suffix">GB</span>
+            </span>
+          </label>
         </div>
-        <div class="admin-hint">撤回时限填 0 表示不限制；表情包上限只影响新增，已经存下的不会自动删。单张大小对动图（GIF / 动图 WebP）单独放宽——动图不做转码、原样保存，浏览器里会动。聊天图片与表情存在 storage/chat，不占用户配额。</div>
+        <div class="admin-hint">撤回时限填 0 表示不限制；表情包上限只影响新增，已经存下的不会自动删。单张大小对动图（GIF / 动图 WebP）单独放宽——动图不做转码、原样保存，浏览器里会动。群文件空间按群单独计算，不占成员的个人配额，存在 storage/groups，改小之后已经上传的文件不会被删，只是不能再传。</div>
         <div class="admin-card__foot">
           <button class="btn btn--accent" type="button" data-save="chat">保存聊天设置</button>
         </div>

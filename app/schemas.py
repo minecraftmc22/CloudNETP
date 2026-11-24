@@ -174,6 +174,9 @@ class SettingsIn(CamelModel):
     # （存放目录要能「恢复默认」，null 表达不了，走 PUT /api/quick/inbox-folder）
     quick_receive_enabled: bool | None = None
     quick_auto_accept: bool | None = None
+    # 消息提醒：站内小卡片 / 浏览器桌面通知
+    notify_inapp: bool | None = None
+    notify_desktop: bool | None = None
 
 
 class ProfileIn(CamelModel):
@@ -181,6 +184,21 @@ class ProfileIn(CamelModel):
 
     display_name: str | None = Field(default=None, max_length=64)
     bio: str | None = Field(default=None, max_length=400)
+
+
+class ProfileDetailIn(CamelModel):
+    """个人主页扩展资料。字段为 None 表示不改。
+
+    只有 ``links`` / ``show`` / ``gender`` / ``birthday``：名称与简介走 ProfileIn，
+    免得两处校验各写一遍还容易走偏。
+    """
+
+    gender: str | None = Field(default=None, max_length=8)
+    birthday: str | None = Field(default=None, max_length=10)
+    # {qq: "12345", github: "octocat"}，只认白名单键
+    links: dict[str, str] | None = None
+    # {qq: True, birthday: False, ...} 每项的展示开关
+    show: dict[str, bool] | None = None
 
 
 class TrashSwitchIn(CamelModel):
@@ -488,6 +506,8 @@ class AdminSettingsIn(CamelModel):
     sticker_gif_max_mb: int | None = Field(default=None, ge=1, le=30)
     chat_recall_minutes: int | None = Field(default=None, ge=0, le=1440)
     chat_group_max_members: int | None = Field(default=None, ge=2, le=2000)
+    # 每个群的群文件配额（GB）
+    group_file_quota_gb: int | None = Field(default=None, ge=1, le=1024)
 
 
 class AdminQuickCleanupIn(CamelModel):
@@ -663,6 +683,12 @@ class FriendRequestIn(CamelModel):
     message: str = Field(default="", max_length=120)
 
 
+class FriendAliasIn(CamelModel):
+    """好友备注：空串表示清空（回落到对方昵称）。"""
+
+    alias: str = Field(default="", max_length=32)
+
+
 class NoticeReadIn(CamelModel):
     # 不给 ids = 全部标记已读
     ids: list[int] | None = None
@@ -684,7 +710,34 @@ class ChatGroupIn(CamelModel):
 
 
 class ChatGroupPatch(CamelModel):
-    title: str = Field(min_length=1, max_length=60)
+    """群资料局部更新：只传要改的字段，None = 不改。
+
+    title 与 description 允许空串（description 空串 = 清空简介）；
+    isPublic 只有群主能改，服务端另做校验。
+    """
+
+    title: str | None = Field(default=None, max_length=60)
+    description: str | None = Field(default=None, max_length=200)
+    is_public: bool | None = None
+
+
+class ChatMemberNoteIn(CamelModel):
+    # 给谁起备注（必须在这个群里）；空备注 = 删除
+    user_id: int
+    alias: str = Field(default="", max_length=32)
+
+
+class ChatAdminIn(CamelModel):
+    user_id: int
+    admin: bool = True
+
+
+class ChatJoinIn(CamelModel):
+    """加群：三选一 —— 群 id（公开群搜索点进来）、群号、邀请链接 token。"""
+
+    conversation_id: int | None = None
+    no: str = Field(default="", max_length=12)
+    token: str = Field(default="", max_length=24)
 
 
 class ChatMembersIn(CamelModel):
@@ -697,6 +750,8 @@ class ChatSendIn(CamelModel):
     body: str = Field(default="", max_length=4000)
     # image: {name, width, height} / sticker: {stickerId} / file: {nodeIds}
     payload: dict | None = None
+    # 引用回复：被引用的那条消息 id（同一会话内）
+    reply_to: int | None = Field(default=None, ge=1)
 
 
 class ChatReadIn(CamelModel):

@@ -61,6 +61,8 @@ DEFAULTS: dict[str, str] = {
     # 单张表情大小上限（MB）：静态图与动图（GIF）分开设置
     "sticker_max_mb": "2",
     "sticker_gif_max_mb": "6",
+    # 每个群的群文件配额（GB）：不占个人配额，只算进群的这一份
+    "group_file_quota_gb": "10",
 }
 
 

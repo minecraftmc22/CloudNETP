@@ -289,6 +289,7 @@ from .routers import social as social_router  # noqa: E402
 from .routers import live2d as live2d_router  # noqa: E402
 from .routers import nodes as nodes_router  # noqa: E402
 from .routers import passkeys as passkeys_router  # noqa: E402
+from .routers import profile as profile_router  # noqa: E402
 from .routers import quick as quick_router  # noqa: E402
 from .routers import shares as shares_router  # noqa: E402
 from .routers import update as update_router  # noqa: E402
@@ -307,6 +308,7 @@ app.include_router(live2d_router.router)
 app.include_router(feedback_router.router)
 app.include_router(social_router.router)
 app.include_router(chat_router.router)
+app.include_router(profile_router.router)
 app.include_router(update_router.router)
 app.include_router(ai_router.router)
 
@@ -315,6 +317,12 @@ app.include_router(ai_router.router)
 def share_page(token: str) -> FileResponse:
     """公开分享页（独立页面，不依赖登录态）。"""
     return FileResponse(STATIC_DIR / "share.html", headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/u/{token}", include_in_schema=False)
+def profile_page(token: str) -> FileResponse:
+    """公开个人主页（独立页面，不依赖登录态）。"""
+    return FileResponse(STATIC_DIR / "profile.html", headers={"Cache-Control": "no-cache"})
 
 
 @app.get("/pickup", include_in_schema=False)
@@ -337,7 +345,18 @@ def drop_page(token: str) -> FileResponse:
 # 这里把已知视图名 302 到 /#/<视图>；Location 自带 fragment，
 # 浏览器不会继承原来的 #/admin，所以最终就是干净的 /#/admin。
 VIEW_ROUTES = frozenset(
-    {"files", "shares", "quick", "trash", "settings", "about", "feedback", "admin", "appeal"}
+    {
+        "files",
+        "shares",
+        "quick",
+        "trash",
+        "settings",
+        "about",
+        "feedback",
+        "admin",
+        "appeal",
+        "profile",
+    }
 )
 
 

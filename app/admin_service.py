@@ -385,6 +385,8 @@ def settings_payload(db: Session) -> dict:
         "stickerGifMaxMb": num("sticker_gif_max_mb") or 6,
         "chatRecallMinutes": num("chat_recall_minutes"),
         "chatGroupMaxMembers": num("chat_group_max_members") or 200,
+        # 每个群的群文件配额（GB）
+        "groupFileQuotaGb": num("group_file_quota_gb") or 10,
         "runtime": {
             "version": settings.VERSION,
             "database": "mysql" if settings.DATABASE_URL.startswith("mysql") else "sqlite",

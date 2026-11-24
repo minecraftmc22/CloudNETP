@@ -10,9 +10,11 @@ from __future__ import annotations
 import io
 import re
 import secrets
+from datetime import date, datetime
 from pathlib import Path
 
 from PIL import Image, ImageOps
+from sqlalchemy import select
 
 from .config import settings
 from .models import User, UserSetting
@@ -193,3 +195,256 @@ def drop_background(name: str | None) -> None:
     path = background_path(name)
     if path:
         path.unlink(missing_ok=True)
+
+
+# --------------------------------------------------------------------------- #
+# 个人主页扩展资料
+# --------------------------------------------------------------------------- #
+# 除名称（display_name）与简介（bio）外，其余字段都可单独控制是否展示。
+# 顺序即前端渲染顺序；键名同时用作 i18n key 后缀。
+PROFILE_LINK_KEYS = (
+    "email",
+    "qq",
+    "wechat",
+    "x",
+    "line",
+    "google",
+    "discord",
+    "youtube",
+    "netease",
+    "spotify",
+    "website",
+    "weibo",
+    "github",
+    "steam",
+    "bilibili",
+    "douyin",
+    "facebook",
+    "instagram",
+)
+PROFILE_SHOW_KEYS = PROFILE_LINK_KEYS + ("gender", "birthday")
+GENDERS = ("", "male", "female", "other")
+LINK_MAX = 120
+# 默认可见：社交账号填了就是想让人看到；生日 / 性别 / 邮箱偏隐私，默认不展示
+_DEFAULT_HIDDEN = frozenset({"email", "gender", "birthday"})
+
+
+def _blank() -> dict:
+    return {"gender": "", "birthday": "", "links": {}, "show": {}}
+
+
+def normalized(raw: dict | None) -> dict:
+    """把库里的 JSON 补成结构完整的字典（老数据可能缺字段或类型不对）。"""
+    data = _blank()
+    if not isinstance(raw, dict):
+        return data
+    gender = str(raw.get("gender") or "").strip().lower()
+    data["gender"] = gender if gender in GENDERS else ""
+    birthday = str(raw.get("birthday") or "").strip()
+    data["birthday"] = birthday[:10] if re.fullmatch(r"\d{4}-\d{2}-\d{2}", birthday[:10]) else ""
+    links = raw.get("links") if isinstance(raw.get("links"), dict) else {}
+    show = raw.get("show") if isinstance(raw.get("show"), dict) else {}
+    for key in PROFILE_LINK_KEYS:
+        value = str(links.get(key) or "").strip()[:LINK_MAX]
+        if value:
+            data["links"][key] = value
+        flag = show.get(key)
+        data["show"][key] = bool(flag) if isinstance(flag, bool) else (key not in _DEFAULT_HIDDEN)
+    for key in ("gender", "birthday"):
+        flag = show.get(key)
+        data["show"][key] = bool(flag) if isinstance(flag, bool) else False
+    return data
+
+
+def _safe_url(value: str) -> str | None:
+    """只有明确写了 http(s) 的才转成可点链接，避免 javascript: / data: 之类的坑。"""
+    text = (value or "").strip()
+    if re.match(r"^https?://", text, re.I):
+        return text
+    return None
+
+
+def age_of(birthday: str) -> int | None:
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", birthday or ""):
+        return None
+    try:
+        born = date.fromisoformat(birthday)
+    except ValueError:
+        return None
+    today = date.today()
+    years = today.year - born.year - ((today.month, today.day) < (born.month, born.day))
+    return years if 0 < years < 150 else None
+
+
+def _relation(db, me_id: int | None, target_id: int) -> str:
+    if me_id is None:
+        return "guest"
+    if me_id == target_id:
+        return "self"
+    from .friend_service import _pair
+    from .models import Friendship
+
+    row = db.scalar(select(Friendship).where(_pair(me_id, target_id)).limit(1))
+    if row:
+        if row.status == "accepted":
+            return "friends"
+        return "pending_out" if row.requester_id == me_id else "pending_in"
+    from .models import ChatBlock
+
+    if db.get(ChatBlock, {"blocker_id": me_id, "blocked_id": target_id}) is not None:
+        return "blocked"
+    return "none"
+
+
+def profile_payload(
+    db,
+    user: User,
+    *,
+    viewer_id: int | None = None,
+    public: bool = False,
+    alias: str = "",
+) -> dict:
+    """个人主页数据。
+
+    - ``public=True``（分享页）：不返回 id / username / 关系，头像走公开路由
+    - 非本人视角：按 show 过滤掉未公开的字段
+    - 本人视角：全部返回，供编辑回填
+    """
+    is_self = viewer_id is not None and viewer_id == user.id
+    data = normalized(user.profile)
+    name = display_name_of(user)
+    has_avatar = bool(user.avatar)
+
+    if public:
+        avatar_url = f"/api/public/profile/{user.profile_token}/avatar" if has_avatar else None
+    elif has_avatar:
+        avatar_url = f"/api/avatar/{user.avatar}"
+    else:
+        avatar_url = None
+
+    fields: dict = {}
+    if is_self or data["show"].get("gender"):
+        fields["gender"] = data["gender"] or None
+    if is_self or data["show"].get("birthday"):
+        fields["birthday"] = data["birthday"] or None
+        fields["age"] = age_of(data["birthday"])
+
+    links: list[dict] = []
+    for key in PROFILE_LINK_KEYS:
+        value = data["links"].get(key) or ""
+        if not value:
+            continue
+        if not (is_self or data["show"].get(key)):
+            continue
+        # 邮箱只有绑定了才有意义；未验证的也照常显示（用户自己填的可见开关）
+        if key == "email":
+            value = (user.email or "").strip()
+            if not value:
+                continue
+        links.append({"key": key, "value": value, "url": _safe_url(value)})
+
+    payload = {
+        "displayName": name,
+        "bio": user.bio or "",
+        "avatarUrl": avatar_url,
+        "gender": fields.get("gender"),
+        "birthday": fields.get("birthday"),
+        "age": fields.get("age"),
+        "links": links,
+        "isSelf": is_self,
+    }
+    if alias:
+        payload["alias"] = alias
+    if not public:
+        payload["id"] = user.id
+        payload["username"] = user.username
+        payload["role"] = user.role
+        payload["relation"] = _relation(db, viewer_id, user.id)
+        payload["joinDays"] = max(0, (datetime.utcnow() - (user.created_at or datetime.utcnow())).days)
+    else:
+        payload["relation"] = "guest"
+    return payload
+
+
+def editable(db, user: User) -> dict:
+    """编辑弹窗回填：原样给出所有字段与开关，不做可见性过滤。"""
+    data = normalized(user.profile)
+    return {
+        "displayName": user.display_name or "",
+        "bio": user.bio or "",
+        "gender": data["gender"],
+        "birthday": data["birthday"],
+        "links": {key: data["links"].get(key, "") for key in PROFILE_LINK_KEYS},
+        "show": {key: bool(data["show"].get(key)) for key in PROFILE_SHOW_KEYS},
+        "email": user.email or "",
+        "avatarUrl": f"/api/avatar/{user.avatar}" if user.avatar else None,
+        "shareToken": user.profile_token,
+    }
+
+
+def update_profile(db, user: User, payload: dict) -> dict:
+    """写入扩展资料。只接受白名单字段，超长/非法值直接拒绝。"""
+    data = normalized(user.profile)
+    if "gender" in payload and payload["gender"] is not None:
+        gender = str(payload["gender"]).strip().lower()
+        if gender not in GENDERS:
+            raise ValueError("gender")
+        data["gender"] = gender
+    if "birthday" in payload and payload["birthday"] is not None:
+        birthday = str(payload["birthday"]).strip()
+        if birthday:
+            if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", birthday):
+                raise ValueError("birthday")
+            try:
+                born = date.fromisoformat(birthday)
+            except ValueError:
+                raise ValueError("birthday") from None
+            if born > date.today() or born.year < 1900:
+                raise ValueError("birthday")
+        data["birthday"] = birthday
+    links = payload.get("links")
+    if isinstance(links, dict):
+        for key, value in links.items():
+            if key not in PROFILE_LINK_KEYS:
+                continue
+            text = str(value or "").strip()
+            if len(text) > LINK_MAX:
+                raise ValueError("link-too-long")
+            if text:
+                data["links"][key] = text
+            else:
+                data["links"].pop(key, None)
+    show = payload.get("show")
+    if isinstance(show, dict):
+        for key, value in show.items():
+            if key in PROFILE_SHOW_KEYS:
+                data["show"][key] = bool(value)
+    user.profile = data
+    return data
+
+
+def ensure_share_token(db, user: User) -> str:
+    """开启分享：没有 token 就生成一个（同用户复用，关掉再开也不换链接）。"""
+    if user.profile_token:
+        return user.profile_token
+    from .models import User as _User
+
+    for _ in range(8):
+        token = secrets.token_urlsafe(12).replace("-", "").replace("_", "")[:18]
+        if db.scalar(select(_User.id).where(_User.profile_token == token).limit(1)) is None:
+            user.profile_token = token
+            return token
+    raise RuntimeError("无法生成分享标识")
+
+
+def drop_share_token(db, user: User) -> None:
+    user.profile_token = None
+
+
+def by_token(db, token: str) -> User | None:
+    if not token or not re.fullmatch(r"[A-Za-z0-9]{6,24}", token):
+        return None
+    from .models import User as _User
+
+    return db.scalar(select(_User).where(_User.profile_token == token).limit(1))
+

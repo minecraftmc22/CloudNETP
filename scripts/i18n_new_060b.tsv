@@ -1,0 +1,8 @@
+﻿# 0.6.0 补：消息提醒卡片 + 后台群文件空间
+收到新消息时在右下角弹一张小卡片，点一下直接进那个会话（正在看的会话不打扰）	New messages pop a small card in the bottom-right. Tap it to open that chat — the one you're reading is left alone.
+浏览器通知	Browser notifications
+消息提醒	Message alerts
+站内提醒	In-app alerts
+页面在后台或最小化时用系统通知提醒你。第一次开启需要允许浏览器通知。	Get system notifications while the page is in the background or minimized. You'll need to allow browser notifications the first time.
+每群文件空间	File space per group
+撤回时限填 0 表示不限制；表情包上限只影响新增，已经存下的不会自动删。单张大小对动图（GIF / 动图 WebP）单独放宽——动图不做转码、原样保存，浏览器里会动。群文件空间按群单独计算，不占成员的个人配额，存在 storage/groups，改小之后已经上传的文件不会被删，只是不能再传。	A recall limit of 0 means unlimited; sticker limits only affect new uploads — stickers you already saved stay. The size cap is looser for animations (GIF / animated WebP): they're stored as-is without transcoding so they keep moving. Group file space is counted per group and doesn't use members' personal quota; files live under storage/groups. Lowering the value never deletes uploaded files — it only blocks new uploads.
