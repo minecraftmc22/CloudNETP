@@ -4166,6 +4166,9 @@ export function renderAdmin(root, { tab } = {}) {
   /* ---------------------------------------------------------------- */
   function switchTab(name) {
     state.tab = name;
+    // 给面板留个页签标记：设置页的卡片要按阅读宽度收窄（见 admin.css 的 [data-tab="settings"]），
+    // 只在系统设置这一页生效，用户/日志那些表格仍旧铺满
+    panel.dataset.tab = name;
     segBtns.forEach((btn) => btn.classList.toggle("is-active", btn.dataset.tab === name));
     window.requestAnimationFrame(() => {
       layoutThumb();

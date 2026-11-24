@@ -165,6 +165,32 @@
 .textbox input::placeholder {
   color: var(--text-3);
 }
+/* 装多行输入的文本框（群简介、个人简介这类）要加 .textbox--area：
+   .textbox 默认 36px 定高只够单行，textarea 会按自己的默认尺寸（cols=20 / rows=3）
+   上下各溢出一截，白底灰框还会把上面的标签整个盖住。 */
+.textbox--area {
+  display: block;
+  height: auto;
+  min-height: 36px;
+  padding: 6px 10px;
+}
+.textbox--area textarea {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--text-1);
+  font: inherit;
+  font-size: 13.5px;
+  line-height: 1.5;
+  resize: vertical;
+}
+.textbox--area textarea::placeholder {
+  color: var(--text-3);
+}
 
 /* 密码框右侧的显示 / 隐藏按钮 */
 .pwd-eye {

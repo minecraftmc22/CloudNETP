@@ -173,6 +173,27 @@ def main() -> None:
             check("次库下拉值 = sqlite", card.locator('[data-db-role="secondary"]').input_value() == "sqlite",
                   card.locator('[data-db-role="secondary"]').input_value())
 
+            # 超宽屏下卡片不许被拉成一条长带，数值也不许飘到行尾（0.6.2）
+            geo = page.evaluate(
+                """() => {
+                    const wrap = document.querySelector('.admin-body');
+                    const card = document.querySelector('[data-card="db"]');
+                    const small = [...card.querySelectorAll('.admin-facts small')]
+                        .find((s) => /ms/.test(s.textContent));
+                    const anchor = small && small.parentElement.querySelector('.db-state');
+                    return {
+                        wrapW: wrap ? Math.round(card.getBoundingClientRect().width) : null,
+                        viewW: window.innerWidth,
+                        smallGap: small && anchor
+                            ? Math.round(small.getBoundingClientRect().left - anchor.getBoundingClientRect().right)
+                            : null,
+                    };
+                }"""
+            )
+            check("设置卡片按阅读宽度收窄", (geo["wrapW"] or 0) <= 1000, str(geo))
+            # 单元格本身有 8px gap，再加上 6px margin，14px 以内算贴着
+            check("探活耗时紧跟在状态后面", geo["smallGap"] is not None and geo["smallGap"] <= 20, str(geo))
+
             page.screenshot(path=str(OUT / "admin_db.png"), full_page=True)
             card.screenshot(path=str(OUT / "admin_db_card.png"))
 
@@ -232,6 +253,9 @@ def main() -> None:
 
             print("\n[E] 设置 → 对话设置 → 保存配置")
             page.goto(f"{base}/#/settings", wait_until="domcontentloaded")
+            # AI 配置挂在「看板娘」页签里，默认停在「外观」，不切过去按钮是 hidden 的
+            page.wait_for_selector('[data-settings-tab="mascot"]', timeout=15000)
+            page.click('[data-settings-tab="mascot"]')
             page.wait_for_selector("[data-ai-save]", timeout=15000)
             page.locator("[data-ai-save]").scroll_into_view_if_needed()
             page.wait_for_timeout(300)

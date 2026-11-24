@@ -92,7 +92,7 @@ export async function openGroupPanel(convId, { onChanged, onInvite } = {}) {
           </label>
           <label class="field">
             <span class="field__label">${t("群简介")}</span>
-            <span class="textbox"><textarea rows="3" maxlength="200" data-f="description"
+            <span class="textbox textbox--area"><textarea rows="3" maxlength="200" data-f="description"
                   placeholder="${t("介绍一下这个群…")}">${escapeHtml(conv.description || "")}</textarea></span>
           </label>
           <label class="group-switch ${conv.isOwner ? "" : "is-disabled"}">

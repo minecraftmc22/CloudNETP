@@ -35,6 +35,14 @@
   flex: none;
 }
 
+/* 系统设置页：卡片在超宽屏会被拉成一条长带 —— 左边标签、右边按钮隔着上千米，
+   数值孤零零飘在行尾。按阅读宽度收一下（用户设置页 .settings 也是 760px 这个路子）。
+   只认「系统设置」这一页，用户/日志那些表格该铺满照样铺满。 */
+.admin-body[data-tab="settings"] > .settings-card {
+  width: 100%;
+  max-width: 1000px;
+}
+
 /* ---------------- 概览 ---------------- */
 .stat-grid {
   display: grid;
@@ -155,7 +163,10 @@
   font-size: 12px;
 }
 .admin-facts small {
-  margin-left: auto;
+  /* 别用 margin-left:auto —— 宽屏下「可达」和「30 ms」会被推到同一行的两端，
+     数字看起来是凭空飘着的；贴着数值放，单位才跟得上前面的词。 */
+  flex: none;
+  margin-left: 6px;
   color: var(--text-3);
   font-size: 11px;
   /* 「463 KB」这类单位不许折行，否则会被挤成两行 */

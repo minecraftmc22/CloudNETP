@@ -928,6 +928,41 @@ def main() -> None:
         check(group["info"], "群聊头部有「群聊信息」入口")
         js("document.querySelector('[data-act=\"group-info\"]').click()")
         check(wait_for("!!document.querySelector('.picker--group .group-info__name')", 8), "群信息面板能打开")
+        # 群简介是多行输入：壳 .textbox 定高 36px，textarea 以前按默认 20×3 尺寸上下溢出，
+        # 白底灰框正好把「群简介」标签整个盖住 —— 这里量一遍几何，别再退回去
+        desc_geo = js(
+            """
+            (() => {
+              const pane = document.querySelector('.picker--group .group-info');
+              const ta = pane && pane.querySelector('textarea');
+              const box = ta && ta.closest('.textbox');
+              if (!ta || !box) return null;
+              const label = ta.closest('.field').querySelector('.field__label');
+              const t = ta.getBoundingClientRect();
+              const b = box.getBoundingClientRect();
+              const l = label.getBoundingClientRect();
+              const cs = getComputedStyle(ta);
+              return {
+                inside: t.top >= b.top - 1 && t.bottom <= b.bottom + 1
+                  && t.left >= b.left - 1 && t.right <= b.right + 1,
+                overflowTop: Math.round(b.top - t.top),
+                coversLabel: t.top < l.bottom - 1,
+                width: Math.round(t.width),
+                boxWidth: Math.round(b.width),
+                border: cs.borderTopWidth,
+                bg: cs.backgroundColor,
+              };
+            })()
+            """
+        )
+        check(bool(desc_geo) and desc_geo["inside"], f"群简介多行框不溢出外壳（{desc_geo}）")
+        check(bool(desc_geo) and not desc_geo["coversLabel"], "群简介输入框没压住上面的标签")
+        check(
+            bool(desc_geo)
+            and desc_geo["boxWidth"] - desc_geo["width"] <= 24
+            and desc_geo["border"] == "0px",
+            f"群简介输入框铺满整行、不带原生边框（{desc_geo}）",
+        )
         check(js("!!document.querySelector('[data-act=\"dissolve\"]')"), "群主能看到「解散群聊」")
         tabs = js(
             "[...document.querySelectorAll('.picker--group [data-gtab]')].map((b) => b.textContent.trim())"
