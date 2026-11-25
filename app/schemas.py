@@ -668,6 +668,9 @@ class AdminOAuthIn(CamelModel):
     github_client_secret: str | None = Field(default=None, max_length=500)
     # 第三方首次登录是否自动建号
     auto_register: bool | None = None
+    # 出站代理（服务器连不上 Google/GitHub 时走它）；留空 = 不改，清除用 clearProxy
+    proxy: str | None = Field(default=None, max_length=300)
+    clear_proxy: bool | None = None
 
     clear_google_secret: bool = False
     clear_github_secret: bool = False

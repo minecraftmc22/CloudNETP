@@ -143,8 +143,10 @@ def oauth_callback(
         return _fail("disabled")
 
     try:
-        token = oauth_service.exchange_code(provider, cfg, code, _request_base(request))
-        ident = oauth_service.fetch_identity(provider, token)
+        # 出站代理：服务器直连不上 Google/GitHub 时由后台配置（详见 oauth_config）
+        proxy = str(cfg.get("proxy") or "").strip()
+        token = oauth_service.exchange_code(provider, cfg, code, _request_base(request), proxy)
+        ident = oauth_service.fetch_identity(provider, token, proxy)
     except oauth_service.OAuthError as exc:
         return _fail(exc.code, exc.detail)
 

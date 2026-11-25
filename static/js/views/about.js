@@ -117,6 +117,14 @@ const AUTHOR = {
 
 const CHANGELOG = [
   {
+    version: "0.6.9",
+    title: "第三方登录出站代理（修复服务器连不上 Google 时登录/绑定失败）",
+    items: [
+      "后台「第三方登录」新增「出站代理」：服务器直连不上 Google / GitHub 时填代理地址，换 token / 拉用户信息就不再超时报「第三方登录暂时不可用」",
+      "代理加密落库、只回掩码，也可在 .env 写 OAUTH_PROXY",
+    ],
+  },
+  {
     version: "0.6.8",
     title: "第三方登录回调地址跟随当前域名",
     items: [

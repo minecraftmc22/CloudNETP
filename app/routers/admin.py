@@ -945,6 +945,7 @@ def oauth_save(
             "github": config["providers"]["github"]["enabled"],
             "hasGithubSecret": config["providers"]["github"]["hasSecret"],
             "autoRegister": config["autoRegister"],
+            "hasProxy": config["hasProxy"],
             "ready": config["ready"],
         },
         request,

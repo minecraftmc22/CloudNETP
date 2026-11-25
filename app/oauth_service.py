@@ -91,11 +91,36 @@ class OAuthError(Exception):
         self.detail = detail
 
 
-def _request(url: str, data: dict | None = None, headers: dict | None = None) -> dict | list:
+class _ForcedProxy(urllib.request.ProxyHandler):
+    """显式配置的代理必须走。
+
+    urllib 的 `proxy_open` 里有 `proxy_bypass(req.host)`：环境变量
+    `NO_PROXY` 带 127.0.0.1（本机调试常配）时，指向 127.0.0.1 的目标会连
+    显式代理都绕掉。配置了代理就要走代理，把 host 摘掉再交父类处理，
+    绕过那一条判断；父类其余逻辑（解析凭据、set_proxy）不用 host。
+    """
+
+    def proxy_open(self, req, proxy, req_type):
+        real_host, req.host = req.host, ""
+        try:
+            return super().proxy_open(req, proxy, req_type)
+        finally:
+            req.host = real_host
+
+
+def _request(
+    url: str,
+    data: dict | None = None,
+    headers: dict | None = None,
+    proxy: str | None = None,
+) -> dict | list:
     """发一个请求并解析 JSON。`data` 非空时用 POST + form 编码。
 
     返回值允许是数组：GitHub 的 `/user/emails` 就是 JSON 数组，
     之前一刀切只收 dict 会把邮箱列表整包丢掉（邮箱永远拿不到）。
+
+    `proxy`：服务器自己出不了网（国内直连 Google 很常见）时走配置的代理；
+    不传则按 urllib 默认行为（进程环境变量里有 HTTPS_PROXY 时自然生效）。
     """
     body = urllib.parse.urlencode(data).encode() if data is not None else None
     req = urllib.request.Request(url, data=body, method="POST" if body else "GET")
@@ -106,8 +131,12 @@ def _request(url: str, data: dict | None = None, headers: dict | None = None) ->
     req.add_header("Accept", "application/json")
     # GitHub 强制要求 UA，缺了直接 403
     req.add_header("User-Agent", "CloudNETP-OAuth")
+    if proxy:
+        opener = urllib.request.build_opener(_ForcedProxy({"http": proxy, "https": proxy}))
+    else:
+        opener = urllib.request.build_opener()
     try:
-        with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
+        with opener.open(req, timeout=TIMEOUT) as resp:
             raw = resp.read(256 * 1024)
     except urllib.error.HTTPError as exc:
         # 上游把错误原因放在 body 里，日志记一份便于排查；对外只给通用文案
@@ -145,7 +174,9 @@ def authorize_url(provider: str, cfg: dict, state: str, base: str | None = None)
     return f"{AUTHORIZE[provider]}?{urllib.parse.urlencode(params)}"
 
 
-def exchange_code(provider: str, cfg: dict, code: str, base: str | None = None) -> str:
+def exchange_code(
+    provider: str, cfg: dict, code: str, base: str | None = None, proxy: str | None = None
+) -> str:
     """用 code 换 access_token。`base` 必须与 authorize 时一致，否则上游报 redirect_uri 不匹配。"""
     if provider not in TOKEN:
         raise OAuthError("disabled")
@@ -158,6 +189,7 @@ def exchange_code(provider: str, cfg: dict, code: str, base: str | None = None) 
             "redirect_uri": oauth_config.callback_url(provider, base),
             "grant_type": "authorization_code",
         },
+        proxy=proxy,
     )
     token = str(payload.get("access_token") or "").strip()
     if not token:
@@ -165,10 +197,11 @@ def exchange_code(provider: str, cfg: dict, code: str, base: str | None = None) 
     return token
 
 
-def _google_identity(token: str) -> dict:
+def _google_identity(token: str, proxy: str | None = None) -> dict:
     info = _request(
         USERINFO["google"],
         headers={"Authorization": f"Bearer {token}"},
+        proxy=proxy,
     )
     subject = str(info.get("sub") or "").strip()
     if not subject:
@@ -187,9 +220,9 @@ def _google_identity(token: str) -> dict:
     }
 
 
-def _github_identity(token: str) -> dict:
+def _github_identity(token: str, proxy: str | None = None) -> dict:
     auth = {"Authorization": f"Bearer {token}"}
-    user = _request(USERINFO["github"], headers=auth)
+    user = _request(USERINFO["github"], headers=auth, proxy=proxy)
     subject = str(user.get("id") or "").strip()
     if not subject:
         raise OAuthError("profile", "GitHub 用户信息里没有 id")
@@ -198,7 +231,7 @@ def _github_identity(token: str) -> dict:
     # /user 的 email 只在「公开邮箱」时才有值，而且无法判断是否已验证；
     # 想要可靠的已验证邮箱必须查 /user/emails（需要 user:email 权限）
     try:
-        emails = _request(USER_EMAILS["github"], headers=auth)
+        emails = _request(USER_EMAILS["github"], headers=auth, proxy=proxy)
     except OAuthError as exc:
         log.info("读取 GitHub 邮箱列表失败，改用 /user 的 email：%s", exc.detail)
         emails = []
@@ -227,10 +260,10 @@ def _github_identity(token: str) -> dict:
     }
 
 
-def fetch_identity(provider: str, token: str) -> dict:
+def fetch_identity(provider: str, token: str, proxy: str | None = None) -> dict:
     """按 provider 取统一身份。"""
     if provider == "google":
-        return _google_identity(token)
+        return _google_identity(token, proxy)
     if provider == "github":
-        return _github_identity(token)
+        return _github_identity(token, proxy)
     raise OAuthError("disabled")

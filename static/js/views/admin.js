@@ -4273,10 +4273,40 @@ export function renderAdmin(root, { tab } = {}) {
         <div class="admin-hint">${t("第三方登录配置读取失败，刷新页面重试")}</div>
       </section>`;
     }
+    // 代理现值只回掩码，输入框永远从空开始；留空提交 = 不改
+    const proxyPlaceholder = cfg.hasProxy
+      ? cfg.proxySource === "env"
+        ? t("沿用 .env 的代理 {mask}，留空不改", { mask: cfg.proxyMask || "••••" })
+        : t("已保存 {mask}，留空不改", { mask: cfg.proxyMask || "••••" })
+      : t("留空 = 直连；也可在 .env 里写 OAUTH_PROXY");
     return H`<section class="settings-card" data-card="oauth">
       ${head}
       ${oauthProviderMarkup(cfg, "google")}
       ${oauthProviderMarkup(cfg, "github")}
+      <div class="admin-form-grid">
+        <label class="field field--wide">
+          <span class="field__label">${t("出站代理（服务器访问 Google / GitHub 用）")}</span>
+          <span class="textbox">
+            <input data-oauth-proxy type="password" autocomplete="off" maxlength="300"
+              placeholder="${escapeHtml(proxyPlaceholder)}">
+            <button class="pwd-eye" type="button" data-eye aria-label="${t(
+              "显示密码"
+            )}" title="${t("显示密码")}" aria-pressed="false">
+              <svg class="icon"><use href="#i-eye"/></svg>
+            </button>
+          </span>
+          ${
+            cfg.hasProxy
+              ? H`<label class="lyr-clear"><input type="checkbox" data-oauth-clear-proxy>${t(
+                  "清除已保存的代理"
+                )}</label>`
+              : ""
+          }
+          <span class="field__hint">${t(
+            "服务器直连不上 Google / GitHub 时填，如 http://127.0.0.1:7890；浏览器开得了授权页不代表服务器出得了网"
+          )}</span>
+        </label>
+      </div>
       <div class="setting-row">
         <div class="setting-row__main">
           <div class="setting-row__label">${t("首次登录自动注册")}</div>
@@ -4337,6 +4367,8 @@ export function renderAdmin(root, { tab } = {}) {
       githubClientId: text('[data-oauth-id="github"]'),
       githubClientSecret: text('[data-oauth-secret="github"]'),
       autoRegister: Boolean(pick("[data-oauth-autoreg]")?.checked),
+      proxy: text("[data-oauth-proxy]"),
+      clearProxy: Boolean(pick("[data-oauth-clear-proxy]")?.checked),
       clearGoogleSecret: Boolean(pick('[data-oauth-clear-secret="google"]')?.checked),
       clearGithubSecret: Boolean(pick('[data-oauth-clear-secret="github"]')?.checked),
     });

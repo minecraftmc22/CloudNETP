@@ -21,6 +21,7 @@ import json
 import logging
 import threading
 import time
+import urllib.parse
 
 from sqlalchemy.orm import Session
 
@@ -39,8 +40,9 @@ PROVIDERS = ("google", "github")
 
 # 普通文本字段：传空串 = 删掉后台覆盖，回落 .env
 TEXT_FIELDS = ("googleClientId", "githubClientId")
-# 密文字段：空串或 __keep__ = 不改，要清空用 clearGoogleSecret / clearGithubSecret
-SECRET_FIELDS = ("googleClientSecret", "githubClientSecret")
+# 密文字段：空串或 __keep__ = 不改，要清空用 clearGoogleSecret / clearGithubSecret / clearProxy。
+# 代理也按密文处理：URL 里可能带账号密码，落库加密、接口只回掩码
+SECRET_FIELDS = ("googleClientSecret", "githubClientSecret", "proxy")
 BOOL_FIELDS = ("googleEnabled", "githubEnabled", "autoRegister")
 
 _lock = threading.Lock()
@@ -160,6 +162,7 @@ def env_config() -> dict:
         "githubClientId": github_id,
         "githubClientSecret": github_secret,
         "autoRegister": _env_auto_register(),
+        "proxy": (settings.OAUTH_PROXY or "").strip(),
     }
 
 
@@ -206,6 +209,21 @@ def callback_url(provider: str, base: str | None = None) -> str:
 # --------------------------------------------------------------------------- #
 # 后台卡片（永远不含凭据原文）
 # --------------------------------------------------------------------------- #
+def mask_proxy(url: str) -> str:
+    """代理地址掩码：藏住密码，但保留协议和主机，管理员得知道自己连的是哪台。"""
+    raw = (url or "").strip()
+    if not raw:
+        return ""
+    parsed = urllib.parse.urlsplit(raw)
+    if parsed.password:
+        host_part = parsed.netloc.split("@", 1)[1]
+        user = parsed.username or ""
+        return f"{parsed.scheme}://{user}:***@{host_part}"
+    if "@" in parsed.netloc:
+        return raw  # 只有用户名没有密码，不算敏感
+    return raw
+
+
 def snapshot() -> dict:
     env = env_config()
     cfg = resolved()
@@ -237,6 +255,10 @@ def snapshot() -> dict:
     return {
         "providers": providers,
         "siteUrlFixed": bool(settings.SITE_URL),
+        # 出站代理（服务器 → Google/GitHub）：只回掩码，原文不出服务端
+        "hasProxy": bool(cfg.get("proxy")),
+        "proxyMask": mask_proxy(cfg.get("proxy")),
+        "proxySource": "admin" if "proxy" in _overrides else ("env" if env_config()["proxy"] else "default"),
         "autoRegister": bool(cfg.get("autoRegister")),
         "autoRegisterSource": (
             "admin" if "autoRegister" in overrides else ("env" if (settings.OAUTH_AUTO_REGISTER or "").strip() else "auto")
@@ -266,6 +288,7 @@ def save(db: Session, patch: dict) -> dict:
     clears = {
         "googleClientSecret": bool(patch.pop("clearGoogleSecret", False)),
         "githubClientSecret": bool(patch.pop("clearGithubSecret", False)),
+        "proxy": bool(patch.pop("clearProxy", False)),
     }
 
     for field, value in patch.items():
@@ -288,6 +311,11 @@ def save(db: Session, patch: dict) -> dict:
                 current[field] = text
             else:
                 current.pop(field, None)
+
+    # 清除标记可能单独出现（patch 里没有对应字段），循环外再兜一遍
+    for field, do_clear in clears.items():
+        if do_clear:
+            current.pop(field, None)
 
     settings_store.set_value(db, STORE_KEY, json.dumps(current, ensure_ascii=False))
     db.commit()

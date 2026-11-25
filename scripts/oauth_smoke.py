@@ -34,6 +34,7 @@ from app.models import User
 from app.security import hash_password
 
 BASE = f"http://127.0.0.1:{int(sys.argv[1]) if len(sys.argv) > 1 else 8135}"
+MOCK_PORT = 9961
 ADMIN = "oauthadmin"
 PASSWORD = "OAuth#2026x"
 SECRET = "probe-secret-9f3e"
@@ -114,7 +115,9 @@ class MockProvider(BaseHTTPRequestHandler):
 
 
 def start_mock() -> ThreadingHTTPServer:
-    server = ThreadingHTTPServer(("127.0.0.1", 9911), MockProvider)
+    # 端口别写死 9911 附近：Windows 的动态保留段（excludedportrange）重启后会挪，
+    # 撞上就 WinError 10013。9961 目前在任何常见保留段之外。
+    server = ThreadingHTTPServer(("127.0.0.1", MOCK_PORT), MockProvider)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return server
 
@@ -247,6 +250,8 @@ def run() -> None:
             "githubEnabled": True,
             "githubClientId": "hid-456",
             "githubClientSecret": "gh-secret",
+            # 代理 URL 里带账号密码，必须加密落库、掩码回显
+            "proxy": "http://alice:s3cret-pw@127.0.0.1:7890",
         },
     )
     check("后台保存配置", st == 200, f"{st} {body}")
@@ -254,6 +259,28 @@ def run() -> None:
     check("google/github 已 ready", snap["ready"] == ["google", "github"], str(snap["ready"]))
     check("密钥只回掩码", snap["providers"]["google"]["hasSecret"] and SECRET not in json.dumps(snap),
           str(snap["providers"]["google"]))
+    check("代理已保存且不出明文", snap["hasProxy"] and "s3cret-pw" not in json.dumps(snap),
+          str(snap.get("proxyMask")))
+    check("代理掩码藏密码但留主机", "***@127.0.0.1:7890" in (snap.get("proxyMask") or ""),
+          str(snap.get("proxyMask")))
+
+    # 代理参数真的被 _request 使用：指向不存在的端口 → 网络错误（直连 mock 本来能通）
+    from app import oauth_service as _os
+
+    try:
+        _os._request(f"http://127.0.0.1:{MOCK_PORT}/token", {"code": "x"}, proxy="http://127.0.0.1:1")
+        check("代理被 _request 使用", False, "没走代理居然成功了")
+    except _os.OAuthError as exc:
+        check("代理被 _request 使用", exc.code == "server", str(exc.detail))
+
+    # 坏代理拖累真实回调：授权成功但换 token 出网失败 → oauth_error=server（用户报障的那个码）
+    st, _, loc = user.get("/api/auth/oauth/google/start")
+    st, _, loc = user.get(f"/api/auth/oauth/google/callback?code=good&state={query_of(loc)['state']}")
+    check("坏代理下回调报 server", "oauth_error=server" in loc, loc)
+
+    # 清掉代理，后面的流程继续走直连
+    st, body, _ = admin.put("/api/admin/oauth", {"clearProxy": True})
+    check("清除代理", st == 200 and not body["config"]["hasProxy"], str(body.get("config", {}).get("hasProxy")))
 
     st, meta, _ = user.get("/api/meta")
     check("meta 暴露 ready 列表", meta.get("oauth") == ["google", "github"], str(meta.get("oauth")))

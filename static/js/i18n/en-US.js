@@ -2330,4 +2330,9 @@ export default {
   "提醒全部群成员": "Notify all group members",
   "使用 {name} 注册": "Sign up with {name}",
   "跟随当前访问的域名": "Follows the domain you are visiting",
+  "出站代理（服务器访问 Google / GitHub 用）": "Outbound proxy (for server-side calls to Google / GitHub)",
+  "清除已保存的代理": "Clear saved proxy",
+  "服务器直连不上 Google / GitHub 时填，如 http://127.0.0.1:7890；浏览器开得了授权页不代表服务器出得了网": "Fill in when the server cannot reach Google / GitHub directly, e.g. http://127.0.0.1:7890; being able to open the consent page in your browser does not mean the server can get out",
+  "沿用 .env 的代理 {mask}，留空不改": "Keep using the proxy from .env ({mask}); leave blank to keep",
+  "留空 = 直连；也可在 .env 里写 OAUTH_PROXY": "Leave blank for direct connection; you can also set OAUTH_PROXY in .env",
 };

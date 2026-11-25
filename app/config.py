@@ -111,7 +111,7 @@ def _compose_database_url() -> str:
 class Settings:
     # ---- 应用 ----
     APP_NAME: str = _get("APP_NAME", "CloudNETP")
-    VERSION: str = "0.6.8"
+    VERSION: str = "0.6.9"
     DEBUG: bool = _get_bool("DEBUG", True)
 
     # ---- 监听与对外地址 ----
@@ -282,6 +282,9 @@ class Settings:
     GITHUB_CLIENT_SECRET: str = _get("GITHUB_CLIENT_SECRET").strip()
     # 第三方登录首次进来时自动建号；留空 = 自动（配了任一 provider 就允许）
     OAUTH_AUTO_REGISTER: str = _get("OAUTH_AUTO_REGISTER", "").strip().lower()
+    # 出站代理：服务器直连不上 Google/GitHub 时填，如 http://127.0.0.1:7890
+    # （浏览器开得了授权页不代表服务器出得了网——换 token 是服务器自己发的请求）
+    OAUTH_PROXY: str = _get("OAUTH_PROXY").strip()
 
     # ---- 存储 ----
     STORAGE_DIR: Path = Path(_get("STORAGE_DIR") or str(BASE_DIR / "storage")).resolve()
