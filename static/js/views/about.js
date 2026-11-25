@@ -117,6 +117,14 @@ const AUTHOR = {
 
 const CHANGELOG = [
   {
+    version: "0.6.13",
+    title: "修复：配置了出站代理时所有 HTTPS 请求超时",
+    items: [
+      "出站代理的实现在绕过 NO_PROXY 环境变量时误伤了 HTTPS 的 CONNECT 隧道目标，导致配了代理反而连 Google / GitHub 全部超时（curl 能通、应用不能通的根因）",
+      "重写代理处理器：跳过 bypass 检查但完整保留隧道目标与代理凭据，并用真实上游端点回归验证",
+    ],
+  },
+  {
     version: "0.6.12",
     title: "连接测试结果明示代理走向",
     items: [

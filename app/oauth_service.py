@@ -19,6 +19,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import os
@@ -92,20 +93,32 @@ class OAuthError(Exception):
 
 
 class _ForcedProxy(urllib.request.ProxyHandler):
-    """显式配置的代理必须走。
+    """显式配置的代理必须无条件生效，跳过 `proxy_bypass` 检查。
 
-    urllib 的 `proxy_open` 里有 `proxy_bypass(req.host)`：环境变量
-    `NO_PROXY` 带 127.0.0.1（本机调试常配）时，指向 127.0.0.1 的目标会连
-    显式代理都绕掉。配置了代理就要走代理，把 host 摘掉再交父类处理，
-    绕过那一条判断；父类其余逻辑（解析凭据、set_proxy）不用 host。
+    urllib 的 `proxy_open` 会先问 `proxy_bypass(req.host)`：环境变量
+    `NO_PROXY` 罩住目标域名时（本机调试常配 127.0.0.1），连显式配置的
+    代理都会被静默绕掉。这里复刻父类逻辑但**不做 bypass 判断**。
+
+    历史教训：不能靠「清空 req.host 骗过 bypass」实现——`set_proxy`
+    会把当时的 host 存进 `_tunnel_host`，HTTPS 走代理的 CONNECT 隧道
+    目标就是它；存了空串，TLS 握手字节直接怼到代理的 HTTP 端口上，
+    症状是对所有 https 目标超时（http 目标不经过隧道，测不出来）。
     """
 
     def proxy_open(self, req, proxy, req_type):
-        real_host, req.host = req.host, ""
-        try:
-            return super().proxy_open(req, proxy, req_type)
-        finally:
-            req.host = real_host
+        proxy_type, user, password, hostport = urllib.request._parse_proxy(proxy)
+        if user and password:
+            creds = "{0}:{1}".format(
+                urllib.parse.unquote(user), urllib.parse.unquote(password)
+            ).encode("ascii")
+            req.add_header(
+                "Proxy-authorization", "Basic " + base64.b64encode(creds).decode("ascii")
+            )
+        hostport = urllib.parse.unquote(hostport)
+        if proxy_type is None:
+            # 父类同款推断：https 目标经由 http 代理时用 CONNECT 隧道
+            proxy_type = "http" if req_type == "https" else req_type
+        req.set_proxy(hostport, proxy_type)
 
 
 def _request(

@@ -310,6 +310,14 @@ def run() -> None:
     except _os.OAuthError as exc:
         check("代理被 _request 使用", exc.code == "server", str(exc.detail))
 
+    # 回归（0.6.13）：旧 _ForcedProxy 靠清空 req.host 骗过 bypass 检查，把 set_proxy
+    # 存下的 _tunnel_host（HTTPS 走代理的 CONNECT 目标）一起清没了 → 真实 https 端点
+    # 全部超时，而 http 假服务器测不出来。这里直接断言隧道目标必须保留。
+    _treq = urllib.request.Request("https://example.com/token")
+    _os._ForcedProxy({"https": "http://127.0.0.1:1"}).proxy_open(_treq, "http://127.0.0.1:1", "https")
+    check("代理 handler 保留 CONNECT 隧道目标", getattr(_treq, "_tunnel_host", "") == "example.com",
+          repr(getattr(_treq, "_tunnel_host", None)))
+
     # 坏代理拖累真实回调：授权成功但换 token 出网失败 → oauth_error=server（用户报障的那个码）
     st, _, loc = user.get("/api/auth/oauth/google/start")
     st, _, loc = user.get(f"/api/auth/oauth/google/callback?code=good&state={query_of(loc)['state']}")
