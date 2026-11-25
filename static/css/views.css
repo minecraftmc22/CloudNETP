@@ -2993,6 +2993,8 @@ html[data-ai="off"] .mascot__act[data-mascot-act="chat"] {
   font-weight: 600;
   letter-spacing: -0.3px;
   color: var(--text-1);
+  /* 超长无空格的站点名也能折行，不撑破卡片 */
+  overflow-wrap: anywhere;
 }
 .about-hero__desc {
   margin: 6px 0 0;

@@ -13,6 +13,9 @@
   display: grid;
   /* 标题栏 / 公告（有才占位）/ 内容 */
   grid-template-rows: var(--titlebar-h) auto minmax(0, 1fr);
+  /* 列必须显式钉成 minmax(0,1fr)：隐式列是 auto，超长站点名称会把整列
+     （连同标题栏、内容区）撑到比视口还宽，手机上整页能左右拖 */
+  grid-template-columns: minmax(0, 1fr);
 }
 /* 必须点名行号：公告 hidden 时不占格子，靠自动排布的话内容区会掉进 auto 行，
    1fr 留给空白，结果就是内容区只画了半屏（公告留空时的那个 UI bug） */
@@ -81,6 +84,10 @@
   font-weight: 600;
   letter-spacing: 0.2px;
   white-space: nowrap;
+  /* 站点名称由后台自由填写，可能很长：超宽时省略号截断，不把标题栏撑爆 */
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .brand__sub {
   font-size: 10.5px;
