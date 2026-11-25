@@ -486,6 +486,12 @@ class AdminSettingsIn(CamelModel):
     auto_update_check: bool | None = None
     # 发现新版本后自动拉取并重启
     auto_update: bool | None = None
+    # 定时更新间隔（小时，1-168）；「更新时刻」填了则按天调度、此项忽略
+    auto_update_interval_hours: int | None = Field(default=None, ge=1, le=168)
+    # 每天固定更新的时刻 HH:MM（服务器本地时间）；留空 = 按间隔调度
+    auto_update_time: str | None = Field(default=None, max_length=5)
+    # 服务启动时自动检查一次更新（只检查提示）
+    startup_update_check: bool | None = None
     # 快传取件码：最长有效期、单个文件最多下载次数（0 = 不限制）、过期后文件保留天数
     quick_max_days: int | None = Field(default=None, ge=1, le=365)
     quick_max_uses: int | None = Field(default=None, ge=0, le=10000)

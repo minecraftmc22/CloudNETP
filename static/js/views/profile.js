@@ -396,6 +396,8 @@ export function renderProfile(root, { user: me, sub = "" } = {}) {
         }
       });
     };
+    // 弹窗必须挂到 DOM 上才会显示（编辑资料弹窗有这一步，分享弹窗漏了）
+    document.body.appendChild(backdrop);
     paintShare({ token });
   }
 

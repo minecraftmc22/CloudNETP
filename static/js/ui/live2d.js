@@ -273,8 +273,12 @@ export function initLive2DMascot({ stage, host, bubble, pick, pickLabel, onPoke,
       state.trim = measureTrim(model, app);
       fit();
       host?.classList.remove("no-size-anim");
-      // 换模型后尺寸变了（云朵 158 → Live2D 232），按新尺寸重记一次「她在屏幕的位置」
-      rememberCenter();
+      // 换模型后尺寸变了（云朵 158 → Live2D 232）：这里的中心会在宽高过渡
+      // 中间被量到，绝不能记 —— transitionend 落定后会统一重记。
+      // 万一这次尺寸没变、transition 不触发，兜底在落定后补记一次。
+      window.setTimeout(() => {
+        if (!centerFrac) rememberCenter();
+      }, 350);
       Promise.resolve(model.motion?.("Idle")).catch(() => {});
     } catch (err) {
       console.warn("[live2d] 模型加载失败", entry.url, err?.message || err);
@@ -679,9 +683,11 @@ export function initLive2DMascot({ stage, host, bubble, pick, pickLabel, onPoke,
 
   const onHostCancel = (event) => endDrag(event, true);
 
-  // 落盘一次：旧版本留下的偏移可能已经越界，夹回来的值顺手写回去，别每次加载都重算
+  // 落盘一次：旧版本留下的偏移可能已经越界，夹回来的值顺手写回去，别每次加载都重算。
+  // 这里刻意不 rememberCenter()：此刻还是云朵尺寸（158），记下来的中心是错的，
+  // 之后模型加载长到 232 时按它「回正」就会凭空挪一截 —— 位置漂移的根源之一。
+  // 中心记忆等尺寸落定后由 transitionend / 拖动结束 / 重置来刷新。
   applyOffset(true);
-  rememberCenter();
 
   /* ---------------- 悬停滚轮改大小 ---------------- */
 
@@ -831,9 +837,11 @@ export function initLive2DMascot({ stage, host, bubble, pick, pickLabel, onPoke,
     shapeRaf = window.requestAnimationFrame(() => {
       shapeRaf = 0;
       fit();
-      // 大小定下来后把她挪回原来的中心：右下角锚点会让「长个」往左上顶，
-      // 拖到屏幕中间的人一缩放就飘走，回正一下才像是原地变大变小
-      restoreCenter();
+      // 先按记忆里的中心回正（没有记忆就不动她），再把**落定后**的中心记下来。
+      // 记忆绝不能在过渡中间刷新：半成品位置一旦被记住，之后每次刷新都会
+      // 照着它修正，看板娘就会自己挪来挪去（0.6.13 修的位置漂移就是这个）。
+      if (centerFrac) restoreCenter();
+      rememberCenter();
     });
   });
 

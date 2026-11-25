@@ -10,6 +10,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import logging
 import os
 import re
 import subprocess
@@ -22,6 +23,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .config import BASE_DIR, settings
+
+log = logging.getLogger("uvicorn.error").getChild("cloudnetp.update")
 
 CACHE_TTL = 600  # 成功结果缓存 10 分钟
 FAIL_TTL = 60  # 失败结果只缓存 1 分钟，网络恢复后能尽快重试
@@ -368,7 +371,7 @@ def apply_update(
 
 
 def start_auto_watcher() -> None:
-    """后台线程：每 6 小时读一次自动更新开关，有新版本就拉取并重启。"""
+    """后台线程：按管理员配置的节奏自动更新（间隔或每天固定时刻）。"""
     global _auto_started
     if _auto_started:
         return
@@ -376,20 +379,88 @@ def start_auto_watcher() -> None:
     threading.Thread(target=_auto_loop, name="cloudnetp-auto-update", daemon=True).start()
 
 
+def _schedule_config(db) -> tuple[bool, int, tuple[int, int] | None]:
+    """读（开关，间隔小时，每天时刻）。时刻非法时按未配置处理。"""
+    from . import settings_store
+
+    enabled = settings_store.get_flag(db, "auto_update")
+    interval = settings_store.get_int(db, "auto_update_interval_hours") or 6
+    interval = max(1, min(168, interval))
+    at_time: tuple[int, int] | None = None
+    raw = (settings_store.get_value(db, "auto_update_time") or "").strip()
+    parts = raw.split(":")
+    if len(parts) == 2 and all(p.isdigit() and len(p) == 2 for p in parts):
+        hour, minute = (int(p) for p in parts)
+        if hour <= 23 and minute <= 59:
+            at_time = (hour, minute)
+    return enabled, interval, at_time
+
+
+def _auto_due(at_time: tuple[int, int] | None, interval_hours: int, last_run: float, now: float) -> bool:
+    """时刻模式：到了今天的 HH:MM 且今天这一趟还没跑过；间隔模式：距上次 ≥ 间隔。"""
+    if at_time:
+        target = (
+            datetime.now()
+            .replace(hour=at_time[0], minute=at_time[1], second=0, microsecond=0)
+            .timestamp()
+        )
+        return now >= target and last_run < target
+    return now - last_run >= interval_hours * 3600
+
+
 def _auto_loop() -> None:
     time.sleep(300)  # 启动后先稳 5 分钟，避免开机就折腾
+    last_run = 0.0
     while True:
+        try:
+            from . import db_failover
+
+            db = db_failover.current_sessionmaker()()
+            try:
+                enabled, interval, at_time = _schedule_config(db)
+            finally:
+                db.close()
+            now = time.time()
+            if enabled and _auto_due(at_time, interval, last_run, now):
+                # 直接 git fetch + 快进即可判断并更新，不依赖 GitHub API 令牌
+                result = apply_update(restart=True, trigger="auto")
+                if result.get("updated"):
+                    last_run = time.time()
+                elif not result.get("ok"):
+                    # 失败也别疯狂重试：按当前节奏推迟一轮
+                    last_run = now
+                # 「已经是最新版本」不动 last_run：下个间隔/明天再试
+        except Exception:  # noqa: BLE001 - 后台任务不能把服务带崩
+            pass
+        time.sleep(60)
+
+
+def start_startup_check() -> None:
+    """服务启动后自动检查一次更新（管理员开了开关才真正请求）。"""
+    if os.environ.get("CLOUDNETP_STARTUP_CHECK_DONE") == "1":
+        return
+    os.environ["CLOUDNETP_STARTUP_CHECK_DONE"] = "1"
+
+    def _run() -> None:
+        time.sleep(45)  # 等数据库与网络栈就绪
         try:
             from . import db_failover, settings_store
 
             db = db_failover.current_sessionmaker()()
             try:
-                enabled = settings_store.get_flag(db, "auto_update")
+                enabled = settings_store.get_flag(db, "startup_update_check")
             finally:
                 db.close()
-            if enabled:
-                # 直接 git fetch + 快进即可判断并更新，不依赖 GitHub API 令牌
-                apply_update(restart=True, trigger="auto")
-        except Exception:  # noqa: BLE001 - 后台任务不能把服务带崩
-            pass
-        time.sleep(6 * 60 * 60)
+            if not enabled:
+                return
+            result = check(force=True)
+            if result.get("hasUpdate"):
+                log.info("启动检查：发现新版本 %s（当前 %s）", result.get("latest"), result.get("current"))
+            elif result.get("ok"):
+                log.info("启动检查：已是最新版本 %s", result.get("current"))
+            else:
+                log.warning("启动检查：失败（%s）", result.get("error"))
+        except Exception:  # noqa: BLE001
+            log.exception("启动检查更新出错")
+
+    threading.Thread(target=_run, name="cloudnetp-startup-check", daemon=True).start()

@@ -27,8 +27,14 @@ DEFAULTS: dict[str, str] = {
     "webdav_enabled": "1" if settings.WEBDAV_ENABLED else "0",
     # 管理员开关：登录后自动检查 GitHub main 有没有新版本（只提示，不自动更新）
     "auto_update_check": "0",
-    # 管理员开关：后台每 6 小时检查一次，发现新版本自动拉取并重启
+    # 管理员开关：发现新版本自动拉取并重启；调度规则见下两行
     "auto_update": "0",
+    # 定时更新间隔（小时，1-168）；「更新时刻」留空时按这个间隔执行
+    "auto_update_interval_hours": "6",
+    # 每天固定更新的时刻 HH:MM（服务器本地时间）；留空 = 按间隔调度
+    "auto_update_time": "",
+    # 服务启动时自动检查一次更新（只检查提示，不更新）
+    "startup_update_check": "0",
     # 看板娘 AI 对话的系统提示词（管理员在 设置 → 看板娘 → AI 设置 里改）
     "ai_system_prompt": "",
     # 快传取件码的上限（0 = 不限制）：有效期最长多少天、单个文件最多被下载几次

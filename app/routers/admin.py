@@ -343,6 +343,17 @@ def update_settings(
     if not patch:
         return {"settings": admin.settings_payload(db)}
 
+    # 更新时刻必须是合法的 HH:MM（或空串 = 清除，回到按间隔调度）
+    time_value = patch.get("auto_update_time")
+    if time_value is not None and time_value:
+        parts = time_value.split(":")
+        bad = len(parts) != 2 or not all(p.isdigit() and len(p) == 2 for p in parts)
+        if not bad:
+            hour, minute = (int(p) for p in parts)
+            bad = hour > 23 or minute > 59
+        if bad:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "更新时刻格式应为 HH:MM（如 03:30）")
+
     for key, value in patch.items():
         text = ("1" if value else "0") if isinstance(value, bool) else str(value)
         set_value(db, key, text)

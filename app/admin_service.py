@@ -365,6 +365,9 @@ def settings_payload(db: Session) -> dict:
         in {"1", "true", "yes", "on"},
         "autoUpdate": str(values.get("auto_update", "0")).strip()
         in {"1", "true", "yes", "on"},
+        "autoUpdateIntervalHours": num("auto_update_interval_hours") or 6,
+        "autoUpdateTime": values.get("auto_update_time", ""),
+        "startupUpdateCheck": flag("startup_update_check"),
         # 快传：上限与过期后文件保留期
         "quickMaxDays": num("quick_max_days"),
         "quickMaxUses": num("quick_max_uses"),

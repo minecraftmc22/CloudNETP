@@ -116,10 +116,11 @@ async def lifespan(app: FastAPI):
     from . import cleanup_service
 
     cleanup_service.start_scheduler()
-    # 自动更新看门狗：默认关闭，管理员在后台开启后每 6 小时检查一次
+    # 自动更新看门狗：默认关闭；管理员可在后台自定义间隔或每天固定时刻
     from . import update_service
 
     update_service.start_auto_watcher()
+    update_service.start_startup_check()
     logger.info(
         "监听配置 %s://%s:%s（.env）| 若与 uvicorn 打印的地址不一致，说明启动方式没走 run.py / main.py",
         settings.scheme,

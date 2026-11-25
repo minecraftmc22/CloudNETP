@@ -2965,10 +2965,34 @@ export function renderAdmin(root, { tab } = {}) {
         <div class="setting-row">
           <div class="setting-row__main">
             <div class="setting-row__label">自动更新</div>
-            <div class="setting-row__desc">后台每 6 小时检查一次，发现新版本自动拉取并重启服务；仅在 main 分支且工作区干净时执行</div>
+            <div class="setting-row__desc">发现新版本自动拉取并重启服务；仅在 main 分支且工作区干净时执行。调度方式二选一：填了「每天更新时刻」就每天到点执行，否则按「更新间隔」定时执行；改动保存后一分钟内生效，无需重启</div>
           </div>
           <label class="switch">
             <input type="checkbox" data-key="autoUpdate" ${settings.autoUpdate ? "checked" : ""}>
+            <span class="switch__track"><span class="switch__knob"></span></span>
+          </label>
+        </div>
+        <div class="setting-row">
+          <div class="setting-row__main">
+            <div class="setting-row__label">更新间隔（小时）</div>
+            <div class="setting-row__desc">「每天更新时刻」留空时按这个间隔定时检查并更新，1 ~ 168 小时</div>
+          </div>
+          <span class="textbox"><input type="number" min="1" max="168" step="1" data-key="autoUpdateIntervalHours" data-kind="number" value="${settings.autoUpdateIntervalHours ?? 6}"></span>
+        </div>
+        <div class="setting-row">
+          <div class="setting-row__main">
+            <div class="setting-row__label">每天更新时刻</div>
+            <div class="setting-row__desc">每天到这个时刻自动更新（服务器本地时间），如 03:30；留空则按上面的间隔调度</div>
+          </div>
+          <span class="textbox"><input type="text" maxlength="5" placeholder="03:30" data-key="autoUpdateTime" value="${escapeHtml(settings.autoUpdateTime || "")}"></span>
+        </div>
+        <div class="setting-row">
+          <div class="setting-row__main">
+            <div class="setting-row__label">启动时自动检查更新</div>
+            <div class="setting-row__desc">服务每次启动 45 秒后检查一次 GitHub 新版本，结果写进日志并缓存给「检查更新」按钮；只检查，不更新</div>
+          </div>
+          <label class="switch">
+            <input type="checkbox" data-key="startupUpdateCheck" ${settings.startupUpdateCheck ? "checked" : ""}>
             <span class="switch__track"><span class="switch__knob"></span></span>
           </label>
         </div>
