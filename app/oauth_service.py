@@ -267,3 +267,122 @@ def fetch_identity(provider: str, token: str, proxy: str | None = None) -> dict:
     if provider == "github":
         return _github_identity(token, proxy)
     raise OAuthError("disabled")
+
+
+# --------------------------------------------------------------------------- #
+# 后台「测试连接」诊断
+# --------------------------------------------------------------------------- #
+def diagnose(provider: str, cfg: dict, proxy: str | None = None, base: str | None = None) -> dict:
+    """向 token 端点发一次探测请求，把真实失败原因带给管理员。
+
+    登录流程对外只给通用文案（oauth_error=server），但「server」背后的原因
+    可能是代理不通、可能是 Secret 填错、也可能是回调地址没对上——排障时
+    必须区分开。做法：用假 code 换一次 token，按上游的反应给出结论：
+
+    - HTTP 400 + invalid_grant / bad_verification_code：链路通、凭据被识别，
+      只是 code 是假的 → **连通正常**
+    - HTTP 400 + invalid_client：Client ID / Secret 不对
+    - HTTP 400 + redirect_uri_mismatch：回调地址没对上
+    - OSError：代理不通 / 超时 / DNS 失败（附 Docker 127.0.0.1 提示）
+    """
+    if provider not in TOKEN:
+        return {"ok": False, "stage": "config", "message": "未知的登录方式"}
+    if not (cfg.get(f"{provider}ClientId") and cfg.get(f"{provider}ClientSecret")):
+        return {"ok": False, "stage": "config", "message": "Client ID / Secret 还没配置全"}
+
+    proxy = (proxy or "").strip()
+    if proxy:
+        scheme = urllib.parse.urlsplit(proxy).scheme.lower()
+        if scheme not in {"http", "https"}:
+            return {
+                "ok": False,
+                "stage": "proxy",
+                "message": f"暂只支持 http(s) 代理，收到的是「{scheme or '无协议'}」；socks5 请先换算成 http 代理",
+            }
+
+    body = urllib.parse.urlencode(
+        {
+            "client_id": cfg.get(f"{provider}ClientId") or "",
+            "client_secret": cfg.get(f"{provider}ClientSecret") or "",
+            "code": "cloudnetp-probe-invalid-code",
+            "redirect_uri": oauth_config.callback_url(provider, base),
+            "grant_type": "authorization_code",
+        }
+    ).encode()
+    req = urllib.request.Request(TOKEN[provider], data=body, method="POST")
+    req.add_header("Content-Type", "application/x-www-form-urlencoded")
+    req.add_header("Accept", "application/json")
+    req.add_header("User-Agent", "CloudNETP-OAuth")
+    if proxy:
+        opener = urllib.request.build_opener(_ForcedProxy({"http": proxy, "https": proxy}))
+    else:
+        opener = urllib.request.build_opener()
+
+    try:
+        with opener.open(req, timeout=TIMEOUT) as resp:
+            raw = resp.read(16 * 1024).decode("utf-8", "replace")
+        # GitHub 对坏 code 有时回 200 + error 字段而不是 HTTP 4xx
+        error = ""
+        try:
+            error = str(json.loads(raw).get("error") or "")
+        except json.JSONDecodeError:
+            pass
+        if error:
+            return {
+                "ok": True,
+                "stage": "done",
+                "message": "连通正常（服务器可达、凭据格式被接受）",
+                "status": resp.status,
+                "detail": f"{error}: {raw[:300]}",
+            }
+        return {"ok": True, "stage": "done", "message": "连通正常", "status": resp.status, "detail": raw[:300]}
+    except urllib.error.HTTPError as exc:
+        try:
+            snippet = exc.read(2048).decode("utf-8", "replace")
+        except OSError:
+            snippet = ""
+        error = ""
+        try:
+            error = str(json.loads(snippet).get("error") or "")
+        except json.JSONDecodeError:
+            pass
+        if error in {"invalid_grant", "bad_verification_code", "invalid_request", "invalid_code"}:
+            # code 是编的，上游肯好好回业务错误 = 链路与凭据都没问题
+            return {
+                "ok": True,
+                "stage": "done",
+                "message": "连通正常（服务器可达、凭据被上游识别）",
+                "status": exc.code,
+                "detail": f"{error}: {snippet[:300]}",
+            }
+        if error == "invalid_client":
+            return {
+                "ok": False,
+                "stage": "credentials",
+                "message": "Client ID / Secret 不正确（上游回了 invalid_client）",
+                "status": exc.code,
+                "detail": snippet[:300],
+            }
+        if error == "redirect_uri_mismatch":
+            return {
+                "ok": False,
+                "stage": "redirect",
+                "message": "回调地址与上游后台登记的不一致（redirect_uri_mismatch）——对照卡片里的回调地址逐字符核对",
+                "status": exc.code,
+                "detail": snippet[:300],
+            }
+        return {
+            "ok": False,
+            "stage": "http",
+            "message": f"上游返回 HTTP {exc.code}",
+            "status": exc.code,
+            "detail": snippet[:300],
+        }
+    except OSError as exc:  # URLError / 超时 / RemoteDisconnected
+        result = {"ok": False, "stage": "network", "message": f"网络错误：{exc}"}
+        if proxy and ("127.0.0.1" in proxy or "localhost" in proxy):
+            result["hint"] = (
+                "代理指向 127.0.0.1 / localhost：若服务跑在 Docker 里，容器内的 127.0.0.1 是容器自己，"
+                "请改用宿主机 IP 或 host.docker.internal；代理本体也要允许来自服务器的连接"
+            )
+        return result

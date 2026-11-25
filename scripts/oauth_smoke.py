@@ -122,6 +122,36 @@ def start_mock() -> ThreadingHTTPServer:
     return server
 
 
+class DeadProxyHandler(BaseHTTPRequestHandler):
+    """「假坏代理」：接受连接后立刻断开。
+
+    不用真死端口（127.0.0.1:1）当坏代理：本机若开着 Clash/TUN 类工具，
+    发往任意端口的连接可能被透明拦截，死端口反而"能通"，断言就不成立了。
+    这个假代理的行为在任何环境都一样：TCP 握手成功、一个字节不回就断，
+    urllib 必然抛 OSError（RemoteDisconnected）。
+    """
+
+    def log_message(self, *args) -> None:
+        pass
+
+    def _handle(self) -> None:
+        self.close_connection = True
+        try:
+            self.connection.close()
+        except OSError:
+            pass
+
+    do_POST = _handle
+    do_GET = _handle
+    do_CONNECT = _handle
+
+
+def start_dead_proxy() -> ThreadingHTTPServer:
+    server = ThreadingHTTPServer(("127.0.0.1", MOCK_PORT + 1), DeadProxyHandler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server
+
+
 # --------------------------------------------------------------------------- #
 # HTTP 客户端：不跟随 302，手工管 cookie
 # --------------------------------------------------------------------------- #
@@ -189,14 +219,21 @@ def query_of(url: str) -> dict:
 # --------------------------------------------------------------------------- #
 def ensure_admin() -> None:
     with SessionLocal() as db:
+        # 删除要先 commit：同一 flush 里 SQLAlchemy 先执行 INSERT 后执行 DELETE，
+        # 重跑时 oauthadmin 还在就会撞 UNIQUE 约束（这个坑让脚本一度必须每次重建库）
+        removed = False
         old = db.query(User).filter(User.username == ADMIN).first()
         if old:
             db.delete(old)
+            removed = True
         # 清掉上一轮可能留下的第三方绑定号，保证断言从零开始
         for name in ("guser", "ghuser"):
             row = db.query(User).filter(User.username == name).first()
             if row:
                 db.delete(row)
+                removed = True
+        if removed:
+            db.commit()
         db.add(
             User(
                 username=ADMIN,
@@ -278,9 +315,32 @@ def run() -> None:
     st, _, loc = user.get(f"/api/auth/oauth/google/callback?code=good&state={query_of(loc)['state']}")
     check("坏代理下回调报 server", "oauth_error=server" in loc, loc)
 
+    # 「测试连接」要把真实原因带出来，而不是一句 server。
+    # 坏代理用自建的假坏代理（立刻断连）。注意：本机若开着 Clash/TUN 类工具，
+    # 回环连接会被透明拦截，假坏代理的请求也可能被原样转发（上游回 404），
+    # 所以这里只断言「探测必须失败且给出原因」，不锁定具体是 network 还是 http。
+    st, body, _ = admin.put("/api/admin/oauth", {"proxy": f"http://127.0.0.1:{MOCK_PORT + 1}"})
+    st, body, _ = admin.post("/api/admin/oauth/test")
+    check("测试连接接口存在", st == 200 and "results" in body, f"{st} {body}")
+    bad = body["results"]["google"]
+    check("坏代理 → 探测失败且带原因", st == 200 and not bad["ok"] and bool(bad.get("message")), str(bad))
+    if bad.get("stage") == "network":
+        check("127.0.0.1 代理带 Docker 提示", "Docker" in (bad.get("hint") or ""), str(bad.get("hint")))
+
+    st, body, _ = admin.put("/api/admin/oauth", {"proxy": "socks5://127.0.0.1:1080"})
+    check("socks5 代理已保存", st == 200 and body["config"]["hasProxy"], f"{st}")
+    st, body, _ = admin.post("/api/admin/oauth/test")
+    socks = body["results"]["google"]
+    check("socks5 → 明确提示不支持", not socks["ok"] and socks["stage"] == "proxy", str(socks))
+
     # 清掉代理，后面的流程继续走直连
     st, body, _ = admin.put("/api/admin/oauth", {"clearProxy": True})
     check("清除代理", st == 200 and not body["config"]["hasProxy"], str(body.get("config", {}).get("hasProxy")))
+
+    # 直连假授权服务器：探测应报「连通正常」（假 token 端点对任何 code 都发 token）
+    st, body, _ = admin.post("/api/admin/oauth/test")
+    check("直连探测 google 连通", st == 200 and body["results"]["google"]["ok"], str(body.get("results", {}).get("google")))
+    check("直连探测 github 连通", body["results"]["github"]["ok"], str(body.get("results", {}).get("github")))
 
     st, meta, _ = user.get("/api/meta")
     check("meta 暴露 ready 列表", meta.get("oauth") == ["google", "github"], str(meta.get("oauth")))
@@ -404,11 +464,13 @@ def run() -> None:
 
 def main() -> None:
     server = start_mock()
+    dead = start_dead_proxy()
     try:
         ensure_admin()
         run()
     finally:
         server.shutdown()
+        dead.shutdown()
     print(f"\n通过 {passed} / {passed + failed}")
     sys.exit(1 if failed else 0)
 

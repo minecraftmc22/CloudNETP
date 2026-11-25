@@ -4305,6 +4305,9 @@ export function renderAdmin(root, { tab } = {}) {
           <span class="field__hint">${t(
             "服务器直连不上 Google / GitHub 时填，如 http://127.0.0.1:7890；浏览器开得了授权页不代表服务器出得了网"
           )}</span>
+          <span class="field__hint">${t(
+            "仅支持 http(s) 代理；Docker 部署别写 127.0.0.1（容器里指向容器自己），要用宿主机 IP 或 host.docker.internal"
+          )}</span>
         </label>
       </div>
       <div class="setting-row">
@@ -4323,12 +4326,43 @@ export function renderAdmin(root, { tab } = {}) {
       </div>
       <div class="admin-card__foot">
         <button class="btn btn--accent" type="button" data-oauth-save>${t("保存第三方登录设置")}</button>
+        <button class="btn" type="button" data-oauth-test>${t("测试连接")}</button>
         <button class="btn btn--subtle" type="button" data-oauth-reset>${t("恢复 .env 配置")}</button>
       </div>
+      <div data-oauth-test-result hidden></div>
       <p class="admin-hint">${t(
         "Client Secret 加密存在服务端，接口只回掩码；留空表示沿用 .env。绑定信息存在 users 表，与站内账号一一对应。"
       )}</p>
     </section>`;
+  }
+
+  /** 「测试连接」的结果块：每个 provider 一行，失败把服务端给的原始原因亮出来 */
+  function oauthTestResultMarkup(data) {
+    const rows = Object.entries(data.results || {}).map(([provider, result]) => {
+      const label = provider === "google" ? "Google" : "GitHub";
+      const state = result.ok ? "ok" : "bad";
+      return H`<div class="setting-row">
+        <div class="setting-row__main">
+          <div class="setting-row__label">${label} · ${
+        result.ok ? t("连通正常") : t("连接失败")
+      }</div>
+          <div class="setting-row__desc">${escapeHtml(result.message || "")}${
+        result.hint ? ` · ${escapeHtml(result.hint)}` : ""
+      }${
+        result.detail
+          ? H`<span class="oauth-test__detail">${escapeHtml(result.detail)}</span>`
+          : ""
+      }</div>
+        </div>
+        <div class="ai-actions"><span class="ai-status" data-state="${state}">${
+        result.ok ? t("正常") : t("失败")
+      }</span></div>
+      </div>`;
+    });
+    return H`<section class="settings-card"><div class="settings-card__head">
+      <svg class="icon icon--s"><use href="#i-bolt"/></svg>${t("连接测试结果")}${
+      data.proxy ? ` · ${t("经代理 {proxy}", { proxy: data.proxy })}` : ""
+    }</div>${rows}</section>`;
   }
 
   function bindOAuthCard() {
@@ -4384,6 +4418,27 @@ export function renderAdmin(root, { tab } = {}) {
         Toast.error(err.message || t("保存失败"));
       } finally {
         button.disabled = false;
+      }
+    });
+
+    pick("[data-oauth-test]")?.addEventListener("click", async (event) => {
+      const button = event.currentTarget;
+      button.disabled = true;
+      button.textContent = t("正在测试…");
+      const box = card.querySelector("[data-oauth-test-result]");
+      try {
+        const data = await api.post("/api/admin/oauth/test", {});
+        box.innerHTML = oauthTestResultMarkup(data);
+        box.hidden = false;
+        box.scrollIntoView({ block: "nearest", behavior: "smooth" });
+        const allOk = Object.values(data.results || {}).every((r) => r.ok);
+        if (allOk) Toast.success(t("第三方登录连接测试通过"));
+        else Toast.error(t("有登录方式连不通，看下方原因"));
+      } catch (err) {
+        Toast.error(err.message || t("测试失败"));
+      } finally {
+        button.disabled = false;
+        button.textContent = t("测试连接");
       }
     });
 

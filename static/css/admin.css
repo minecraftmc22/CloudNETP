@@ -660,6 +660,21 @@
   line-height: 1.7;
 }
 
+/* 第三方登录「测试连接」结果里的上游原始报错：等宽、可断行，方便照着排查 */
+.oauth-test__detail {
+  display: block;
+  margin-top: 4px;
+  padding: 6px 8px;
+  border-radius: var(--radius-xs);
+  background: var(--panel-surface, color-mix(in srgb, var(--text-1) 6%, transparent));
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--text-3);
+  word-break: break-all;
+  white-space: pre-wrap;
+}
+
 /* 分享文案模板：等宽字体，换行与占位符看得清 */
 .admin-template textarea {
   min-height: 88px;

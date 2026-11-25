@@ -30,6 +30,7 @@ from .. import session_service
 from .. import netease_auth as ng
 from .. import node_service as ns
 from .. import oauth_config
+from .. import oauth_service
 from .. import profile_service as ps
 from .. import quick_service as qs
 from .. import storage
@@ -962,6 +963,33 @@ def oauth_clear(request: Request, db: DbSession, me: AdminUser) -> dict:
     log_action(db, "admin_oauth_clear", me.id, {}, request)
     db.commit()
     return {"config": config}
+
+
+@router.post("/oauth/test")
+def oauth_test(request: Request, db: DbSession, me: AdminUser) -> dict:
+    """「测试连接」：向 Google / GitHub 的 token 端点各发一次探测请求，
+    把真实失败原因（代理不通 / Secret 错 / 回调不一致）带回给管理员。"""
+    check_origin(request)
+    cfg = oauth_config.resolved()
+    proxy = str(cfg.get("proxy") or "").strip() or None
+    # 回调地址基座与 /callback 同源：SITE_URL 没配时跟随这次请求的域名
+    base = None if settings.SITE_URL else str(request.base_url).rstrip("/")
+    results = {
+        provider: oauth_service.diagnose(provider, cfg, proxy, base)
+        for provider in oauth_config.PROVIDERS
+    }
+    log_action(
+        db,
+        "admin_oauth_test",
+        me.id,
+        {provider: result.get("stage") for provider, result in results.items()},
+        request,
+    )
+    db.commit()
+    return {
+        "results": results,
+        "proxy": oauth_config.mask_proxy(cfg.get("proxy") or ""),
+    }
 
 
 # --------------------------------------------------------------------------- #
