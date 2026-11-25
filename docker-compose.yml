@@ -26,6 +26,10 @@ services:
     # 左边是宿主机端口，右边是容器端口，都跟着 .env 的 PORT 走（没写就是 8123）
     ports:
       - "${PORT:-8123}:${PORT:-8123}"
+    # 让容器里的 host.docker.internal 指向宿主机（Docker Desktop 自带，Linux 靠这行），
+    # 给「第三方登录」的出站代理用：代理跑在宿主机时填 http://host.docker.internal:<端口>
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       # 数据库与上传内容；Linux 上需要 sudo chown -R 10001:10001 data（见 README）
       - ./data:/data

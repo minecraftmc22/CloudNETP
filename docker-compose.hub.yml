@@ -21,6 +21,9 @@ services:
       TZ: ${TZ:-Asia/Shanghai}
     ports:
       - "${PORT:-8123}:${PORT:-8123}"
+    # 让容器里的 host.docker.internal 指向宿主机（Docker Desktop 自带，Linux 靠这行）
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       # 数据库与上传内容；Linux 上需要 sudo chown -R 10001:10001 data
       - ./data:/data

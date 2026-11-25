@@ -50,6 +50,9 @@ services:
         condition: service_healthy
     ports:
       - "${PORT:-8123}:${PORT:-8123}"
+    # 让容器里的 host.docker.internal 指向宿主机（Docker Desktop 自带，Linux 靠这行）
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       # 仍然保留 /data：上传的文件、缩略图、头像都在这里
       - ./data:/data
