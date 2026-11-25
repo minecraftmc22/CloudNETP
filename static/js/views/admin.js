@@ -4361,7 +4361,7 @@ export function renderAdmin(root, { tab } = {}) {
     });
     return H`<section class="settings-card"><div class="settings-card__head">
       <svg class="icon icon--s"><use href="#i-bolt"/></svg>${t("连接测试结果")}${
-      data.proxy ? ` · ${t("经代理 {proxy}", { proxy: data.proxy })}` : ""
+      data.proxy ? ` · ${t("经代理 {proxy}", { proxy: data.proxy })}` : ` · ${t("未走出站代理（服务器直连）")}`
     }</div>${rows}</section>`;
   }
 

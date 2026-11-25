@@ -117,6 +117,14 @@ const AUTHOR = {
 
 const CHANGELOG = [
   {
+    version: "0.6.12",
+    title: "连接测试结果明示代理走向",
+    items: [
+      "「测试连接」结果标题现在会明确标注本次走的是出站代理（掩码显示）还是服务器直连，不再因为标题空白让人误以为代理已生效",
+      "Docker 部署的 compose 三个变体统一加 host.docker.internal 映射，代理跑在宿主机时容器内可直接引用",
+    ],
+  },
+  {
     version: "0.6.11",
     title: "第三方登录「测试连接」：一眼看到真实失败原因",
     items: [

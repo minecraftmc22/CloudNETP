@@ -168,6 +168,7 @@ export default {
   "正在测试…": "Testing…",
   "连接测试结果": "Connection test results",
   "经代理 {proxy}": "via proxy {proxy}",
+  "未走出站代理（服务器直连）": "no outbound proxy (server direct connection)",
   "连通正常": "Reachable",
   "连接失败": "Connection failed",
   "第三方登录连接测试通过": "Third-party sign-in connection test passed",
