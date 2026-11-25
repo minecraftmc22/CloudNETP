@@ -564,8 +564,20 @@ export function initLive2DMascot({ stage, host, bubble, pick, pickLabel, onPoke,
   const viewport = { w: window.innerWidth, h: window.innerHeight };
   let centerFrac = null;
 
+  /** 贴角 = 用户没挪过她（偏移还是 0）：这种状态锁定右下角，不参与比例回正 */
+  function isPinned() {
+    return !state.offset.dx && !state.offset.dy;
+  }
+
   function rememberCenter() {
     if (!host || host.classList.contains("is-hidden")) return;
+    // 贴角时不能记中心：滚轮放大是贴着 right/bottom 往外长的，中心必然被顶到
+    // 左上一点点。记下这个「被顶歪的比例」，下次缩小就会照着它往回拉一截 ——
+    // 看板娘从此永久离开角落，越滚越偏（滚轮一动位置就乱跑的根因）。
+    if (isPinned()) {
+      centerFrac = null;
+      return;
+    }
     const r = host.getBoundingClientRect();
     if (!r.width || !r.height) return;
     centerFrac = {
@@ -574,20 +586,30 @@ export function initLive2DMascot({ stage, host, bubble, pick, pickLabel, onPoke,
     };
   }
 
-  /** 把看板娘挪回「记忆里那个占屏比例」，偏移不够就夹回可用范围 */
+  /**
+   * 把看板娘挪回「记忆里那个占屏比例」。
+   *
+   * 返回 false = 这次没回正（贴角 / 补偿被边界夹掉），调用方就不要顺手
+   * rememberCenter()：半途而废的位置一旦被记住，之后每次都对不齐。
+   */
   function restoreCenter() {
     // 被页面收养时她的位置由容器决定，没有「占屏比例」可言
-    if (state.embedded) return;
-    if (!centerFrac || !host || host.classList.contains("is-hidden")) return;
+    if (state.embedded) return false;
+    if (!centerFrac || !host || host.classList.contains("is-hidden")) return false;
     const r = host.getBoundingClientRect();
-    if (!r.width || !r.height) return;
+    if (!r.width || !r.height) return false;
     const wantLeft = centerFrac.cx * window.innerWidth - r.width / 2;
     const wantTop = centerFrac.cy * window.innerHeight - r.height / 2;
     const dx = state.offset.dx + (wantLeft - r.left);
     const dy = state.offset.dy + (wantTop - r.top);
-    if (Math.abs(dx - state.offset.dx) < 0.5 && Math.abs(dy - state.offset.dy) < 0.5) return;
+    if (Math.abs(dx - state.offset.dx) < 0.5 && Math.abs(dy - state.offset.dy) < 0.5) return true;
+    // 想让她往右下走、但已经贴边（dx 上界就是 0）：夹掉之后位置就"按比例"
+    // 不了。宁可原地不动，也别落在一个两边不靠的地方。
+    const fitted = clampOffset(dx, dy);
+    if (Math.abs(fitted.dx - dx) > 0.5 || Math.abs(fitted.dy - dy) > 0.5) return false;
     state.offset = { dx, dy };
     applyOffset(true);
+    return true;
   }
 
   function pokeAt(clientX, clientY) {
@@ -840,7 +862,8 @@ export function initLive2DMascot({ stage, host, bubble, pick, pickLabel, onPoke,
       // 先按记忆里的中心回正（没有记忆就不动她），再把**落定后**的中心记下来。
       // 记忆绝不能在过渡中间刷新：半成品位置一旦被记住，之后每次刷新都会
       // 照着它修正，看板娘就会自己挪来挪去（0.6.13 修的位置漂移就是这个）。
-      if (centerFrac) restoreCenter();
+      // 回正没成功（贴角 / 被边界夹住）时更不能记：那记下的是歪掉的位置。
+      if (centerFrac && !restoreCenter()) return;
       rememberCenter();
     });
   });

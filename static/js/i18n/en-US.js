@@ -1049,7 +1049,6 @@ export default {
   "连接正常 · {ms}ms · {n} 条结果": "Connected · {ms}ms · {n} results",
   "测试成功：{title}{artist}": "Test passed: {title}{artist}",
   "连接正常，但没搜到结果": "Connected, but no results came back",
-  "连接失败": "Connection failed",
   "至少启用一个来源": "Enable at least one source",
   "歌词设置已保存，播放器重新打开歌词面板即可看到新分类": "Lyric settings saved — reopen the lyrics panel in the player to see the new tabs",
   "审计动作:修改歌词来源": "Lyric sources changed",

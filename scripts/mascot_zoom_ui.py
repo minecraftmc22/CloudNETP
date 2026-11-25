@@ -89,6 +89,14 @@ WHEEL = """
 }
 """
 
+# 一格一次、中间隔开：模拟真的在那儿连续滚轮（每格都能走完一次宽高过渡）
+WHEEL_STEP = """
+(dir) => {
+  const host = document.querySelector('.mascot');
+  host.dispatchEvent(new WheelEvent('wheel', {deltaY: dir * 100, bubbles: true, cancelable: true}));
+}
+"""
+
 
 def main() -> int:
     tmp = Path(tempfile.mkdtemp(prefix="cloudnetp-mascotzoom-")).resolve()
@@ -197,6 +205,25 @@ def main() -> int:
             final = measure()
             check("中心比例没漂", worst <= 0.004, f"最大偏差 {worst:.4f}")
             check("贴角时 dx 一直是 0", final["dx"] == "0px" and final["dy"] == "0px", f"dx={final['dx']} dy={final['dy']}")
+
+            print("\n[B2] 贴角一格一格连滚 5 格放大 / 5 格缩回：位置不许离开角落")
+            for _ in range(5):
+                page.evaluate(WHEEL_STEP, -1)
+                page.wait_for_timeout(140)
+            peak = measure("放大到顶")
+            check("放大过程中还是贴角", peak["dx"] == "0px" and peak["dy"] == "0px",
+                  f"scale={peak['scale']} dx={peak['dx']} dy={peak['dy']}")
+            for _ in range(5):
+                page.evaluate(WHEEL_STEP, 1)
+                page.wait_for_timeout(140)
+            home = measure("滚回原档")
+            check("滚回来仍贴角", home["dx"] == "0px" and home["dy"] == "0px",
+                  f"scale={home['scale']} dx={home['dx']} dy={home['dy']}")
+            check("滚回来尺寸和起始一致", abs(home["w"] - base_rect["w"]) <= 2,
+                  f"{home['w']} vs {base_rect['w']}")
+            check("滚回来底部/右边没被推开",
+                  abs(home["bottom"] - base_rect["bottom"]) <= 1 and abs(home["right"] - base_rect["right"]) <= 1,
+                  f"bottom {home['bottom']} vs {base_rect['bottom']}, right {home['right']} vs {base_rect['right']}")
 
             print("\n[C] 跨过 1100px 断点：尺寸必须连续")
             for_zoom_out = None
