@@ -701,11 +701,14 @@ def main() -> None:
             """
             (() => {
               const card = document.querySelector('.sticker-preview');
+              const item = document.querySelector('.sticker-item');
               if (!card) return null;
               const r = card.getBoundingClientRect();
+              const ir = item.getBoundingClientRect();
               return {
                 src: card.querySelector('img')?.getAttribute('src') || '',
-                ops: [...card.querySelectorAll('[data-sp]')].map((b) => b.dataset.sp),
+                ops: [...card.querySelectorAll('[data-sp], button')].map((b) => b.dataset.sp || b.tagName),
+                above: r.bottom <= ir.top + 2,
                 inside: r.left >= 0 && r.top >= 0
                   && r.right <= window.innerWidth + 1 && r.bottom <= window.innerHeight + 1,
               };
@@ -713,10 +716,12 @@ def main() -> None:
             """
         )
         check(bool(pv) and "/api/chat/media/" in pv["src"], f"预览是原图（{pv and pv['src']}）")
-        check(bool(pv) and set(pv["ops"]) == {"send", "del"}, "预览里有发送和删除")
+        check(bool(pv) and not pv["ops"], "预览是纯图（0.6.17：没有发送/删除按钮）")
+        check(bool(pv) and pv["above"], "预览固定弹在表情上方")
         check(bool(pv) and pv["inside"], "预览浮层没跑出可视区")
-        js("document.querySelector('.sticker-preview [data-sp=\"del\"]').click()")
-        check(wait_for("!!document.querySelector('.dialog')", 6), "预览里的删除会先确认")
+        # 删除走表情右上角的小叉（预览浮层不再带按钮）
+        js("document.querySelector('.sticker-item__del').click()")
+        check(wait_for("!!document.querySelector('.dialog')", 6), "小叉删除会先确认")
         check("删除表情" in (js("document.querySelector('.dialog__title')?.textContent || ''")),
               "确认框标题是「删除表情」")
         js("document.querySelector('.dialog__actions [data-act=\"cancel\"]').click()")

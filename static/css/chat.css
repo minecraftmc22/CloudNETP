@@ -930,13 +930,10 @@
   border-color: var(--accent);
 }
 
-/* 悬停预览：格子太小看不清，旁边浮一张大图，顺手给「发送 / 删除」 */
+/* 悬停预览：格子太小看不清，在表情正上方浮一张大图（纯预览，点表情本身发送） */
 .sticker-preview {
   position: fixed;
   z-index: 86;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
   max-width: 236px;
   padding: 10px;
   border: 1px solid var(--stroke);
@@ -947,56 +944,14 @@
   animation: pop-in var(--dur-base) var(--ease-fluent);
   pointer-events: auto;
 }
-.sticker-preview__pic {
-  display: grid;
-  place-items: center;
-  min-width: 120px;
-  min-height: 72px;
-}
-.sticker-preview__pic img {
+.sticker-preview__img {
+  display: block;
   max-width: 216px;
   max-height: 216px;
+  min-width: 120px;
+  min-height: 72px;
   border-radius: var(--radius-s);
   object-fit: contain;
-}
-.sticker-preview__bar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.sticker-preview__name {
-  flex: 1;
-  min-width: 0;
-  font-size: 12px;
-  color: var(--text-3);
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-.sticker-preview__ops {
-  display: flex;
-  flex: none;
-  gap: 4px;
-}
-.sticker-preview__btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  padding: 3px 8px;
-  border: 1px solid var(--stroke);
-  border-radius: var(--radius-pill);
-  background: var(--fill-subtle);
-  color: var(--text-2);
-  font-size: 12px;
-  cursor: pointer;
-}
-.sticker-preview__btn:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-.sticker-preview__btn.is-danger:hover {
-  border-color: var(--danger);
-  color: var(--danger);
 }
 /* 触屏没有 hover：别让「碰一下」先弹个浮层 */
 @media (hover: none) {

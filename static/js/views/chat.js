@@ -1921,13 +1921,8 @@ export function renderChat(root, { sub = "" } = {}) {
       const sid = Number(stickerEl.dataset.stickerId);
       const sticker = state.stickers.find((s) => s.id === sid);
       if (sticker) {
-        hoverStickerPreview(sticker, stickerEl, {
-          onSend: (id) => {
-            toggleStickers(false);
-            void send("sticker", { stickerId: id });
-          },
-          onDelete: (id, name) => void deleteSticker(id, name),
-        });
+        // 纯预览：发送就点表情本身，删除用右上角小叉
+        hoverStickerPreview(sticker, stickerEl);
       }
       return;
     }

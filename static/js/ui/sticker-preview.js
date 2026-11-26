@@ -1,8 +1,9 @@
 /**
  * 我的表情：悬停放大预览
  *
- * 表情格子只有几十像素见方，动图和小细节根本看不清。鼠标停上去 300ms 就在旁边弹一张大图，
- * 顺手把「发送 / 删除」也放进去 —— 删除不必再去够右上角那个小叉，也不用记右键。
+ * 表情格子只有几十像素见方，动图和小细节根本看不清。鼠标停上去 300ms
+ * 就在表情正上方浮一张大图 —— 纯预览，不带任何按钮：想发就点表情本身，
+ * 想删用右上角的小叉。
  *
  * 只对 hover 能力为 hover 的设备生效：手机上一碰就是发送，弹预览反而挡事。
  */
@@ -11,16 +12,16 @@ import { H, t } from "../i18n.js";
 
 let node = null;
 let anchorEl = null;
-let currentId = 0;
 let showTimer = 0;
 let hideTimer = 0;
 
-const GAP = 10;
+const GAP = 8;
 
 function hoverable() {
   return !window.matchMedia || window.matchMedia("(hover: hover)").matches;
 }
 
+/** 贴着表情正上方放；真的顶到屏幕边（top < 8）就贴顶，绝不落到表情下面 */
 function place(anchor) {
   if (!node) return;
   const rect = anchor.getBoundingClientRect();
@@ -29,8 +30,7 @@ function place(anchor) {
     Math.max(8, rect.left + rect.width / 2 - box.width / 2),
     window.innerWidth - box.width - 8
   );
-  let top = rect.top - box.height - GAP;
-  if (top < 8) top = Math.min(rect.bottom + GAP, window.innerHeight - box.height - 8);
+  const top = Math.max(8, rect.top - box.height - GAP);
   node.style.left = `${Math.round(left)}px`;
   node.style.top = `${Math.round(top)}px`;
 }
@@ -43,13 +43,13 @@ export function hideStickerPreview() {
   hideTimer = 0;
   anchorEl?.classList.remove("is-previewing");
   anchorEl = null;
-  currentId = 0;
   node?.remove();
   node = null;
 }
 
 /** 鼠标离开格子：给 180ms 缓冲，够移到浮层上继续看 */
-export function scheduleHideStickerPreview() {  window.clearTimeout(showTimer);
+export function scheduleHideStickerPreview() {
+  window.clearTimeout(showTimer);
   showTimer = 0;
   window.clearTimeout(hideTimer);
   hideTimer = window.setTimeout(() => {
@@ -68,12 +68,12 @@ export function hideStickerPreviewIfStale() {
 }
 
 /**
- * 悬停到某个表情上
+ * 悬停到某个表情上：在它正上方弹一张纯预览大图。
  * @param {{id:number,name:string,url:string}} sticker
  * @param {HTMLElement} anchor 表情格子
- * @param {{onSend:Function,onDelete:Function,delay?:number}} opts
+ * @param {{delay?:number}} opts
  */
-export function hoverStickerPreview(sticker, anchor, { onSend, onDelete, delay = 300 } = {}) {
+export function hoverStickerPreview(sticker, anchor, { delay = 300 } = {}) {
   if (!hoverable() || !sticker || !anchor) return;
   // 还停在同一个格子里（含从图移到浮层）：别重置计时、也别重画
   if (anchorEl === anchor) {
@@ -90,43 +90,21 @@ export function hoverStickerPreview(sticker, anchor, { onSend, onDelete, delay =
       anchorEl = null;
       return;
     }
-    currentId = sticker.id;
     node = document.createElement("div");
     node.className = "sticker-preview";
     node.setAttribute("role", "tooltip");
+    const name = sticker.name || t("表情");
     node.innerHTML = H`
-      <div class="sticker-preview__pic">
-        <img src="${escapeHtml(sticker.url)}" alt="${escapeHtml(sticker.name || t("表情"))}">
-      </div>
-      <div class="sticker-preview__bar">
-        <span class="sticker-preview__name" title="${escapeHtml(sticker.name || "")}">${escapeHtml(
-          sticker.name || t("表情")
-        )}</span>
-        <span class="sticker-preview__ops">
-          <button class="sticker-preview__btn is-danger" type="button" data-sp="del">
-            <svg class="icon icon--s"><use href="#i-trash"/></svg>${t("删除")}
-          </button>
-          <button class="sticker-preview__btn" type="button" data-sp="send">
-            <svg class="icon icon--s"><use href="#i-send"/></svg>${t("发送")}
-          </button>
-        </span>
-      </div>`;
+      <img class="sticker-preview__img" src="${escapeHtml(sticker.url)}"
+           alt="${escapeHtml(name)}" title="${escapeHtml(name)}">`;
+    // 图片是异步加载的：加载完浮层会变高，必须重新定位，
+    // 否则浮层朝下长会压住表情格子，点击就落在预览上了
+    node.querySelector("img").addEventListener("load", () => place(anchor));
     node.addEventListener("mouseenter", () => {
       window.clearTimeout(hideTimer);
       hideTimer = 0;
     });
     node.addEventListener("mouseleave", scheduleHideStickerPreview);
-    node.addEventListener("click", (event) => {
-      const btn = event.target.closest("[data-sp]");
-      if (!btn) return;
-      event.preventDefault();
-      event.stopPropagation();
-      const id = currentId;
-      const name = sticker.name || "";
-      hideStickerPreview();
-      if (btn.dataset.sp === "send") onSend?.(id);
-      else onDelete?.(id, name);
-    });
     document.body.appendChild(node);
     anchor.classList.add("is-previewing");
     place(anchor);
