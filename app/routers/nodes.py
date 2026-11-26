@@ -6,7 +6,7 @@ import hashlib
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .. import node_service as ns
@@ -25,6 +25,15 @@ router = APIRouter(prefix="/api", tags=["nodes"])
 
 DbSession = Annotated[Session, Depends(get_db)]
 CurrentUser = Annotated[User, Depends(get_current_user)]
+
+
+def _fmt_bytes(n: int) -> str:
+    value = float(n)
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if value < 1024 or unit == "TB":
+            return f"{value:.1f} {unit}" if unit != "B" else f"{int(value)} B"
+        value /= 1024
+    return f"{n} B"
 
 
 # --------------------------------------------------------------------------- #
@@ -102,6 +111,44 @@ def move_node(node_id: int, payload: MoveIn, request: Request, db: DbSession, us
     db.commit()
     db.refresh(node)
     return {"node": ns.node_payload(node, is_admin=user.role == 1)}
+
+
+@router.post("/nodes/{node_id}/copy", status_code=status.HTTP_201_CREATED)
+def copy_node(node_id: int, request: Request, db: DbSession, user: CurrentUser) -> dict:
+    """原地复制：副本落在源节点所在目录，重名自动加序号（与 WebDAV/转存同一套 copy_subtree）。
+
+    文件只复制节点行、复用同一 blob（引用 +1），不复制物理数据，但逻辑字节数计入配额。
+    """
+    check_origin(request)
+    node = ns.get_node(db, user.id, node_id)
+
+    # 配额预检：复制子树的逻辑字节装得下才动手（回收站里的也算 used，recalc 是全量口径）
+    if node.type == "folder":
+        ids = ns.subtree_ids(db, user.id, node.id)
+        total_add = int(
+            db.scalar(
+                select(func.coalesce(func.sum(Node.size), 0)).where(
+                    Node.user_id == user.id,
+                    Node.id.in_(ids),
+                    Node.type == "file",
+                )
+            )
+            or 0
+        )
+    else:
+        total_add = int(node.size or 0)
+    if user.used_bytes + total_add > user.quota_bytes:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"网盘空间不足：还需 {_fmt_bytes(total_add)}，请先清理或扩容",
+        )
+
+    clone, added = ns.copy_subtree(db, user, node, node.parent_id)
+    ns.recalc_usage(db, user)
+    log_action(db, "node_copy", user.id, {"id": node_id, "name": clone.name, "size": added}, request)
+    db.commit()
+    db.refresh(clone)
+    return {"node": ns.node_payload(clone, is_admin=user.role == 1)}
 
 
 # --------------------------------------------------------------------------- #

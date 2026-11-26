@@ -136,6 +136,9 @@ export function renderFiles(root) {
       <button class="btn btn--subtle" type="button" data-act="sel-move">
         <svg class="icon icon--s"><use href="#i-folder"/></svg>移动
       </button>
+      <button class="btn btn--subtle" type="button" data-act="sel-copy">
+        <svg class="icon icon--s"><use href="#i-copy"/></svg>复制
+      </button>
       <button class="btn btn--danger" type="button" data-act="sel-delete">
         <svg class="icon icon--s"><use href="#i-trash"/></svg>删除
       </button>
@@ -617,6 +620,22 @@ export function renderFiles(root) {
     }
   }
 
+  /** 原地复制：副本落在源所在目录，重名自动加序号；服务端复用 blob，只计逻辑字节 */
+  async function copyItems(items) {
+    if (!items.length) return;
+    try {
+      for (const item of items) {
+        await api.post(`/api/nodes/${item.id}/copy`);
+      }
+      Toast.success(items.length > 1 ? `已复制 ${items.length} 项` : "已复制");
+      await load({ keepScroll: true });
+      await refreshUser();
+    } catch (err) {
+      Toast.error(err.message);
+      await load({ keepScroll: true });
+    }
+  }
+
   /** 空白处右键：新建文件夹 / 上传 / 刷新 */
   function openBlankMenu(x, y) {
     const where = state.searchMode
@@ -652,6 +671,11 @@ export function renderFiles(root) {
             onClick: () => shareItems(selectedItems()),
           },
           { label: "移动到…", icon: "i-folder", onClick: () => moveItems(selectedItems()) },
+          {
+            label: H`复制 ${state.selected.size} 项`,
+            icon: "i-copy",
+            onClick: () => copyItems(selectedItems()),
+          },
           { sep: true },
           { label: H`删除 ${state.selected.size} 项`, icon: "i-trash", danger: true, onClick: () => deleteItems(selectedItems()) },
         ]
@@ -668,6 +692,7 @@ export function renderFiles(root) {
           { sep: true },
           { label: "重命名", icon: "i-file", onClick: () => renameItem(item) },
           { label: "移动到…", icon: "i-share", onClick: () => moveItems([item]) },
+          { label: "复制", icon: "i-copy", onClick: () => copyItems([item]) },
           { sep: true },
           { label: "删除", icon: "i-trash", danger: true, onClick: () => deleteItems([item]) },
         ];
@@ -864,6 +889,7 @@ export function renderFiles(root) {
   });
   root.querySelector('[data-act="sel-delete"]').addEventListener("click", () => deleteItems(selectedItems()));
   root.querySelector('[data-act="sel-move"]').addEventListener("click", () => moveItems(selectedItems()));
+  root.querySelector('[data-act="sel-copy"]').addEventListener("click", () => copyItems(selectedItems()));
   root.querySelector('[data-act="sel-download"]').addEventListener("click", () =>
     selectedItems().filter((item) => item.type === "file").forEach(downloadItem)
   );
