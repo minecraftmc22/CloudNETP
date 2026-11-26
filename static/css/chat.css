@@ -789,7 +789,23 @@
 }
 .chat-mention__avatar {
   flex: none;
-  display: inline-flex;
+  /* 容器必须定死尺寸：头像 img 没有约束时会按原图大小渲染，
+     弹层整行会被撑成一条大图（有头像图才暴露，首字头像看不出来） */
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  background: var(--accent-tint);
+  color: var(--accent);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+.chat-mention__avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 .chat-mention__name {
   flex: 1 1 auto;
